@@ -11,6 +11,9 @@
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
+		9B6BEFDAEA544B1B8433AC8A /* Switzer-Bold.otf in Resources */ = {isa = PBXBuildFile; fileRef = A7CEC92DDAEF4777B193E50A /* Switzer-Bold.otf */; };
+		1154DCE82839438A97DBFE79 /* Switzer-Medium.otf in Resources */ = {isa = PBXBuildFile; fileRef = EE1A8762F3104C80B2F0EB79 /* Switzer-Medium.otf */; };
+		6DDDAC4010FA491ABFD454AE /* Switzer-Regular.otf in Resources */ = {isa = PBXBuildFile; fileRef = 3C39DA928AD046E3BB5762FC /* Switzer-Regular.otf */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -24,6 +27,9 @@
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = CTI/AppDelegate.swift; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = CTI/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
+		A7CEC92DDAEF4777B193E50A /* Switzer-Bold.otf */ = {isa = PBXFileReference; name = "Switzer-Bold.otf"; path = "../src/assets/fonts/Switzer-Bold.otf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
+		EE1A8762F3104C80B2F0EB79 /* Switzer-Medium.otf */ = {isa = PBXFileReference; name = "Switzer-Medium.otf"; path = "../src/assets/fonts/Switzer-Medium.otf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
+		3C39DA928AD046E3BB5762FC /* Switzer-Regular.otf */ = {isa = PBXFileReference; name = "Switzer-Regular.otf"; path = "../src/assets/fonts/Switzer-Regular.otf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -74,6 +80,7 @@
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
 				BBD78D7AC51CEA395F1C20DB /* Pods */,
+				A75FFE2F6F1142FAA480A422 /* Resources */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -96,6 +103,17 @@
 			);
 			path = Pods;
 			sourceTree = "<group>";
+		};
+		A75FFE2F6F1142FAA480A422 /* Resources */ = {
+			isa = "PBXGroup";
+			children = (
+				A7CEC92DDAEF4777B193E50A /* Switzer-Bold.otf */,
+				EE1A8762F3104C80B2F0EB79 /* Switzer-Medium.otf */,
+				3C39DA928AD046E3BB5762FC /* Switzer-Regular.otf */,
+			);
+			name = Resources;
+			sourceTree = "<group>";
+			path = "";
 		};
 /* End PBXGroup section */
 
@@ -159,6 +177,9 @@
 			files = (
 				81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
+				9B6BEFDAEA544B1B8433AC8A /* Switzer-Bold.otf in Resources */,
+				1154DCE82839438A97DBFE79 /* Switzer-Medium.otf in Resources */,
+				6DDDAC4010FA491ABFD454AE /* Switzer-Regular.otf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

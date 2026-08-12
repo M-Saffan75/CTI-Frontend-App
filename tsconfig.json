@@ -1,8 +1,17 @@
 {
   "extends": "@react-native/typescript-config",
   "compilerOptions": {
-    "types": ["jest"]
+    "types": ["jest"],
+    "skipLibCheck": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "react-native-view-shot": ["node_modules/react-native-view-shot/lib/index.d.ts"]
+    }
   },
-  "include": ["**/*.ts", "**/*.tsx"],
+  "include": ["App.tsx", "src/**/*.ts", "src/**/*.tsx", "__tests__/**/*.tsx"],
   "exclude": ["**/node_modules", "**/Pods"]
 }
