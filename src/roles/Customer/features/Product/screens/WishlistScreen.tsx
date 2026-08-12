@@ -2,19 +2,18 @@ import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
+import Button from '@/components/Button';
 import Squeeze from '@/components/Squeeze';
 import { FadeUp } from '@/animations';
-import { heartExtra, heartFilled, menuBold, shoppingCartExtra } from '@/assets/icons';
+import { arrowLeftBold, heartExtra, heartFilled, menuBold, shoppingCartExtra } from '@/assets/icons';
 import { ctiLogo } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { useWishlist } from '../../../context/WishlistContext';
 import { PRODUCTS } from '../data/products';
 
-function ProductCard({ product, navigation }) {
+function WishlistCard({ product, navigation, onRemove }) {
   const { colors } = useTheme();
-  const { isSaved, toggle } = useWishlist();
-  const saved = isSaved(product.id);
 
   return (
     <Squeeze
@@ -25,10 +24,10 @@ function ProductCard({ product, navigation }) {
         <Image source={ctiLogo} resizeMode="contain" style={styles.cardLogo} />
 
         <Squeeze
-          onPress={() => toggle(product.id)}
+          onPress={onRemove}
           scale={0.85}
           style={[styles.saveWrap, { backgroundColor: colors.surface }]}>
-          <Icon source={saved ? heartFilled : heartExtra} size={16} color={saved ? colors.error : colors.text} />
+          <Icon source={heartFilled} size={16} color={colors.error} />
         </Squeeze>
       </View>
 
@@ -36,7 +35,7 @@ function ProductCard({ product, navigation }) {
         <Text style={[styles.brand, { color: colors.textMuted }]} numberOfLines={1}>
           {product.brand}
         </Text>
-        <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
+        <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={1}>
           {product.title}
         </Text>
         <Text style={[styles.description, { color: colors.textMuted }]} numberOfLines={2}>
@@ -54,36 +53,32 @@ function ProductCard({ product, navigation }) {
           <Text style={[styles.originalPrice, { color: colors.textMuted }]}>
             ${product.originalPrice.toFixed(2)}
           </Text>
-          <Text style={[styles.stock, { color: colors.success }]}>
-            {product.inStock ? 'In stock' : 'Out of stock'}
-          </Text>
         </View>
       </View>
     </Squeeze>
   );
 }
 
-export default function ProductScreen({ navigation }) {
+export default function WishlistScreen({ navigation }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const { ids } = useWishlist();
+  const { ids, toggle } = useWishlist();
+
+  const items = PRODUCTS.filter(product => ids.includes(product.id));
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <Image source={ctiLogo} resizeMode="contain" style={styles.logo} />
-
         <View style={styles.headerIcons}>
-          <Squeeze onPress={() => navigation.navigate('Wishlist')} scale={0.85}>
-            <View>
-              <Icon source={heartExtra} size={22} color={colors.text} />
-              {ids.length > 0 && (
-                <View style={[styles.badge, { backgroundColor: colors.error }]}>
-                  <Text style={styles.badgeText}>{ids.length}</Text>
-                </View>
-              )}
-            </View>
-          </Squeeze>
+          <View>
+            <Icon source={heartExtra} size={22} color={colors.text} />
+            {items.length > 0 && (
+              <View style={[styles.badge, { backgroundColor: colors.error }]}>
+                <Text style={styles.badgeText}>{items.length}</Text>
+              </View>
+            )}
+          </View>
           <Squeeze onPress={() => navigation.navigate('Cart')} scale={0.85}>
             <Icon source={shoppingCartExtra} size={22} color={colors.text} />
           </Squeeze>
@@ -96,17 +91,52 @@ export default function ProductScreen({ navigation }) {
       <ScrollView
         contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
         showsVerticalScrollIndicator={false}>
-        <View style={styles.grid}>
-          {PRODUCTS.map((product, index) => (
-            <FadeUp
-              key={product.id}
-              delay={60 + index * 40}
-              duration={500}
-              style={styles.gridItem}>
-              <ProductCard product={product} navigation={navigation} />
-            </FadeUp>
-          ))}
+        <Squeeze onPress={() => navigation.goBack()} scale={0.9} style={styles.backWrap}>
+          <View style={[styles.back, { backgroundColor: colors.primary }]}>
+            <Icon source={arrowLeftBold} size={20} color={colors.onPrimary} />
+          </View>
+        </Squeeze>
+
+        <View style={styles.titleRow}>
+          <Icon source={heartFilled} size={22} color={colors.error} />
+          <Text style={[styles.title, { color: colors.text }]}>
+            My Wishlist <Text style={{ color: colors.textMuted }}>({items.length} items)</Text>
+          </Text>
         </View>
+        <Text style={[styles.subtitle, { color: colors.textMuted }]}>
+          Items you love, saved for later
+        </Text>
+
+        {items.length === 0 ? (
+          <Text style={[styles.empty, { color: colors.textMuted }]}>
+            Nothing here yet — tap the heart on a product to save it.
+          </Text>
+        ) : (
+          <View style={styles.grid}>
+            {items.map((product, index) => (
+              <FadeUp
+                key={product.id}
+                delay={60 + index * 40}
+                duration={500}
+                style={styles.gridItem}>
+                <WishlistCard
+                  product={product}
+                  navigation={navigation}
+                  onRemove={() => toggle(product.id)}
+                />
+              </FadeUp>
+            ))}
+          </View>
+        )}
+
+        <Button
+          title="Continue Shopping"
+          variant="soft"
+          icon={arrowLeftBold}
+          iconPosition="left"
+          onPress={() => navigation.goBack()}
+          style={styles.continueButton}
+        />
       </ScrollView>
     </View>
   );
@@ -119,7 +149,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingBottom: 14,
+    paddingBottom: 10,
   },
   logo: { width: 110, height: 59 },
   headerIcons: { flexDirection: 'row', alignItems: 'center', gap: 16 },
@@ -136,8 +166,21 @@ const styles = StyleSheet.create({
   },
   badgeText: { fontFamily: fonts.bold, fontSize: 9, color: '#FFFFFF' },
 
-  body: { paddingHorizontal: 20, paddingTop: 10 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+  body: { paddingHorizontal: 20 },
+  backWrap: { alignSelf: 'flex-start' },
+  back: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 16 },
+  title: { fontFamily: fonts.bold, fontSize: 24 },
+  subtitle: { fontFamily: fonts.regular, fontSize: 13, marginTop: 4 },
+  empty: { fontFamily: fonts.regular, fontSize: 14, marginTop: 40, textAlign: 'center' },
+
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginTop: 16,
+  },
   gridItem: { width: '48%', marginBottom: 14 },
 
   card: { borderRadius: 14, borderWidth: 1, overflow: 'hidden' },
@@ -157,7 +200,7 @@ const styles = StyleSheet.create({
 
   cardBody: { padding: 10, gap: 3 },
   brand: { fontFamily: fonts.regular, fontSize: 11 },
-  title: { fontFamily: fonts.bold, fontSize: 13, marginTop: 1 },
+  cardTitle: { fontFamily: fonts.bold, fontSize: 13, marginTop: 1 },
   description: { fontFamily: fonts.regular, fontSize: 11, lineHeight: 15, marginTop: 2 },
   reviews: { fontFamily: fonts.regular, fontSize: 11, marginTop: 2 },
 
@@ -166,5 +209,6 @@ const styles = StyleSheet.create({
   discountText: { fontFamily: fonts.bold, fontSize: 10, color: '#FFFFFF' },
   price: { fontFamily: fonts.bold, fontSize: 13 },
   originalPrice: { fontFamily: fonts.regular, fontSize: 11, textDecorationLine: 'line-through' },
-  stock: { fontFamily: fonts.regular, fontSize: 10 },
+
+  continueButton: { marginTop: 24 },
 });

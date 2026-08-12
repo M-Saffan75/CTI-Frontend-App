@@ -69,11 +69,13 @@ export default function ConfirmModal({
             <Button
               title={cancelText}
               variant="soft"
+              size="sm"
               onPress={onCancel}
               style={styles.action}
             />
             <Button
               title={confirmText}
+              size="sm"
               onPress={onConfirm}
               color={danger ? colors.error : null}
               style={styles.action}

@@ -379,14 +379,14 @@ function RatingsSlider() {
     <View style={styles.section}>
       <Text style={[styles.sectionTitle, { color: colors.text }]}>What Our Customers Say</Text>
 
-      <View onLayout={event => setWidth(event.nativeEvent.layout.width)}>
+      <View style={styles.ratingsWrap} onLayout={event => setWidth(event.nativeEvent.layout.width)}>
         <ScrollView
           horizontal
           pagingEnabled
           showsHorizontalScrollIndicator={false}
           onMomentumScrollEnd={onScrollEnd}>
           {REVIEWS.map(review => (
-            <View key={review.id} style={{ width }}>
+            <View key={review.id} style={{ width, paddingHorizontal: 6 }}>
               <View
                 style={[
                   styles.reviewCard,
@@ -720,7 +720,8 @@ const styles = StyleSheet.create({
   questionCtaText: { fontFamily: fonts.regular, fontSize: 13, lineHeight: 19, color: '#FFFFFF', marginTop: 8 },
   questionCtaButton: { alignSelf: 'flex-start', marginTop: 16 },
 
-  reviewCard: { borderRadius: 16, borderWidth: 1, padding: 16, marginRight: 12 },
+  reviewCard: { borderRadius: 16, borderWidth: 1, padding: 16 },
+  ratingsWrap: { marginTop: 16 },
   reviewHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   reviewAvatar: { width: 40, height: 40, borderRadius: 20 },
   reviewText: { fontFamily: fonts.regular, fontSize: 13, lineHeight: 19, marginTop: 12 },

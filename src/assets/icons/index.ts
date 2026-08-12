@@ -227,6 +227,8 @@ export const forestIcon = require('./extra-icons/forest-icon.png');
 export const closeIcon = require('./extra-icons/close-icon.png');
 export const toolExtra = require('./extra-icons/tool.png');
 export const shoppingCartExtra = require('./extra-icons/shopping-cart.png');
+export const shieldIcon = require('./extra-icons/shield.png');
+export const returnOfInvestmentIcon = require('./extra-icons/return-of-investment.png');
 
 // Multi-colour, not silhouettes — do not tint these.
 export const colorPaletteIcon = require('./extra-icons/color-palette.png');

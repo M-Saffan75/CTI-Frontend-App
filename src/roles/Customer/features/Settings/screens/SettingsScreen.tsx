@@ -47,7 +47,7 @@ import { fonts } from '@/theme/fonts';
 // The designer used the same gear icon on every row, so these are picked to match
 // what each row actually does.
 const MENU = [
-  { label: 'Home', icon: homeBold },
+  { label: 'Home', icon: homeBold, screen: 'Home' },
   { label: 'Top expert repairman', icon: usersThreeBold, screen: 'ExpertRepairmen' },
   { label: 'About', icon: infoCircleBold, screen: 'About' },
   { label: 'Academy', icon: bookmarkBold, screen: 'Academy' },
