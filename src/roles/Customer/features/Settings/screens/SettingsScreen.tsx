@@ -161,7 +161,7 @@ export default function SettingsScreen({ navigation, onLogout }) {
 
       <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
         {MENU.map((item, index) => (
-          <FadeUp key={item.label} delay={60 + index * 40} duration={500}>
+          <FadeUp key={item.label} delay={15 + index * 12} duration={280}>
             <MenuRow item={item} navigation={navigation} />
           </FadeUp>
         ))}

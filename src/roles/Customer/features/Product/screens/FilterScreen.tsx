@@ -44,7 +44,6 @@ function PriceRangeSlider({ minValue, maxValue, onChange }) {
   const [trackWidth, setTrackWidth] = useState(0);
 
   const toX = value => (trackWidth ? ((value - PRICE_MIN) / (PRICE_MAX - PRICE_MIN)) * trackWidth : 0);
-  const toValue = x => Math.round(PRICE_MIN + (x / trackWidth) * (PRICE_MAX - PRICE_MIN));
 
   const minX = useSharedValue(0);
   const maxX = useSharedValue(0);
@@ -60,17 +59,29 @@ function PriceRangeSlider({ minValue, maxValue, onChange }) {
   const updateMin = value => onChange(value, maxValue);
   const updateMax = value => onChange(minValue, value);
 
-  const minPan = Gesture.Pan().onChange(event => {
-    const next = Math.min(Math.max(0, minX.value + event.changeX), maxX.value);
-    minX.value = next;
-    runOnJS(updateMin)(toValue(next));
-  });
+  // The thumb position updates every frame purely on the UI thread (fast).
+  // The number fields only need to know the final value, so that sync
+  // happens once on release instead of on every frame — otherwise each
+  // frame would re-render the whole filter screen and the drag stutters.
+  const minPan = Gesture.Pan()
+    .onChange(event => {
+      minX.value = Math.min(Math.max(0, minX.value + event.changeX), maxX.value);
+    })
+    .onEnd(() => {
+      if (trackWidth) {
+        runOnJS(updateMin)(Math.round(PRICE_MIN + (minX.value / trackWidth) * (PRICE_MAX - PRICE_MIN)));
+      }
+    });
 
-  const maxPan = Gesture.Pan().onChange(event => {
-    const next = Math.max(Math.min(trackWidth, maxX.value + event.changeX), minX.value);
-    maxX.value = next;
-    runOnJS(updateMax)(toValue(next));
-  });
+  const maxPan = Gesture.Pan()
+    .onChange(event => {
+      maxX.value = Math.max(Math.min(trackWidth, maxX.value + event.changeX), minX.value);
+    })
+    .onEnd(() => {
+      if (trackWidth) {
+        runOnJS(updateMax)(Math.round(PRICE_MIN + (maxX.value / trackWidth) * (PRICE_MAX - PRICE_MIN)));
+      }
+    });
 
   const fillStyle = useAnimatedStyle(() => ({
     left: minX.value,

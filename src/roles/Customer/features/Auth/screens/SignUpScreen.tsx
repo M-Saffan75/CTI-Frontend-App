@@ -3,34 +3,51 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import AuthLayout from '@/components/AuthLayout';
 import Button from '@/components/Button';
+import Icon from '@/components/Icon';
 import Input from '@/components/Input';
 import PasswordStrength from '@/components/PasswordStrength';
 import { FadeUp } from '@/animations';
-import { googleIcon } from '@/assets/icons';
+import { customerIcon, googleIcon } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
-import { PASSWORD_MAX, validateEmail, validatePassword } from '@/utils/validators';
+import {
+  PASSWORD_MAX,
+  validateConfirmPassword,
+  validateEmail,
+  validateName,
+  validatePassword,
+  validatePhone,
+} from '@/utils/validators';
 import { register } from '../api/authApi';
+
+const ROLE_LABEL = 'Customer';
+const ROLE_ICON = customerIcon;
 
 export default function SignUpScreen({ navigation }) {
   const { colors } = useTheme();
 
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [errors, setErrors] = useState({ email: '', password: '' });
+  const [confirm, setConfirm] = useState('');
+  const [errors, setErrors] = useState({ name: '', email: '', phone: '', password: '', confirm: '' });
   const [loading, setLoading] = useState(false);
 
   const onSubmit = async () => {
     const next = {
+      name: validateName(name),
       email: validateEmail(email),
+      phone: validatePhone(phone),
       password: validatePassword(password),
+      confirm: validateConfirmPassword(confirm, password),
     };
     setErrors(next);
-    if (next.email || next.password) return;
+    if (Object.values(next).some(Boolean)) return;
 
     setLoading(true);
     try {
-      await register({ email, password });
+      await register({ name, email, phone, password });
       navigation.navigate('VerifyOtp');
     } finally {
       setLoading(false);
@@ -39,7 +56,31 @@ export default function SignUpScreen({ navigation }) {
 
   return (
     <AuthLayout title="Create an Account" subtitle="Create your account to get started">
+      <FadeUp delay={100} duration={700}>
+        <View style={[styles.roleBadge, { backgroundColor: colors.surfaceAlt }]}>
+          <Icon source={ROLE_ICON} size={16} color={colors.primary} />
+          <Text style={[styles.roleBadgeText, { color: colors.text }]}>
+            Signing up as{' '}
+            <Text style={{ color: colors.primary, fontFamily: fonts.bold }}>{ROLE_LABEL}</Text>
+          </Text>
+        </View>
+      </FadeUp>
+
       <FadeUp delay={150} duration={700}>
+        <Input
+          label="Full Name"
+          value={name}
+          onChangeText={text => {
+            setName(text);
+            if (errors.name) setErrors({ ...errors, name: '' });
+          }}
+          placeholder="John Doe"
+          error={errors.name}
+          style={styles.field}
+        />
+      </FadeUp>
+
+      <FadeUp delay={190} duration={700}>
         <Input
           label="Email"
           value={email}
@@ -51,10 +92,26 @@ export default function SignUpScreen({ navigation }) {
           error={errors.email}
           keyboardType="email-address"
           autoCapitalize="none"
+          style={styles.field}
         />
       </FadeUp>
 
-      <FadeUp delay={250} duration={700}>
+      <FadeUp delay={230} duration={700}>
+        <Input
+          label="Phone Number"
+          value={phone}
+          onChangeText={text => {
+            setPhone(text);
+            if (errors.phone) setErrors({ ...errors, phone: '' });
+          }}
+          placeholder="03xx xxxxxxx"
+          error={errors.phone}
+          keyboardType="phone-pad"
+          style={styles.field}
+        />
+      </FadeUp>
+
+      <FadeUp delay={270} duration={700}>
         <Input
           label="Password"
           value={password}
@@ -71,6 +128,22 @@ export default function SignUpScreen({ navigation }) {
         <PasswordStrength value={password} />
       </FadeUp>
 
+      <FadeUp delay={310} duration={700}>
+        <Input
+          label="Confirm Password"
+          value={confirm}
+          onChangeText={text => {
+            setConfirm(text);
+            if (errors.confirm) setErrors({ ...errors, confirm: '' });
+          }}
+          placeholder="*******"
+          error={errors.confirm}
+          password
+          maxLength={PASSWORD_MAX}
+          style={styles.field}
+        />
+      </FadeUp>
+
       <FadeUp delay={350} duration={700}>
         <Button
           title="Sign Up"
@@ -81,7 +154,7 @@ export default function SignUpScreen({ navigation }) {
         />
       </FadeUp>
 
-      <FadeUp delay={450} duration={700}>
+      <FadeUp delay={400} duration={700}>
         <View style={styles.divider}>
           <View style={[styles.line, { backgroundColor: colors.border }]} />
           <Text style={[styles.dividerText, { color: colors.textMuted }]}>Or</Text>
@@ -112,6 +185,16 @@ export default function SignUpScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
+  roleBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    alignSelf: 'flex-start',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  roleBadgeText: { fontFamily: fonts.regular, fontSize: 13 },
   field: { marginTop: 18 },
   button: { marginTop: 24 },
   divider: {

@@ -6,7 +6,9 @@ import SplashScreen from '@/features/Splash/screens/SplashScreen';
 import RoleSelectScreen from '@/features/RoleSelect/screens/RoleSelectScreen';
 import CustomerAuthStack from '@/roles/Customer/navigation/CustomerAuthStack';
 import CustomerNavigator from '@/roles/Customer/navigation/CustomerNavigator';
+import SellerAuthStack from '@/roles/Seller/navigation/SellerAuthStack';
 import SellerNavigator from '@/roles/Seller/navigation/SellerNavigator';
+import RepairmanAuthStack from '@/roles/Repairman/navigation/RepairmanAuthStack';
 import RepairmanNavigator from '@/roles/Repairman/navigation/RepairmanNavigator';
 import { useTheme } from '@/theme/ThemeContext';
 import { ROLES } from '@/constants/roles';
@@ -14,11 +16,10 @@ import { ROLES } from '@/constants/roles';
 const Stack = createNativeStackNavigator();
 
 // Each role gets its own auth screens and its own app screens.
-// Seller and Repairman auth stacks come once the Customer flow is signed off.
 const ROLE_STACKS = {
   [ROLES.CUSTOMER]: { auth: CustomerAuthStack, app: CustomerNavigator },
-  [ROLES.SELLER]: { auth: null, app: SellerNavigator },
-  [ROLES.REPAIRMAN]: { auth: null, app: RepairmanNavigator },
+  [ROLES.SELLER]: { auth: SellerAuthStack, app: SellerNavigator },
+  [ROLES.REPAIRMAN]: { auth: RepairmanAuthStack, app: RepairmanNavigator },
 };
 
 export default function RootNavigator() {
@@ -26,7 +27,6 @@ export default function RootNavigator() {
   const [showSplash, setShowSplash] = useState(true);
   const [role, setRole] = useState(null);
   const [loggedIn, setLoggedIn] = useState(false);
-
 
   // Giving React Navigation our colours stops the white flash between screens.
   const navigationTheme = {
@@ -43,34 +43,46 @@ export default function RootNavigator() {
     },
   };
 
-  const stacks = ROLE_STACKS[role];
-
-  const pickRole = chosen => {
-    setLoggedIn(false);
-    setRole(chosen);
-  };
+  const stacks = role ? ROLE_STACKS[role] : null;
 
   if (showSplash) return <SplashScreen onFinish={() => setShowSplash(false)} />;
 
-  return (
-    <NavigationContainer theme={navigationTheme}>
-      {!stacks ? (
-        <Stack.Navigator id="Root" screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="RoleSelect">
-            {props => <RoleSelectScreen {...props} onNext={pickRole} />}
-          </Stack.Screen>
-        </Stack.Navigator>
-      ) : loggedIn || !stacks.auth ? (
-        // Logging out drops all the way back to RoleSelect.
+  // Logged in: swap to that role's full app. No going back to auth from here.
+  if (loggedIn && stacks) {
+    return (
+      <NavigationContainer theme={navigationTheme}>
         <stacks.app
           onLogout={() => {
             setLoggedIn(false);
             setRole(null);
           }}
         />
-      ) : (
-        <stacks.auth onLoggedIn={() => setLoggedIn(true)} />
-      )}
+      </NavigationContainer>
+    );
+  }
+
+  // RoleSelect and Auth share one stack so the back button/gesture on Login
+  // actually returns to RoleSelect instead of having nowhere to go.
+  return (
+    <NavigationContainer theme={navigationTheme}>
+      <Stack.Navigator
+        id="Root"
+        screenOptions={{ headerShown: false, animation: 'simple_push', animationDuration: 380 }}>
+        <Stack.Screen name="RoleSelect">
+          {props => (
+            <RoleSelectScreen
+              {...props}
+              onNext={chosen => {
+                setRole(chosen);
+                props.navigation.navigate('Auth');
+              }}
+            />
+          )}
+        </Stack.Screen>
+        <Stack.Screen name="Auth">
+          {() => (stacks?.auth ? <stacks.auth onLoggedIn={() => setLoggedIn(true)} /> : null)}
+        </Stack.Screen>
+      </Stack.Navigator>
     </NavigationContainer>
   );
 }

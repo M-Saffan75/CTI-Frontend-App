@@ -311,7 +311,7 @@ export default function ProductDetailScreen({ navigation, route }) {
 
         <FadeUp delay={350} duration={450}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>Available Variant</Text>
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+          <View style={[styles.divider, { backgroundColor: colors.border, marginBottom: 14 }]} />
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}

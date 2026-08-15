@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { StyleSheet, TextInput, View } from 'react-native';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
@@ -23,32 +23,36 @@ export default function OtpInput({ value, onChange, length = 4, error = '', styl
   };
 
   return (
-    <View style={[styles.row, style]}>
-      {Array.from({ length }).map((_, index) => {
-        const filled = Boolean(value[index]);
+    <View>
+      <View style={[styles.row, style]}>
+        {Array.from({ length }).map((_, index) => {
+          const filled = Boolean(value[index]);
 
-        return (
-          <TextInput
-            key={index}
-            ref={box => {
-              boxes.current[index] = box;
-            }}
-            value={value[index] ?? ''}
-            onChangeText={digit => setDigit(index, digit)}
-            onKeyPress={event => onKeyPress(index, event.nativeEvent.key)}
-            keyboardType="number-pad"
-            maxLength={1}
-            style={[
-              styles.box,
-              {
-                color: colors.text,
-                backgroundColor: colors.background,
-                borderColor: error ? colors.error : filled ? colors.primary : colors.border,
-              },
-            ]}
-          />
-        );
-      })}
+          return (
+            <TextInput
+              key={index}
+              ref={box => {
+                boxes.current[index] = box;
+              }}
+              value={value[index] ?? ''}
+              onChangeText={digit => setDigit(index, digit)}
+              onKeyPress={event => onKeyPress(index, event.nativeEvent.key)}
+              keyboardType="number-pad"
+              maxLength={1}
+              style={[
+                styles.box,
+                {
+                  color: colors.text,
+                  backgroundColor: colors.background,
+                  borderColor: error ? colors.error : filled ? colors.primary : colors.border,
+                },
+              ]}
+            />
+          );
+        })}
+      </View>
+
+      {error ? <Text style={[styles.error, { color: colors.error }]}>{error}</Text> : null}
     </View>
   );
 }
@@ -67,5 +71,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontFamily: fonts.bold,
     fontSize: 22,
+  },
+  error: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    marginTop: 10,
+    textAlign: 'center',
   },
 });

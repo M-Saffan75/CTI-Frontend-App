@@ -1,6 +1,18 @@
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE = /^[0-9+\-\s()]{7,15}$/;
 
+export function validateName(value) {
+  if (!value?.trim()) return 'Name is required';
+  if (value.trim().length < 2) return 'Enter your full name';
+  return '';
+}
+
+export function validatePhone(value) {
+  if (!value?.trim()) return 'Phone number is required';
+  if (!PHONE.test(value.trim())) return 'Enter a valid phone number';
+  return '';
+}
+
 export function validateEmail(value) {
   if (!value?.trim()) return 'Email is required';
   if (!EMAIL.test(value.trim())) return 'Enter a valid email';

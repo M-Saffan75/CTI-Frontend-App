@@ -21,10 +21,10 @@ export async function login({ email, password }) {
   return { ok: true, role: ROLE, email, password };
 }
 
-export async function register({ email, password }) {
+export async function register({ name, email, phone, password }) {
   await fakeDelay();
-  // return api.post('/auth/register', { email, password, role: ROLE });
-  return { ok: true, role: ROLE, email, password };
+  // return api.post('/auth/register', { name, email, phone, password, role: ROLE });
+  return { ok: true, role: ROLE, name, email, phone, password };
 }
 
 export async function forgotPassword({ emailOrPhone }) {
