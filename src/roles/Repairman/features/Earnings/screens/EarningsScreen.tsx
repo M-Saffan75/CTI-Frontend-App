@@ -7,7 +7,7 @@ import Button from '@/components/Button';
 import Squeeze from '@/components/Squeeze';
 import { FadeUp } from '@/animations';
 import {
-  checkCircleBold,
+  checkCircleIcon,
   clockBold,
   creditCardBold,
   exclamationCircleBold,
@@ -193,7 +193,7 @@ export default function EarningsContent({ navigation }) {
             <View style={styles.historyGrid}>
               <HistoryStat label="Requested" stat={WITHDRAW_STATS.requested} icon={clockBold} color={colors.primary} />
               <HistoryStat label="Processing" stat={WITHDRAW_STATS.processing} icon={returnOfInvestmentIcon} color={'#448AFF'} />
-              <HistoryStat label="Completed" stat={WITHDRAW_STATS.completed} icon={checkCircleBold} color={colors.success} />
+              <HistoryStat label="Completed" stat={WITHDRAW_STATS.completed} icon={checkCircleIcon} color={colors.success} />
               <HistoryStat label="Rejected" stat={WITHDRAW_STATS.rejected} icon={timesSquareBold} color={colors.error} />
             </View>
 

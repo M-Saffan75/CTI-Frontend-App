@@ -10,7 +10,7 @@ import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
   cameraBold,
-  checkCircleBold,
+  checkCircleIcon,
   checkCircleFilled,
   commentDotsBold,
   discountBold,
@@ -418,7 +418,7 @@ export default function ProductDetailScreen({ navigation, route }) {
               </Squeeze>
               <Squeeze onPress={pickVideo} style={[styles.photoBtn, { borderColor: colors.border }]}>
                 <View style={styles.photoBtnInner}>
-                  <Icon source={reviewVideo ? checkCircleBold : videoBold} size={16} color={reviewVideo ? colors.success : colors.text} />
+                  <Icon source={reviewVideo ? checkCircleIcon : videoBold} size={16} color={reviewVideo ? colors.success : colors.text} />
                   <Text style={[styles.photoBtnText, { color: colors.text }]} numberOfLines={1}>
                     {reviewVideo ? 'Video added' : 'Add a video'}
                   </Text>

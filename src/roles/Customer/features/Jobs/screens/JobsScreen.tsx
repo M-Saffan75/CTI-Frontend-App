@@ -8,7 +8,7 @@ import Squeeze from '@/components/Squeeze';
 import { FadeUp } from '@/animations';
 import {
   calendarBold,
-  checkCircleBold,
+  checkCircleIcon,
   chevronDownBold,
   clockBold,
   exclamationCircleBold,
@@ -40,7 +40,7 @@ const TABS = [
   { key: 'offer_received', label: 'Offer Recived', icon: inboxBold },
   { key: 'booked', label: 'Booked', icon: calendarBold },
   { key: 'in_progress', label: 'In Progress', icon: settingsBold },
-  { key: 'completed', label: 'Completed', icon: checkCircleBold },
+  { key: 'completed', label: 'Completed', icon: checkCircleIcon },
   { key: 'disputed', label: 'Disputed', icon: exclamationCircleBold },
   { key: 'reviews', label: 'Reviews', icon: starBold },
 ];
@@ -193,7 +193,7 @@ function ReviewCard({ item }) {
           </View>
 
           <View style={styles.submittedRow}>
-            <Icon source={checkCircleBold} size={14} color={colors.success} />
+            <Icon source={checkCircleIcon} size={14} color={colors.success} />
             <Text style={[styles.submittedText, { color: colors.success }]}>
               Review submitted successfully
             </Text>

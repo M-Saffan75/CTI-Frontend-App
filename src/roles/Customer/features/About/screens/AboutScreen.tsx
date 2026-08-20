@@ -7,7 +7,7 @@ import Button from '@/components/Button';
 import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
-  checkCircleBold,
+  checkCircleIcon,
   heartExtra,
   shieldBold,
   shoppingCartExtra,
@@ -19,7 +19,7 @@ import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { PRINCIPLES, PROMISES, STATS, TEAM, TIMELINE } from '../data/about';
 
-const PROMISE_ICONS = [starExtra, shieldBold, checkCircleBold, stopwatchBold];
+const PROMISE_ICONS = [starExtra, shieldBold, checkCircleIcon, stopwatchBold];
 
 export default function AboutScreen({ navigation }) {
   const { colors } = useTheme();

@@ -10,7 +10,7 @@ import ConfirmModal from '@/components/ConfirmModal';
 import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
-  checkCircleBold,
+  checkCircleIcon,
   creditCardBold,
   heartExtra,
   mapPinBold,
@@ -120,7 +120,7 @@ export default function CheckoutScreen({ navigation }) {
                 <Text style={[styles.paymentLabel, { color: colors.text }]} numberOfLines={1}>
                   Credit / Debit Card
                 </Text>
-                {cardSelected && <Icon source={checkCircleBold} size={16} color={colors.primary} />}
+                {cardSelected && <Icon source={checkCircleIcon} size={16} color={colors.primary} />}
               </View>
             </Squeeze>
 
@@ -161,7 +161,7 @@ export default function CheckoutScreen({ navigation }) {
 
         <Button
           title="Place Order Securely"
-          icon={checkCircleBold}
+          icon={checkCircleIcon}
           iconPosition="left"
           disabled={!canPlaceOrder}
           onPress={() => setPlaced(true)}

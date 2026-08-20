@@ -8,7 +8,7 @@ import Squeeze from '@/components/Squeeze';
 import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
-  checkCircleBold,
+  checkCircleIcon,
   clockBold,
   commentDotsBold,
   flagBold,
@@ -167,7 +167,7 @@ export default function MyJobDetailScreen({ navigation, route }) {
             <Text style={[styles.cardTitle, { color: colors.text }]}>Timeline</Text>
             {history.map((event, index) => (
               <View key={index} style={styles.timelineRow}>
-                <Icon source={checkCircleBold} size={16} color={colors.success} />
+                <Icon source={checkCircleIcon} size={16} color={colors.success} />
                 <Text style={[styles.timelineLabel, { color: colors.text }]}>{event.label}</Text>
                 <Text style={[styles.timelineDate, { color: colors.textMuted }]}>{event.date}</Text>
               </View>

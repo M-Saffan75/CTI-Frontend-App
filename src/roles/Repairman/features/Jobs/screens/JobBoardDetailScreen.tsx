@@ -8,7 +8,7 @@ import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
   calendarBold,
-  checkCircleBold,
+  checkCircleIcon,
   clockBold,
   couponBold,
   eyeBold,
@@ -144,7 +144,7 @@ export default function JobBoardDetailScreen({ navigation, route }) {
               <View style={styles.clientInfo}>
                 <View style={styles.clientNameRow}>
                   <Text style={[styles.clientName, { color: colors.text }]}>{job.client.name}</Text>
-                  {job.client.verified && <Icon source={checkCircleBold} size={14} color={colors.success} />}
+                  {job.client.verified && <Icon source={checkCircleIcon} size={14} color={colors.success} />}
                 </View>
                 <Text style={[styles.serviceDescription, { color: colors.textMuted }]}>
                   {job.requestedServices[0]?.description}

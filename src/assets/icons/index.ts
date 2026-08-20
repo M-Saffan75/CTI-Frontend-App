@@ -25,7 +25,7 @@ export const bookmarkBold = require('./bold/bookmark.png');
 export const calendarBold = require('./bold/calendar.png');
 export const cameraBold = require('./bold/camera.png');
 export const chartPieBold = require('./bold/chart-pie.png');
-export const checkCircleBold = require('./bold/check-circle.png');
+export const checkCircleBold = require('./bold/check-circle.png');/*  */
 export const chevronCircleDownBold = require('./bold/chevron-circle-down.png');
 export const chevronCircleLeftBold = require('./bold/chevron-circle-left.png');
 export const chevronCircleRightBold = require('./bold/chevron-circle-right.png');
@@ -216,6 +216,7 @@ export const teamworkExtra = require('./extra/teamwork.png');
 export const customerIcon = require('./extra-icons/customer.png');
 export const repairmanIcon = require('./extra-icons/repairman.png');
 export const sellerIcon = require('./extra-icons/seller.png');
+export const checkCircleIcon = require('./extra-icons/check-mark.png');
 
 // One per theme.
 export const lightSunIcon = require('./extra-icons/light-sun.png');

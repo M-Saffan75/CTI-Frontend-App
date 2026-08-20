@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import Icon from '@/components/Icon';
-import { checkCircleBold } from '@/assets/icons';
+import { checkCircleIcon } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 
@@ -18,7 +18,7 @@ export default function Checkbox({ checked, onChange, label = null, style = null
             backgroundColor: checked ? colors.primary : 'transparent',
           },
         ]}>
-        {checked && <Icon source={checkCircleBold} size={14} color={colors.onPrimary} />}
+        {checked && <Icon source={checkCircleIcon} size={14} color={colors.onPrimary} />}
       </View>
 
       {label && <Text style={[styles.label, { color: colors.textMuted }]}>{label}</Text>}

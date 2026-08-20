@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
 import { FadeUp } from '@/animations';
-import { calendarBold, checkCircleBold, clockBold, mobileBold } from '@/assets/icons';
+import { calendarBold, checkCircleIcon, clockBold, mobileBold } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import JobsFilterBar from '../components/JobsFilterBar';
@@ -52,7 +52,7 @@ function OfferCard({ offer }) {
         </View>
         {offer.viewed && (
           <View style={styles.viewedRow}>
-            <Icon source={checkCircleBold} size={13} color={colors.success} />
+            <Icon source={checkCircleIcon} size={13} color={colors.success} />
             <Text style={[styles.viewedText, { color: colors.success }]}>Viewed</Text>
           </View>
         )}
