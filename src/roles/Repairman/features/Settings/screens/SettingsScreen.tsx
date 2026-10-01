@@ -18,49 +18,61 @@ import ThemePicker from '@/components/ThemePicker';
 import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
+  blogExtra,
+  bookmarkBold,
   chevronDownBold,
+  clockBold,
   commentDotsBold,
-  creditCardBold,
+  desktopBold,
   dummyProfileExtra,
   fileBold,
-  folderBold,
   headphonesBold,
   homeBold,
-  inboxBold,
   infoCircleBold,
   logOutBold,
-  palmHandIcon,
+  mobileBold,
+  packageBold,
+  phoneBold,
   searchBold,
   shieldBold,
-  starBold,
+  shoppingBasketBold,
   storeBold,
+  tabletBold,
   tagBold,
-  userBold,
+  usersThreeBold,
 } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 
-// Same shape as the Customer settings menu, but pointing at the Repairman's
-// own screens. `tab` rows land on Home with that tab already selected.
+// Same list as the Customer settings menu — the repairman gets the same pages.
+// "Home" lands on the Dashboard tab; the rest are shared screens.
 const MENU = [
-  { label: 'Dashboard', icon: homeBold, tab: 'Dashboard' },
-  { label: 'Jobs Board', icon: inboxBold, tab: 'JobBoard' },
-  { label: 'My Offers', icon: palmHandIcon, tab: 'MyOffers' },
-  { label: 'My Jobs', icon: folderBold, tab: 'MyJobs' },
-  { label: 'Reviews', icon: starBold, tab: 'Reviews' },
+  { label: 'Home', icon: homeBold, tab: 'DashboardTab' },
+  { label: 'Top expert repairman', icon: usersThreeBold, screen: 'ExpertRepairmen' },
+  { label: 'About', icon: infoCircleBold, screen: 'About' },
+  { label: 'Academy', icon: bookmarkBold, screen: 'Academy' },
+  { label: 'Blogs', icon: blogExtra, screen: 'Blogs' },
+  { label: 'Support', icon: headphonesBold },
+  { label: 'My Order', icon: packageBold, screen: 'Orders' },
   { label: 'My Messages', icon: commentDotsBold, screen: 'ChatList' },
+  { label: 'My Sell Request', icon: tagBold },
   {
-    label: 'Earnings',
-    icon: creditCardBold,
+    label: 'Refurbished devices',
+    icon: mobileBold,
     children: [
-      { label: 'Overview & Withdraw', icon: creditCardBold, tab: 'Earnings' },
-      { label: 'Banking Information', icon: storeBold, screen: 'BankingInformation' },
+      { label: 'Sell gadgets', icon: storeBold },
+      { label: 'Sell  phone', icon: phoneBold },
     ],
   },
-  { label: 'Parts Orders', icon: tagBold, tab: 'PartsOrder' },
-  { label: 'My Profile', icon: userBold },
-  { label: 'Support', icon: headphonesBold },
-  { label: 'About', icon: infoCircleBold },
+  {
+    label: 'Buy refurbished devices',
+    icon: shoppingBasketBold,
+    children: [
+      { label: 'refurbished Smart watch', icon: clockBold },
+      { label: 'refurbished Tablet', icon: tabletBold },
+      { label: 'refurbished Gaming consolt', icon: desktopBold },
+    ],
+  },
   { label: 'Privacy Policy', icon: shieldBold, screen: 'PrivacyPolicy' },
   { label: 'Terms & Conditions', icon: fileBold, screen: 'Terms' },
 ];
@@ -72,7 +84,7 @@ function MenuRow({ item, depth = 0, navigation }) {
 
   const onPress = () => {
     if (hasChildren) setOpen(!open);
-    else if (item.tab) navigation?.navigate('Home', { tab: item.tab });
+    else if (item.tab) navigation?.navigate('Home', { screen: item.tab });
     else if (item.screen) navigation?.navigate(item.screen);
   };
 

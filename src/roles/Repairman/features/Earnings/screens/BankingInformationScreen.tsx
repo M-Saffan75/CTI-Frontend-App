@@ -5,12 +5,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from '@/components/Icon';
 import Input from '@/components/Input';
 import Button from '@/components/Button';
+import Squeeze from '@/components/Squeeze';
 import { FadeUp } from '@/animations';
-import { storeBold } from '@/assets/icons';
+import { arrowLeftBold, storeBold } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import RepairmanHeader from '../../../components/RepairmanHeader';
-import RepairmanTabs from '../../../components/RepairmanTabs';
 
 export default function BankingInformationScreen({ navigation }) {
   const { colors } = useTheme();
@@ -27,12 +27,18 @@ export default function BankingInformationScreen({ navigation }) {
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <RepairmanHeader navigation={navigation} />
-      <RepairmanTabs activeTab="Earnings" onChange={tab => navigation.navigate('Home', { tab })} />
 
       <ScrollView
         contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled">
+        <Squeeze onPress={() => navigation.goBack()} scale={0.95}>
+          <View style={styles.backWrap}>
+            <Icon source={arrowLeftBold} size={16} color={colors.primary} />
+            <Text style={[styles.backText, { color: colors.primary }]}>Back to Earnings</Text>
+          </View>
+        </Squeeze>
+
         <FadeUp delay={60} duration={450}>
           <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.cardHead}>
@@ -58,6 +64,8 @@ export default function BankingInformationScreen({ navigation }) {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   body: { paddingHorizontal: 20, paddingTop: 16 },
+  backWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start', marginBottom: 16 },
+  backText: { fontFamily: fonts.bold, fontSize: 14 },
   card: { borderRadius: 14, borderWidth: 1, padding: 16 },
   cardHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 },
   cardTitle: { fontFamily: fonts.bold, fontSize: 17 },

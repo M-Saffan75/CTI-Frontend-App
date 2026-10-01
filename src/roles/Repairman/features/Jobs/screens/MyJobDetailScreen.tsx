@@ -17,7 +17,6 @@ import {
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import RepairmanHeader from '../../../components/RepairmanHeader';
-import RepairmanTabs from '../../../components/RepairmanTabs';
 import Select from '../../../components/Select';
 import CreateDisputeModal from '../components/CreateDisputeModal';
 import UpSellModal from '../components/UpSellModal';
@@ -56,15 +55,16 @@ export default function MyJobDetailScreen({ navigation, route }) {
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <RepairmanHeader navigation={navigation} />
-      <RepairmanTabs activeTab="MyJobs" onChange={tab => navigation.navigate('Home', { tab })} />
 
       <ScrollView
         contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled">
-        <Squeeze onPress={() => navigation.goBack()} scale={0.95} style={styles.backWrap}>
-          <Icon source={arrowLeftBold} size={16} color={colors.primary} />
-          <Text style={[styles.backText, { color: colors.primary }]}>Back to Job</Text>
+        <Squeeze onPress={() => navigation.goBack()} scale={0.95}>
+          <View style={styles.backWrap}>
+            <Icon source={arrowLeftBold} size={16} color={colors.primary} />
+            <Text style={[styles.backText, { color: colors.primary }]}>Back to Job</Text>
+          </View>
         </Squeeze>
 
         <FadeUp delay={60} duration={450}>

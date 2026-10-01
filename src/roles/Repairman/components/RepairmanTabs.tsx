@@ -6,7 +6,6 @@ import Squeeze from '@/components/Squeeze';
 import {
   creditCardBold,
   folderBold,
-  homeBold,
   inboxBold,
   palmHandIcon,
   starBold,
@@ -15,8 +14,9 @@ import {
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 
+// Dashboard is not here on purpose — it's its own bottom-tab screen now.
+// These tabs live inside the Jobs screen and start at the jobs board.
 export const TABS = [
-  { key: 'Dashboard', label: 'Dashboard', icon: homeBold },
   { key: 'JobBoard', label: 'JobsBoard', icon: inboxBold },
   { key: 'MyOffers', label: 'My Offers', icon: palmHandIcon },
   { key: 'MyJobs', label: 'My Jobs', icon: folderBold },

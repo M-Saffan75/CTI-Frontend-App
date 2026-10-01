@@ -62,8 +62,8 @@ function BookingCard({ booking }) {
   );
 }
 
-// The Dashboard tab's content — rendered inside RepairmanHomeScreen below the
-// shared header and tab bar, not a screen of its own.
+// The Dashboard content — rendered inside DashboardTabScreen below the shared
+// header, not a screen of its own.
 export default function DashboardContent() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
