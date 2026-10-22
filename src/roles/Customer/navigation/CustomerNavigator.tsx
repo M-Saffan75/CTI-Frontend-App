@@ -20,6 +20,21 @@ import CartScreen from '../features/Product/screens/CartScreen';
 import CheckoutScreen from '../features/Product/screens/CheckoutScreen';
 import WishlistScreen from '../features/Product/screens/WishlistScreen';
 import { WishlistProvider } from '../context/WishlistContext';
+import ProfileScreen from '@/features/Profile/screens/ProfileScreen';
+import EditProfileScreen from '@/features/Profile/screens/EditProfileScreen';
+import ServiceCatalogScreen from '@/features/Profile/screens/ServiceCatalogScreen';
+
+// Refurbished screens
+import BuyRefurbishedScreen from '@/features/Refurbished/screens/BuyRefurbishedScreen';
+import AllGadgetsScreen from '@/features/Refurbished/screens/AllGadgetsScreen';
+import RefurbishedProductDetailScreen from '@/features/Refurbished/screens/RefurbishedProductDetailScreen';
+import SellRefurbishedScreen from '@/features/Refurbished/screens/SellRefurbishedScreen';
+import SelectModelScreen from '@/features/Refurbished/screens/SelectModelScreen';
+import SelectVariantScreen from '@/features/Refurbished/screens/SelectVariantScreen';
+import DeviceConditionScreen from '@/features/Refurbished/screens/DeviceConditionScreen';
+import UploadDeviceMediaScreen from '@/features/Refurbished/screens/UploadDeviceMediaScreen';
+import QuoteApplicationScreen from '@/features/Refurbished/screens/QuoteApplicationScreen';
+import ApplicationSubmittedScreen from '@/features/Refurbished/screens/ApplicationSubmittedScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -58,6 +73,21 @@ export default function CustomerNavigator({ onLogout }) {
         <Stack.Screen name="Cart" component={CartScreen} />
         <Stack.Screen name="Checkout" component={CheckoutScreen} />
         <Stack.Screen name="Wishlist" component={WishlistScreen} />
+        <Stack.Screen name="Profile" component={ProfileScreen} />
+        <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+        <Stack.Screen name="ServiceCatalog" component={ServiceCatalogScreen} />
+
+        {/* Refurbished screens */}
+        <Stack.Screen name="BuyRefurbished" component={BuyRefurbishedScreen} />
+        <Stack.Screen name="AllGadgets" component={AllGadgetsScreen} />
+        <Stack.Screen name="RefurbishedProductDetail" component={RefurbishedProductDetailScreen} />
+        <Stack.Screen name="SellRefurbished" component={SellRefurbishedScreen} />
+        <Stack.Screen name="SelectModel" component={SelectModelScreen} />
+        <Stack.Screen name="SelectVariant" component={SelectVariantScreen} />
+        <Stack.Screen name="DeviceCondition" component={DeviceConditionScreen} />
+        <Stack.Screen name="UploadDeviceMedia" component={UploadDeviceMediaScreen} />
+        <Stack.Screen name="QuoteApplication" component={QuoteApplicationScreen} />
+        <Stack.Screen name="ApplicationSubmitted" component={ApplicationSubmittedScreen} />
         {/* Legal documents slide up from the bottom instead of in from the side. */}
         <Stack.Screen
           name="PrivacyPolicy"

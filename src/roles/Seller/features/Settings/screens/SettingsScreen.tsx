@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,69 +19,168 @@ import ThemePicker from '@/components/ThemePicker';
 import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
+  blogExtra,
+  bookmarkBold,
   chevronDownBold,
-  creditCardBold,
+  clockBold,
+  commentDotsBold,
+  desktopBold,
   dummyProfileExtra,
   fileBold,
   headphonesBold,
   homeBold,
   infoCircleBold,
   logOutBold,
+  mobileBold,
   packageBold,
+  phoneBold,
   searchBold,
-  settingsBold,
   shieldBold,
+  shoppingBasketBold,
   storeBold,
+  tabletBold,
+  tagBold,
   usersThreeBold,
 } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 
+// Complete menu routing for Seller
 const MENU = [
-  { label: 'Store Dashboard', icon: homeBold, tab: 'Dashboard' },
-  { label: 'Manage Products', icon: packageBold, tab: 'Product' },
-  { label: 'Orders & Fulfillment', icon: storeBold, tab: 'OrderManagement' },
-  { label: 'Payouts & Banking', icon: creditCardBold, tab: 'Wallet' },
-  { label: 'Seller Support', icon: headphonesBold },
-  { label: 'About CTI Marketplace', icon: infoCircleBold },
-  { label: 'Community Guidelines', icon: usersThreeBold },
-  { label: 'Privacy Policy', icon: shieldBold },
-  { label: 'Terms & Conditions', icon: fileBold },
+  { label: 'Home', icon: homeBold, tab: 'Dashboard' },
+  { label: 'Top expert repairman', icon: usersThreeBold, screen: 'ExpertRepairmen' },
+  { label: 'About', icon: infoCircleBold, screen: 'About' },
+  { label: 'Academy', icon: bookmarkBold, screen: 'Academy' },
+  { label: 'Blogs', icon: blogExtra, screen: 'Blogs' },
+  { label: 'Support', icon: headphonesBold, tab: 'Enquiries' },
+  { label: 'My Order', icon: packageBold, tab: 'OrderManagement' },
+  { label: 'My Messages', icon: commentDotsBold, screen: 'ChatDetail' },
+  { label: 'My Sell Request', icon: tagBold, screen: 'ReturnRequests' },
+  {
+    label: 'Refurbished devices',
+    icon: mobileBold,
+    children: [
+      { label: 'Sell gadgets', icon: storeBold, screen: 'SellRefurbished' },
+      { label: 'Sell  phone', icon: phoneBold, screen: 'SellRefurbished' },
+    ],
+  },
+  {
+    label: 'Buy refurbished devices',
+    icon: shoppingBasketBold,
+    children: [
+      { label: 'Browse Refurbished Store', icon: shoppingBasketBold, screen: 'BuyRefurbished' },
+      {
+        label: 'refurbished Smart watch',
+        icon: clockBold,
+        screen: 'AllGadgets',
+        params: { initialCategory: 'Smart watches' },
+      },
+      {
+        label: 'refurbished Tablet',
+        icon: tabletBold,
+        screen: 'AllGadgets',
+        params: { initialCategory: 'Tablets' },
+      },
+      {
+        label: 'refurbished Gaming consolt',
+        icon: desktopBold,
+        screen: 'AllGadgets',
+        params: { initialCategory: 'Gaming Console' },
+      },
+    ],
+  },
+  { label: 'Privacy Policy', icon: shieldBold, screen: 'PrivacyPolicy' },
+  { label: 'Terms & Conditions', icon: fileBold, screen: 'Terms' },
 ];
 
-function MenuRow({ item, navigation, onSelectTab }) {
+function MenuRow({ item, depth = 0, navigation, onSelectTab, searchQuery }: any) {
   const { colors } = useTheme();
+  const [open, setOpen] = useState(false);
+  const hasChildren = Boolean(item.children);
+
+  const isChildMatched = Boolean(
+    searchQuery &&
+      item.children?.some((child: any) =>
+        child.label.toLowerCase().includes(searchQuery.toLowerCase()),
+      ),
+  );
+  const isOpen = open || isChildMatched;
 
   const onPress = () => {
-    if (item.tab) {
+    if (hasChildren) {
+      setOpen(!open);
+    } else if (item.tab) {
       onSelectTab?.(item.tab);
-      navigation?.goBack();
+      navigation?.navigate('SellerMain', { initialTab: item.tab });
+    } else if (item.screen) {
+      navigation?.navigate(item.screen, item.params);
     }
   };
 
   return (
-    <Pressable
-      onPress={onPress}
-      android_ripple={{ color: colors.primary + '12' }}
-      style={({ pressed }) => [
-        styles.row,
-        pressed && Platform.OS === 'ios' && { backgroundColor: colors.primary + '12' },
-      ]}>
-      <Icon source={item.icon} size={20} color={colors.text} />
-      <Text style={[styles.label, { color: colors.text }]}>{item.label}</Text>
-      <Icon source={chevronDownBold} size={14} color={colors.textMuted} />
-    </Pressable>
+    <>
+      <Pressable
+        onPress={onPress}
+        android_ripple={{ color: colors.primary + '12' }}
+        style={({ pressed }) => [
+          styles.row,
+          { paddingLeft: 10 + depth * 14 },
+          pressed && Platform.OS === 'ios' && { backgroundColor: colors.primary + '12' },
+        ]}>
+        <Icon source={item.icon} size={depth ? 18 : 21} color={colors.text} />
+
+        <Text
+          style={[
+            styles.label,
+            {
+              color: depth ? colors.textMuted : colors.text,
+              fontFamily: hasChildren ? fonts.bold : fonts.regular,
+              fontSize: depth ? 14 : 16,
+            },
+          ]}>
+          {item.label}
+        </Text>
+
+        {hasChildren && (
+          <Icon
+            source={chevronDownBold}
+            size={16}
+            color={colors.text}
+            style={isOpen ? { transform: [{ rotate: '180deg' }] } : undefined}
+          />
+        )}
+      </Pressable>
+
+      {hasChildren &&
+        isOpen &&
+        item.children.map((child: any) => (
+          <MenuRow
+            key={child.label}
+            item={child}
+            depth={depth + 1}
+            navigation={navigation}
+            onSelectTab={onSelectTab}
+            searchQuery={searchQuery}
+          />
+        ))}
+    </>
   );
 }
 
-export default function SettingsScreen({ navigation, onLogout, onSelectTab }) {
+export default function SettingsScreen({ navigation, onLogout, onSelectTab }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
   const [confirmLogout, setConfirmLogout] = useState(false);
 
   const query = search.trim().toLowerCase();
-  const menu = query ? MENU.filter(item => item.label.toLowerCase().includes(query)) : MENU;
+  const menu = query
+    ? MENU.filter(
+        item =>
+          item.label.toLowerCase().includes(query) ||
+          item.children?.some((c: any) => c.label.toLowerCase().includes(query)),
+      )
+    : MENU;
 
   return (
     <View
@@ -96,13 +196,13 @@ export default function SettingsScreen({ navigation, onLogout, onSelectTab }) {
         <ThemePicker />
       </View>
 
-      {/* Search Input */}
+      {/* Search Bar */}
       <View style={[styles.search, { borderColor: colors.border }]}>
         <Icon source={searchBold} size={20} color={colors.textMuted} />
         <TextInput
           value={search}
           onChangeText={setSearch}
-          placeholder="Search settings..."
+          placeholder="Search settings"
           placeholderTextColor={colors.textMuted}
           style={[styles.searchInput, { color: colors.text }]}
         />
@@ -112,7 +212,12 @@ export default function SettingsScreen({ navigation, onLogout, onSelectTab }) {
       <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
         {menu.map((item, index) => (
           <FadeUp key={item.label} delay={15 + index * 12} duration={280}>
-            <MenuRow item={item} navigation={navigation} onSelectTab={onSelectTab} />
+            <MenuRow
+              item={item}
+              navigation={navigation}
+              onSelectTab={onSelectTab}
+              searchQuery={query}
+            />
           </FadeUp>
         ))}
       </ScrollView>
@@ -120,12 +225,17 @@ export default function SettingsScreen({ navigation, onLogout, onSelectTab }) {
       {/* Profile Card & Logout */}
       <View
         style={[styles.profile, { borderColor: colors.border, marginBottom: insets.bottom + 12 }]}>
-        <Image source={dummyProfileExtra} style={styles.avatar} />
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => navigation?.navigate('Profile')}
+          style={styles.profileBtn}>
+          <Image source={dummyProfileExtra} style={styles.avatar} />
 
-        <View style={styles.profileText}>
-          <Text style={[styles.name, { color: colors.text }]}>Hammad Raza</Text>
-          <Text style={[styles.role, { color: colors.primary }]}>Verified Seller</Text>
-        </View>
+          <View style={styles.profileText}>
+            <Text style={[styles.name, { color: colors.text }]}>Hammad Raza</Text>
+            <Text style={[styles.role, { color: colors.primary }]}>Seller</Text>
+          </View>
+        </TouchableOpacity>
 
         <Squeeze onPress={() => setConfirmLogout(true)} scale={0.85}>
           <Icon source={logOutBold} size={24} color={colors.error} />
@@ -135,7 +245,7 @@ export default function SettingsScreen({ navigation, onLogout, onSelectTab }) {
       <ConfirmModal
         visible={confirmLogout}
         title="Logout"
-        message="Are you sure you want to log out of your seller store?"
+        message="Are you sure you want to logout?"
         cancelText="Not now"
         confirmText="Logout"
         danger
@@ -167,29 +277,29 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    height: 50,
-    borderRadius: 25,
+    height: 52,
+    borderRadius: 26,
     borderWidth: 1,
-    paddingHorizontal: 18,
-    marginTop: 20,
+    paddingHorizontal: 20,
+    marginTop: 22,
   },
   searchInput: {
     flex: 1,
     fontFamily: fonts.regular,
-    fontSize: 14,
+    fontSize: 15,
     padding: 0,
   },
-  list: { paddingTop: 18, paddingBottom: 10 },
+  list: { paddingTop: 20, paddingBottom: 10 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 10,
+    paddingVertical: 11,
+    paddingRight: 10,
     borderRadius: 10,
     overflow: 'hidden',
   },
-  label: { flex: 1, fontFamily: fonts.regular, fontSize: 15 },
+  label: { flex: 1 },
   profile: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -197,6 +307,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 40,
     padding: 12,
+  },
+  profileBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
   },
   avatar: { width: 48, height: 48, borderRadius: 24 },
   profileText: { flex: 1, gap: 2 },

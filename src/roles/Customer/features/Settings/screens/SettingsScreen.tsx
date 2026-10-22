@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -60,17 +61,33 @@ const MENU = [
     label: 'Refurbished devices',
     icon: mobileBold,
     children: [
-      { label: 'Sell gadgets', icon: storeBold },
-      { label: 'Sell  phone', icon: phoneBold },
+      { label: 'Sell gadgets', icon: storeBold, screen: 'SellRefurbished' },
+      { label: 'Sell  phone', icon: phoneBold, screen: 'SellRefurbished' },
     ],
   },
   {
     label: 'Buy refurbished devices',
     icon: shoppingBasketBold,
     children: [
-      { label: 'refurbished Smart watch', icon: clockBold },
-      { label: 'refurbished Tablet', icon: tabletBold },
-      { label: 'refurbished Gaming consolt', icon: desktopBold },
+      { label: 'Browse Refurbished Store', icon: shoppingBasketBold, screen: 'BuyRefurbished' },
+      {
+        label: 'refurbished Smart watch',
+        icon: clockBold,
+        screen: 'AllGadgets',
+        params: { initialCategory: 'Smart watches' },
+      },
+      {
+        label: 'refurbished Tablet',
+        icon: tabletBold,
+        screen: 'AllGadgets',
+        params: { initialCategory: 'Tablets' },
+      },
+      {
+        label: 'refurbished Gaming consolt',
+        icon: desktopBold,
+        screen: 'AllGadgets',
+        params: { initialCategory: 'Gaming Console' },
+      },
     ],
   },
   { label: 'Privacy Policy', icon: shieldBold, screen: 'PrivacyPolicy' },
@@ -84,7 +101,7 @@ function MenuRow({ item, depth = 0, navigation }) {
 
   const onPress = () => {
     if (hasChildren) setOpen(!open);
-    else if (item.screen) navigation?.navigate(item.screen);
+    else if (item.screen) navigation?.navigate(item.screen, item.params);
   };
 
   return (
@@ -172,12 +189,17 @@ export default function SettingsScreen({ navigation, onLogout }) {
           styles.profile,
           { borderColor: colors.border, marginBottom: insets.bottom + 12 },
         ]}>
-        <Image source={dummyProfileExtra} style={styles.avatar} />
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => navigation?.navigate('Profile')}
+          style={styles.profileBtn}>
+          <Image source={dummyProfileExtra} style={styles.avatar} />
 
-        <View style={styles.profileText}>
-          <Text style={[styles.name, { color: colors.text }]}>Zubair Malik</Text>
-          <Text style={[styles.role, { color: colors.primary }]}>Owner</Text>
-        </View>
+          <View style={styles.profileText}>
+            <Text style={[styles.name, { color: colors.text }]}>Zubair Malik</Text>
+            <Text style={[styles.role, { color: colors.primary }]}>Owner</Text>
+          </View>
+        </TouchableOpacity>
 
         <Squeeze onPress={() => setConfirmLogout(true)} scale={0.85}>
           <Icon source={logOutBold} size={24} color={colors.error} />
@@ -250,6 +272,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 40,
     padding: 12,
+  },
+  profileBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
   },
   avatar: { width: 48, height: 48, borderRadius: 24 },
   profileText: { flex: 1, gap: 2 },
