@@ -1,6 +1,7 @@
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import ErrorBoundary from '@/components/ErrorBoundary';
 import RootNavigator from '@/navigation/RootNavigator';
 import { ThemeProvider } from '@/theme/ThemeContext';
 
@@ -9,7 +10,9 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <ThemeProvider>
-          <RootNavigator />
+          <ErrorBoundary>
+            <RootNavigator />
+          </ErrorBoundary>
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

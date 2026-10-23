@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import {
-  Alert,
   Image,
   ScrollView,
   StyleSheet,
@@ -14,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Button from '@/components/Button';
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import { starBold, starFilled } from '@/assets/icons';
 import { dummyProfileExtra } from '@/assets/icons';
@@ -60,6 +60,19 @@ export default function ReviewsScreen({ navigation }: any) {
   const [replyingToId, setReplyingToId] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
 
+  // AlertModal State
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    type: AlertModalType;
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
+
   const filteredReviews = reviews.filter(rev => {
     if (selectedFilter === 'All') return true;
     return rev.rating.toString() === selectedFilter;
@@ -72,7 +85,12 @@ export default function ReviewsScreen({ navigation }: any) {
     );
     setReplyingToId(null);
     setReplyText('');
-    Alert.alert('Reply Posted', 'Your reply is now visible under this review.');
+    setAlertConfig({
+      visible: true,
+      type: 'success',
+      title: 'Reply Posted',
+      message: 'Your reply has been submitted and is now published under this customer review.',
+    });
   };
 
   const renderStars = (count: number) => {
@@ -261,6 +279,15 @@ export default function ReviewsScreen({ navigation }: any) {
           </FadeUp>
         ))}
       </View>
+
+      {/* Alert Modal */}
+      <AlertModal
+        visible={alertConfig.visible}
+        type={alertConfig.type}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
+      />
     </ScrollView>
   );
 }

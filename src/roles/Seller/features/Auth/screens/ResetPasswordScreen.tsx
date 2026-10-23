@@ -5,19 +5,27 @@ import AuthLayout from '@/components/AuthLayout';
 import Button from '@/components/Button';
 import Input from '@/components/Input';
 import PasswordStrength from '@/components/PasswordStrength';
+import AlertModal from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { PASSWORD_MAX, validateConfirmPassword, validatePassword } from '@/utils/validators';
 import { resetPassword } from '../api/authApi';
 
-export default function ResetPasswordScreen({ navigation }) {
+export default function ResetPasswordScreen({ navigation, route }: any) {
   const { colors } = useTheme();
+  const email = route?.params?.email || '';
+  const otp = route?.params?.otp || '';
 
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [errors, setErrors] = useState({ password: '', confirm: '' });
   const [loading, setLoading] = useState(false);
+  const [modal, setModal] = useState({
+    visible: false,
+    title: '',
+    message: '',
+  });
 
   const onSubmit = async () => {
     const next = {
@@ -29,8 +37,14 @@ export default function ResetPasswordScreen({ navigation }) {
 
     setLoading(true);
     try {
-      await resetPassword({ password });
+      await resetPassword({ email, otp, password, confirmPassword: confirm });
       navigation.navigate('ResetSuccess');
+    } catch (err: any) {
+      setModal({
+        visible: true,
+        title: 'Reset Failed',
+        message: err.message || 'Could not reset password',
+      });
     } finally {
       setLoading(false);
     }
@@ -83,6 +97,14 @@ export default function ResetPasswordScreen({ navigation }) {
           <Text style={[styles.backText, { color: colors.primary }]}>Back to login</Text>
         </Pressable>
       </FadeUp>
+
+      <AlertModal
+        visible={modal.visible}
+        type="error"
+        title={modal.title}
+        message={modal.message}
+        onClose={() => setModal(m => ({ ...m, visible: false }))}
+      />
     </AuthLayout>
   );
 }

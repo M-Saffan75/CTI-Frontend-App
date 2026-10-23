@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Image,
   Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -28,6 +29,7 @@ import {
   REFURBISHED_PRODUCTS,
   RefurbishedProduct,
 } from '../data/refurbishedData';
+import { getRefurbishedProducts } from '../services/refurbishedApi';
 
 const SORT_OPTIONS = [
   'Default Sorting',
@@ -47,9 +49,32 @@ export default function AllGadgetsScreen({ navigation, route }: any) {
   const [activeFilters, setActiveFilters] = useState<any>(initialFilters || null);
   const [sortOption, setSortOption] = useState('Default Sorting');
   const [sortMenuVisible, setSortMenuVisible] = useState(false);
+  const [rawProducts, setRawProducts] = useState<RefurbishedProduct[]>(REFURBISHED_PRODUCTS);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchLiveProducts = async () => {
+    try {
+      const live = await getRefurbishedProducts();
+      if (Array.isArray(live) && live.length > 0) {
+        setRawProducts(live);
+      }
+    } catch (e) {
+      // Fallback
+    }
+  };
+
+  useEffect(() => {
+    fetchLiveProducts();
+  }, []);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchLiveProducts();
+    setRefreshing(false);
+  };
 
   // Filter products based on category or active filters
-  let filtered = Array.isArray(REFURBISHED_PRODUCTS) ? [...REFURBISHED_PRODUCTS] : [];
+  let filtered = Array.isArray(rawProducts) ? [...rawProducts] : [];
 
   if (initialCategory) {
     const catLower = String(initialCategory).toLowerCase();
@@ -93,7 +118,7 @@ export default function AllGadgetsScreen({ navigation, route }: any) {
   }
 
   const handleProductPress = (product: RefurbishedProduct) => {
-    navigation.navigate('RefurbishedProductDetail', { productId: product.id, product });
+    navigation.navigate('RefurbishedProductDetail', { productId: product?.id, product });
   };
 
   return (
@@ -119,6 +144,14 @@ export default function AllGadgetsScreen({ navigation, route }: any) {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        }
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 40 }]}>
         {/* Title & Subtitle matching Figma */}
         <View style={styles.titleSection}>
@@ -148,8 +181,8 @@ export default function AllGadgetsScreen({ navigation, route }: any) {
 
         {/* Horizontal Products List matching Figma */}
         <View style={styles.listContainer}>
-          {filtered.map((item, index) => (
-            <FadeUp key={item.id} delay={index * 50}>
+          {(filtered || []).map((item, index) => (
+            <FadeUp key={item?.id || index} delay={index * 50}>
               <View
                 style={[
                   styles.horizontalCard,

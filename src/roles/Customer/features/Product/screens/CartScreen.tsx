@@ -1,10 +1,20 @@
-import { useState } from 'react';
-import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Image,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
 import Button from '@/components/Button';
 import Squeeze from '@/components/Squeeze';
+import ConfirmModal from '@/components/ConfirmModal';
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
@@ -12,43 +22,82 @@ import {
   menuBold,
   minusSquareBold,
   plusSquareBold,
+  shoppingCartExtra,
   trashBold,
 } from '@/assets/icons';
 import { ctiLogo } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { useWishlist } from '../../../context/WishlistContext';
-import { PRODUCTS } from '../data/products';
+import {
+  getCartApi,
+  MobileCartItem,
+  removeCartItemApi,
+  updateCartItemApi,
+} from '../services/ecomApi';
 
 const SHIPPING_FEE = 10;
 
-function CartRow({ item, onQuantity, onRemove }) {
+function CartRow({
+  item,
+  onQuantity,
+  onRemove,
+  updating,
+}: {
+  item: MobileCartItem;
+  onQuantity: (delta: number) => void;
+  onRemove: () => void;
+  updating?: boolean;
+}) {
   const { colors } = useTheme();
+
+  const imageSource =
+    typeof item.image === 'string'
+      ? { uri: item.image }
+      : item.image?.uri
+      ? item.image
+      : item.image;
 
   return (
     <View style={[styles.row, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-      <Image source={item.product.image} style={styles.rowPhoto} />
+      <Image source={imageSource} style={styles.rowPhoto} resizeMode="cover" />
 
       <View style={styles.rowBody}>
         <Text style={[styles.rowTitle, { color: colors.text }]} numberOfLines={1}>
-          {item.product.title}
+          {item.title}
         </Text>
-        <Text style={[styles.rowPrice, { color: colors.text }]}>
-          ${item.product.price.toFixed(2)}
+        {!!item.variantLabel && (
+          <Text style={{ fontFamily: fonts.regular, fontSize: 11, color: colors.textMuted }}>
+            {item.variantLabel}
+          </Text>
+        )}
+        <Text style={[styles.rowPrice, { color: colors.primary }]}>
+          ${Number(item.price || 0).toFixed(2)}
         </Text>
 
         <View style={styles.rowFoot}>
           <View style={styles.qtyControls}>
-            <Squeeze onPress={() => onQuantity(Math.max(1, item.quantity - 1))} style={[styles.qtyBtn, { borderColor: colors.border }]}>
+            <Squeeze
+              onPress={() => onQuantity(-1)}
+              disabled={updating || item.quantity <= 1}
+              style={[
+                styles.qtyBtn,
+                { borderColor: colors.border, opacity: item.quantity <= 1 ? 0.4 : 1 },
+              ]}>
               <Icon source={minusSquareBold} size={16} color={colors.text} />
             </Squeeze>
-            <Text style={[styles.qtyValue, { color: colors.text }]}>{item.quantity}</Text>
-            <Squeeze onPress={() => onQuantity(item.quantity + 1)} style={[styles.qtyBtn, { borderColor: colors.border }]}>
+            <Text style={[styles.qtyValue, { color: colors.text }]}>
+              {updating ? '...' : item.quantity}
+            </Text>
+            <Squeeze
+              onPress={() => onQuantity(1)}
+              disabled={updating}
+              style={[styles.qtyBtn, { borderColor: colors.border }]}>
               <Icon source={plusSquareBold} size={16} color={colors.text} />
             </Squeeze>
           </View>
 
-          <Squeeze onPress={onRemove} scale={0.85}>
+          <Squeeze onPress={onRemove} scale={0.85} disabled={updating}>
             <Icon source={trashBold} size={18} color={colors.error} />
           </Squeeze>
         </View>
@@ -57,21 +106,109 @@ function CartRow({ item, onQuantity, onRemove }) {
   );
 }
 
-export default function CartScreen({ navigation }) {
+export default function CartScreen({ navigation }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { ids: wishlistIds } = useWishlist();
 
-  const [items, setItems] = useState(
-    PRODUCTS.slice(0, 2).map(product => ({ product, quantity: 1 })),
-  );
+  const [items, setItems] = useState<MobileCartItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [itemToDelete, setItemToDelete] = useState<MobileCartItem | null>(null);
 
-  const setQuantity = (id, quantity) =>
-    setItems(current => current.map(item => (item.product.id === id ? { ...item, quantity } : item)));
+  // AlertModal State
+  const [modal, setModal] = useState<{
+    visible: boolean;
+    type: AlertModalType;
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
 
-  const removeItem = id => setItems(current => current.filter(item => item.product.id !== id));
+  const loadCart = async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
 
-  const subtotal = items.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
+    try {
+      const res = await getCartApi();
+      if (res && Array.isArray(res.items)) {
+        setItems(res.items);
+      }
+    } catch (err: any) {
+      setModal({
+        visible: true,
+        type: 'error',
+        title: 'Cart Error',
+        message: err?.message || 'Failed to load shopping cart.',
+      });
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    loadCart();
+  }, []);
+
+  const onRefresh = () => {
+    loadCart(true);
+  };
+
+  const handleQuantity = async (item: MobileCartItem, delta: number) => {
+    const newQty = item.quantity + delta;
+    if (newQty < 1) return;
+
+    // Optimistic UI update
+    const previousItems = [...items];
+    setItems(current =>
+      current.map(it => (it.id === item.id ? { ...it, quantity: newQty } : it))
+    );
+    setUpdatingId(item.id);
+
+    try {
+      await updateCartItemApi(item.productId, item.variantId, newQty, delta);
+    } catch (err: any) {
+      // Rollback on failure
+      setItems(previousItems);
+      setModal({
+        visible: true,
+        type: 'error',
+        title: 'Update Failed',
+        message: err?.message || 'Could not update item quantity.',
+      });
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!itemToDelete) return;
+    const target = itemToDelete;
+    setItemToDelete(null);
+
+    const previousItems = [...items];
+    setItems(current => current.filter(it => it.id !== target.id));
+
+    try {
+      await removeCartItemApi(target.productId, target.variantId);
+    } catch (err: any) {
+      setItems(previousItems);
+      setModal({
+        visible: true,
+        type: 'error',
+        title: 'Delete Failed',
+        message: err?.message || 'Could not remove item from cart.',
+      });
+    }
+  };
+
+  const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const shipping = items.length ? SHIPPING_FEE : 0;
   const total = subtotal + shipping;
 
@@ -98,7 +235,15 @@ export default function CartScreen({ navigation }) {
 
       <ScrollView
         contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
-        showsVerticalScrollIndicator={false}>
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }>
         <Squeeze onPress={() => navigation.goBack()} scale={0.9} style={styles.backWrap}>
           <View style={[styles.back, { backgroundColor: colors.primary }]}>
             <Icon source={arrowLeftBold} size={20} color={colors.onPrimary} />
@@ -107,15 +252,34 @@ export default function CartScreen({ navigation }) {
 
         <Text style={[styles.title, { color: colors.text }]}>My Cart</Text>
 
-        {items.length === 0 ? (
-          <Text style={[styles.empty, { color: colors.textMuted }]}>Your cart is empty.</Text>
+        {loading && !refreshing ? (
+          <View style={{ paddingVertical: 50, alignItems: 'center' }}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={{ marginTop: 12, color: colors.textMuted, fontFamily: fonts.regular }}>
+              Loading your cart...
+            </Text>
+          </View>
+        ) : items.length === 0 ? (
+          <View style={{ paddingVertical: 40, alignItems: 'center', gap: 14 }}>
+            <Icon source={shoppingCartExtra} size={48} color={colors.textMuted} />
+            <Text style={[styles.empty, { color: colors.textMuted, marginTop: 0 }]}>
+              Your shopping cart is currently empty.
+            </Text>
+            <Button
+              title="Explore Products"
+              size="sm"
+              onPress={() => navigation.navigate('Product')}
+              style={{ marginTop: 6 }}
+            />
+          </View>
         ) : (
           items.map((item, index) => (
-            <FadeUp key={item.product.id} delay={60 + index * 60} duration={500} style={styles.spaced}>
+            <FadeUp key={item.id} delay={Math.min(300, 40 + index * 40)} duration={450} style={styles.spaced}>
               <CartRow
                 item={item}
-                onQuantity={q => setQuantity(item.product.id, q)}
-                onRemove={() => removeItem(item.product.id)}
+                updating={updatingId === item.id}
+                onQuantity={delta => handleQuantity(item, delta)}
+                onRemove={() => setItemToDelete(item)}
               />
             </FadeUp>
           ))
@@ -125,7 +289,9 @@ export default function CartScreen({ navigation }) {
           <Text style={[styles.summaryTitle, { color: colors.text }]}>Order Summary</Text>
 
           <View style={styles.summaryRow}>
-            <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>Items</Text>
+            <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>
+              Items ({items.reduce((s, it) => s + it.quantity, 0)})
+            </Text>
             <Text style={[styles.summaryValue, { color: colors.text }]}>${subtotal.toFixed(2)}</Text>
           </View>
           <View style={styles.summaryRow}>
@@ -141,17 +307,43 @@ export default function CartScreen({ navigation }) {
 
           <View style={styles.summaryRow}>
             <Text style={[styles.totalLabel, { color: colors.text }]}>Total</Text>
-            <Text style={[styles.totalValue, { color: colors.text }]}>${total.toFixed(2)}</Text>
+            <Text style={[styles.totalValue, { color: colors.primary }]}>${total.toFixed(2)}</Text>
           </View>
 
           <Button
-            title="Checkout"
+            title="Proceed to Checkout"
             disabled={items.length === 0}
-            onPress={() => navigation.navigate('Checkout')}
+            onPress={() =>
+              navigation.navigate('Checkout', {
+                cartItems: items,
+                subtotal,
+                shipping,
+                total,
+              })
+            }
             style={styles.checkoutButton}
           />
         </View>
       </ScrollView>
+
+      <ConfirmModal
+        visible={!!itemToDelete}
+        title="Remove Item?"
+        message={`Are you sure you want to remove "${itemToDelete?.title}" from your cart?`}
+        confirmText="Remove"
+        cancelText="Keep"
+        danger
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setItemToDelete(null)}
+      />
+
+      <AlertModal
+        visible={modal.visible}
+        type={modal.type}
+        title={modal.title}
+        message={modal.message}
+        onClose={() => setModal(prev => ({ ...prev, visible: false }))}
+      />
     </View>
   );
 }

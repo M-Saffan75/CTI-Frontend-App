@@ -1,4 +1,12 @@
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -17,16 +25,51 @@ import { fonts } from '@/theme/fonts';
 import AdvertisingBarChart from '../components/AdvertisingBarChart';
 import RevenueTrendChart from '../components/RevenueTrendChart';
 import { SELLER_DASHBOARD_DATA } from '../data/dashboardData';
+import { fetchSellerDashboardOverviewApi, SellerDashboardStats } from '@/roles/Seller/services/sellerApi';
 
-export default function DashboardScreen({ onSelectTab, navigation }) {
+export default function DashboardScreen({ onSelectTab, navigation }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const data = SELLER_DASHBOARD_DATA;
+  const [data, setData] = useState(SELLER_DASHBOARD_DATA);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadOverview = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    try {
+      const stats = await fetchSellerDashboardOverviewApi();
+      if (stats) {
+        setData(prev => ({
+          ...prev,
+          stats: {
+            ...prev.stats,
+            todayRevenue: stats.totalEarnings ? `$${stats.totalEarnings.toFixed(2)}` : prev.stats.todayRevenue,
+            todayOrdersNote: stats.pendingOrders ? `${stats.pendingOrders} Pending Orders` : prev.stats.todayOrdersNote,
+          },
+        }));
+      }
+    } catch {
+      // Keep existing data safely
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadOverview();
+  }, [loadOverview]);
 
   return (
     <ScrollView
       contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 40 }]}
-      showsVerticalScrollIndicator={false}>
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={() => loadOverview(true)}
+          colors={[colors.primary]}
+          tintColor={colors.primary}
+        />
+      }>
       {/* Hero Welcome Card matching Figma screenshot */}
       <FadeUp delay={40} duration={400}>
         <LinearGradient
@@ -61,13 +104,13 @@ export default function DashboardScreen({ onSelectTab, navigation }) {
               </View>
             </Squeeze>
 
-            <Squeeze onPress={() => {}} style={{ flex: 1 }}>
+            <Squeeze onPress={() => loadOverview(true)} style={{ flex: 1 }}>
               <View style={styles.refreshBtn}>
                 <Text
                   style={styles.refreshBtnText}
                   numberOfLines={1}
                   adjustsFontSizeToFit={true}>
-                  Referesh
+                  {refreshing ? 'Refreshing...' : 'Refresh'}
                 </Text>
               </View>
             </Squeeze>

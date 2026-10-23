@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import {
-  Alert,
   Image,
   ScrollView,
   StyleSheet,
@@ -13,6 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import { arrowLeftBold, chevronDownBold, searchBold } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
@@ -88,12 +88,28 @@ export default function CreateCampaignScreen({ navigation }: any) {
     p.name.toLowerCase().includes(searchProductQuery.toLowerCase())
   );
 
+  // AlertModal State
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    type: AlertModalType;
+    title: string;
+    message: string;
+    onOk?: () => void;
+  }>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
+
   const handleSubmit = () => {
-    Alert.alert(
-      'Campaign Submitted',
-      'Your campaign has been submitted for admin review before going live.',
-      [{ text: 'OK', onPress: () => navigation?.goBack() }]
-    );
+    setAlertConfig({
+      visible: true,
+      type: 'success',
+      title: 'Campaign Submitted',
+      message: 'Your campaign has been submitted for admin review before going live.',
+      onOk: () => navigation?.goBack(),
+    });
   };
 
   return (
@@ -500,6 +516,20 @@ export default function CreateCampaignScreen({ navigation }: any) {
         visible={isAddCardVisible}
         onClose={() => setIsAddCardVisible(false)}
         onCardAdded={() => setIsAddCardVisible(false)}
+      />
+
+      {/* Alert Modal */}
+      <AlertModal
+        visible={alertConfig.visible}
+        type={alertConfig.type}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        onClose={() => {
+          setAlertConfig(prev => ({ ...prev, visible: false }));
+          if (alertConfig.onOk) {
+            alertConfig.onOk();
+          }
+        }}
       />
     </View>
   );

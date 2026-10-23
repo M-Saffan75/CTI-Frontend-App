@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import {
-  Alert,
   Modal,
   StyleSheet,
   Text,
@@ -11,6 +10,7 @@ import {
 
 import Button from '@/components/Button';
 import Icon from '@/components/Icon';
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { timesSquareBold } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
@@ -30,9 +30,28 @@ export default function AddCardModal({ visible, onClose, onCardAdded }: AddCardM
   const [year, setYear] = useState('30');
   const [cvv, setCvv] = useState('123');
 
+  // AlertModal State
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    type: AlertModalType;
+    title: string;
+    message: string;
+    onOk?: () => void;
+  }>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
+
   const handleSubmit = () => {
     if (!holderName.trim() || cardNumber.length < 12) {
-      Alert.alert('Incomplete Form', 'Please fill in all card details accurately.');
+      setAlertConfig({
+        visible: true,
+        type: 'warning',
+        title: 'Incomplete Form',
+        message: 'Please fill in all card details accurately before saving.',
+      });
       return;
     }
 
@@ -46,9 +65,16 @@ export default function AddCardModal({ visible, onClose, onCardAdded }: AddCardM
       isDefault: true,
     };
 
-    onCardAdded(newCard);
-    onClose();
-    Alert.alert('Card Saved', 'Your ad billing method has been activated.');
+    setAlertConfig({
+      visible: true,
+      type: 'success',
+      title: 'Card Saved',
+      message: 'Your ad billing payment method has been verified and activated.',
+      onOk: () => {
+        onCardAdded(newCard);
+        onClose();
+      },
+    });
   };
 
   return (
@@ -211,6 +237,20 @@ export default function AddCardModal({ visible, onClose, onCardAdded }: AddCardM
           </View>
         </View>
       </View>
+
+      {/* Alert Modal */}
+      <AlertModal
+        visible={alertConfig.visible}
+        type={alertConfig.type}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        onClose={() => {
+          setAlertConfig(prev => ({ ...prev, visible: false }));
+          if (alertConfig.onOk) {
+            alertConfig.onOk();
+          }
+        }}
+      />
     </Modal>
   );
 }

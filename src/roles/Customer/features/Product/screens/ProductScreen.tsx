@@ -1,8 +1,18 @@
-import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Image,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import { heartExtra, heartFilled, menuBold, shoppingCartExtra } from '@/assets/icons';
 import { ctiLogo } from '@/assets/images';
@@ -10,18 +20,26 @@ import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { useWishlist } from '../../../context/WishlistContext';
 import { PRODUCTS } from '../data/products';
+import { getCartApi, getEcomProducts, MobileEcomProduct } from '../services/ecomApi';
 
-function ProductCard({ product, navigation }) {
+function ProductCard({ product, navigation }: { product: MobileEcomProduct; navigation: any }) {
   const { colors } = useTheme();
   const { isSaved, toggle } = useWishlist();
   const saved = isSaved(product.id);
 
+  const imageSource =
+    typeof product.image === 'string'
+      ? { uri: product.image }
+      : product.image?.uri
+      ? product.image
+      : product.image;
+
   return (
     <Squeeze
-      onPress={() => navigation.navigate('ProductDetail', { productId: product.id })}
+      onPress={() => navigation.navigate('ProductDetail', { productId: product.id, product })}
       style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
       <View style={styles.photoWrap}>
-        <Image source={product.image} style={styles.photo} />
+        <Image source={imageSource} style={styles.photo} resizeMode="cover" />
         <Image source={ctiLogo} resizeMode="contain" style={styles.cardLogo} />
 
         <Squeeze
@@ -34,7 +52,7 @@ function ProductCard({ product, navigation }) {
 
       <View style={styles.cardBody}>
         <Text style={[styles.brand, { color: colors.textMuted }]} numberOfLines={1}>
-          {product.brand}
+          {product.brand || 'CTI Store'}
         </Text>
         <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
           {product.title}
@@ -47,14 +65,18 @@ function ProductCard({ product, navigation }) {
         </Text>
 
         <View style={styles.priceRow}>
-          <View style={[styles.discountPill, { backgroundColor: colors.primary }]}>
-            <Text style={styles.discountText}>-{product.discountPercent}%</Text>
-          </View>
-          <Text style={[styles.price, { color: colors.text }]}>${product.price.toFixed(2)}</Text>
-          <Text style={[styles.originalPrice, { color: colors.textMuted }]}>
-            ${product.originalPrice.toFixed(2)}
-          </Text>
-          <Text style={[styles.stock, { color: colors.success }]}>
+          {!!product.discountPercent && (
+            <View style={[styles.discountPill, { backgroundColor: colors.primary }]}>
+              <Text style={styles.discountText}>-{product.discountPercent}%</Text>
+            </View>
+          )}
+          <Text style={[styles.price, { color: colors.text }]}>${Number(product.price || 0).toFixed(2)}</Text>
+          {!!product.originalPrice && product.originalPrice > product.price && (
+            <Text style={[styles.originalPrice, { color: colors.textMuted }]}>
+              ${Number(product.originalPrice).toFixed(2)}
+            </Text>
+          )}
+          <Text style={[styles.stock, { color: product.inStock ? colors.success : colors.error }]}>
             {product.inStock ? 'In stock' : 'Out of stock'}
           </Text>
         </View>
@@ -63,10 +85,78 @@ function ProductCard({ product, navigation }) {
   );
 }
 
-export default function ProductScreen({ navigation }) {
+export default function ProductScreen({ navigation }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { ids } = useWishlist();
+
+  const [products, setProducts] = useState<MobileEcomProduct[]>(PRODUCTS as any);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [cartCount, setCartCount] = useState(0);
+
+  // AlertModal state
+  const [modal, setModal] = useState<{
+    visible: boolean;
+    type: AlertModalType;
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
+
+  const loadData = async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+
+    try {
+      const [fetchedProducts, cartData] = await Promise.all([
+        getEcomProducts(),
+        getCartApi().catch(() => ({ items: [] })),
+      ]);
+
+      if (fetchedProducts && fetchedProducts.length > 0) {
+        setProducts(fetchedProducts);
+      }
+      if (cartData?.items) {
+        const totalQty = (cartData.items as any[]).reduce((sum: number, it: any) => sum + (it.quantity || 1), 0);
+        setCartCount(totalQty);
+      }
+    } catch (err: any) {
+      setModal({
+        visible: true,
+        type: 'error',
+        title: 'Error Loading Store',
+        message: err?.message || 'Could not load products. Showing cached products.',
+      });
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+    const unsubscribe = navigation.addListener?.('focus', () => {
+      // Refresh cart count on screen focus
+      getCartApi()
+        .then(c => {
+          if (c?.items) {
+            const count = (c.items as any[]).reduce((sum: number, it: any) => sum + (it.quantity || 1), 0);
+            setCartCount(count);
+          }
+        })
+        .catch(() => {});
+    });
+    return unsubscribe;
+  }, [navigation]);
+
+  const onRefresh = () => {
+    loadData(true);
+  };
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -85,7 +175,14 @@ export default function ProductScreen({ navigation }) {
             </View>
           </Squeeze>
           <Squeeze onPress={() => navigation.navigate('Cart')} scale={0.85}>
-            <Icon source={shoppingCartExtra} size={22} color={colors.text} />
+            <View>
+              <Icon source={shoppingCartExtra} size={22} color={colors.text} />
+              {cartCount > 0 && (
+                <View style={[styles.badge, { backgroundColor: colors.primary }]}>
+                  <Text style={styles.badgeText}>{cartCount}</Text>
+                </View>
+              )}
+            </View>
           </Squeeze>
           <Squeeze onPress={() => navigation.navigate('Settings')} scale={0.85}>
             <Icon source={menuBold} size={22} color={colors.text} />
@@ -95,19 +192,50 @@ export default function ProductScreen({ navigation }) {
 
       <ScrollView
         contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
-        showsVerticalScrollIndicator={false}>
-        <View style={styles.grid}>
-          {PRODUCTS.map((product, index) => (
-            <FadeUp
-              key={product.id}
-              delay={60 + index * 40}
-              duration={500}
-              style={styles.gridItem}>
-              <ProductCard product={product} navigation={navigation} />
-            </FadeUp>
-          ))}
-        </View>
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }>
+        {loading && !refreshing ? (
+          <View style={{ paddingVertical: 50, alignItems: 'center' }}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={{ marginTop: 12, color: colors.textMuted, fontFamily: fonts.regular }}>
+              Loading marketplace products...
+            </Text>
+          </View>
+        ) : products.length === 0 ? (
+          <View style={{ paddingVertical: 50, alignItems: 'center' }}>
+            <Text style={{ color: colors.textMuted, fontFamily: fonts.regular, fontSize: 14 }}>
+              No products available right now.
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.grid}>
+            {products.map((product, index) => (
+              <FadeUp
+                key={product.id}
+                delay={Math.min(300, 40 + index * 30)}
+                duration={450}
+                style={styles.gridItem}>
+                <ProductCard product={product} navigation={navigation} />
+              </FadeUp>
+            ))}
+          </View>
+        )}
       </ScrollView>
+
+      <AlertModal
+        visible={modal.visible}
+        type={modal.type}
+        title={modal.title}
+        message={modal.message}
+        onClose={() => setModal(prev => ({ ...prev, visible: false }))}
+      />
     </View>
   );
 }

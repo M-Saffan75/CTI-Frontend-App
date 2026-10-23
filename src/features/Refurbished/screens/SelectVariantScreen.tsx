@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -21,6 +21,7 @@ import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import RefurbishedHeader from '../components/RefurbishedHeader';
 import { STORAGE_VARIANTS } from '../data/refurbishedData';
+import { getSellDeviceConfig } from '../services/refurbishedApi';
 
 export default function SelectVariantScreen({ navigation, route }: any) {
   const { colors } = useTheme();
@@ -30,7 +31,23 @@ export default function SelectVariantScreen({ navigation, route }: any) {
   const model = route?.params?.model || '12 pro max';
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [variantsList, setVariantsList] = useState<string[]>(STORAGE_VARIANTS);
   const [selectedStorage, setSelectedStorage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (brand && model) {
+      getSellDeviceConfig(brand, model)
+        .then(config => {
+          const storages =
+            config?.storageOptions ||
+            config?.variants?.map((v: any) => v.title || v.storage || v.name);
+          if (Array.isArray(storages) && storages.length > 0) {
+            setVariantsList(storages);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [brand, model]);
 
   const handleSelectStorage = (variant: string) => {
     setSelectedStorage(variant);
@@ -83,7 +100,7 @@ export default function SelectVariantScreen({ navigation, route }: any) {
 
         {/* Storage Options matching Figma */}
         <View style={styles.variantsList}>
-          {STORAGE_VARIANTS.map((item, idx) => {
+          {(variantsList || []).map((item, idx) => {
             const isSelected = selectedStorage === item;
             return (
               <FadeUp key={item} delay={idx * 50}>

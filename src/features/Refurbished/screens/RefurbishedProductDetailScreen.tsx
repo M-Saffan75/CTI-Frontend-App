@@ -1,6 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  Alert,
   Dimensions,
   Image,
   ScrollView,
@@ -14,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
@@ -46,6 +46,7 @@ import {
   REFURBISHED_PRODUCTS,
   RefurbishedProduct,
 } from '../data/refurbishedData';
+import { getRefurbishedProductDetail } from '../services/refurbishedApi';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -63,11 +64,22 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
   const passedProduct: RefurbishedProduct | undefined = route?.params?.product;
   const productId: string | undefined = route?.params?.productId;
 
-  const product =
+  const [product, setProduct] = useState<RefurbishedProduct>(
     passedProduct ||
     REFURBISHED_PRODUCTS?.find(p => p.id === productId) ||
     REFURBISHED_PRODUCTS?.[0] ||
-    ({} as RefurbishedProduct);
+    ({} as RefurbishedProduct),
+  );
+
+  useEffect(() => {
+    if (productId) {
+      getRefurbishedProductDetail(productId).then(live => {
+        if (live) {
+          setProduct(live);
+        }
+      }).catch(() => {});
+    }
+  }, [productId]);
 
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [quantity, setQuantity] = useState(1);
@@ -98,6 +110,18 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
     },
   ]);
 
+  const [modal, setModal] = useState<{
+    visible: boolean;
+    type: AlertModalType;
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
+
   const handleAddReview = () => {
     if (!reviewText.trim()) return;
     const newRev = {
@@ -108,18 +132,35 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
     };
     setReviewsList([newRev, ...reviewsList]);
     setReviewText('');
-    Alert.alert('Review Submitted', 'Thank you for reviewing this refurbished product!');
+    setModal({
+      visible: true,
+      type: 'success',
+      title: 'Review Submitted',
+      message: 'Thank you for reviewing this refurbished product!',
+    });
   };
 
   const handleAddToCart = () => {
-    Alert.alert('Added to Cart', `${product.name} (Qty: ${quantity}) has been added to your cart.`);
+    setModal({
+      visible: true,
+      type: 'success',
+      title: 'Added to Cart',
+      message: `${product?.name || 'Item'} (Qty: ${quantity}) has been added to your cart.`,
+    });
   };
 
   const handleBuyNow = () => {
     try {
       navigation.navigate('Checkout', {
-        items: [{ product, quantity }],
-        totalPrice: product.price * quantity,
+        cartItems: [{
+          id: product?.id || 'refurb-item',
+          productId: product?.id,
+          title: product?.name || 'Refurbished Device',
+          price: product?.price || 0,
+          quantity,
+          image: product?.image,
+        }],
+        total: (product?.price ?? 0) * quantity,
       });
     } catch {
       handleAddToCart();
@@ -496,7 +537,7 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
             <Text style={[styles.overallTitle, { color: colors.primary }]}>
               Overall -{' '}
               <Text style={{ fontFamily: fonts.regular, color: colors.text }}>
-                {gradeInfo.overall}
+                {gradeInfo?.overall || ''}
               </Text>
             </Text>
           </View>
@@ -508,7 +549,7 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
               <Text style={[styles.gradeSubTitle, { color: colors.text }]}>
                 Screen Glass -{' '}
                 <Text style={{ fontFamily: fonts.regular, color: colors.textMuted }}>
-                  {gradeInfo.screenGlass}
+                  {gradeInfo?.screenGlass || ''}
                 </Text>
               </Text>
             </View>
@@ -541,7 +582,7 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
               <Text style={[styles.gradeSubTitle, { color: colors.text }]}>
                 Display -{' '}
                 <Text style={{ fontFamily: fonts.regular, color: colors.textMuted }}>
-                  {gradeInfo.display}
+                  {gradeInfo?.display || ''}
                 </Text>
               </Text>
             </View>
@@ -574,7 +615,7 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
               <Text style={[styles.gradeSubTitle, { color: colors.text }]}>
                 Body -{' '}
                 <Text style={{ fontFamily: fonts.regular, color: colors.textMuted }}>
-                  {gradeInfo.body}
+                  {gradeInfo?.body || ''}
                 </Text>
               </Text>
             </View>
@@ -730,7 +771,14 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
 
             <View style={styles.mediaButtonsRow}>
               <TouchableOpacity
-                onPress={() => Alert.alert('Add Photo', 'Camera opened to attach product photo.')}
+                onPress={() =>
+                  setModal({
+                    visible: true,
+                    type: 'info',
+                    title: 'Attach Photo',
+                    message: 'Photo attachment dialog opened.',
+                  })
+                }
                 style={[
                   styles.addMediaBtn,
                   { backgroundColor: colors.surfaceAlt, borderColor: colors.border + '33' },
@@ -740,7 +788,14 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
               </TouchableOpacity>
 
               <TouchableOpacity
-                onPress={() => Alert.alert('Add Video', 'Gallery opened to attach product video.')}
+                onPress={() =>
+                  setModal({
+                    visible: true,
+                    type: 'info',
+                    title: 'Attach Video',
+                    message: 'Video attachment dialog opened.',
+                  })
+                }
                 style={[
                   styles.addMediaBtn,
                   { backgroundColor: colors.surfaceAlt, borderColor: colors.border + '33' },
@@ -769,11 +824,11 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
                 <View style={styles.reviewUserRow}>
                   <View style={[styles.reviewerAvatar, { backgroundColor: colors.primary + '22' }]}>
                     <Text style={[styles.reviewerInitials, { color: colors.primary }]}>
-                      {item.name.charAt(0)}
+                      {item?.name ? item.name.charAt(0) : 'U'}
                     </Text>
                   </View>
                   <View style={styles.reviewerMeta}>
-                    <Text style={[styles.reviewerName, { color: colors.text }]}>{item.name}</Text>
+                    <Text style={[styles.reviewerName, { color: colors.text }]}>{item?.name || 'User'}</Text>
                     <View style={styles.smallStars}>
                       {[1, 2, 3, 4, 5].map(s => (
                         <Icon key={s} source={starFilled} size={12} color="#F59E0B" />
@@ -782,7 +837,7 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
                   </View>
                 </View>
                 <Text style={[styles.reviewComment, { color: colors.textMuted }]}>
-                  {item.comment}
+                  {item?.comment || ''}
                 </Text>
               </View>
             ))}
@@ -798,29 +853,31 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.relatedScroll}>
-            {REFURBISHED_PRODUCTS.filter(p => p.id !== product.id).map(rel => (
-              <TouchableOpacity
-                key={rel.id}
-                onPress={() =>
-                  navigation.push('RefurbishedProductDetail', { productId: rel.id, product: rel })
-                }
-                style={[
-                  styles.relatedCard,
-                  { backgroundColor: colors.surface, borderColor: colors.border + '44' },
-                ]}>
-                <Image
-                  source={rel.image || demoProductPhoto}
-                  style={styles.relatedImg}
-                  resizeMode="contain"
-                />
-                <Text style={[styles.relatedTitle, { color: colors.text }]} numberOfLines={1}>
-                  {rel.name}
-                </Text>
-                <Text style={[styles.relatedPrice, { color: colors.primary }]}>
-                  ${rel.price}.00
-                </Text>
-              </TouchableOpacity>
-            ))}
+            {(REFURBISHED_PRODUCTS || [])
+              .filter(p => p?.id !== product?.id)
+              .map(rel => (
+                <TouchableOpacity
+                  key={rel?.id}
+                  onPress={() =>
+                    navigation.push('RefurbishedProductDetail', { productId: rel?.id, product: rel })
+                  }
+                  style={[
+                    styles.relatedCard,
+                    { backgroundColor: colors.surface, borderColor: colors.border + '44' },
+                  ]}>
+                  <Image
+                    source={rel?.image || demoProductPhoto}
+                    style={styles.relatedImg}
+                    resizeMode="contain"
+                  />
+                  <Text style={[styles.relatedTitle, { color: colors.text }]} numberOfLines={1}>
+                    {rel?.name || ''}
+                  </Text>
+                  <Text style={[styles.relatedPrice, { color: colors.primary }]}>
+                    ${rel?.price ?? 0}.00
+                  </Text>
+                </TouchableOpacity>
+              ))}
           </ScrollView>
         </View>
       </ScrollView>
@@ -828,10 +885,15 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
       {/* Ask Platform Modal */}
       <AskPlatformModal
         visible={askModalVisible}
-        productName={product.name}
+        productName={product?.name || 'Refurbished Device'}
         onClose={() => setAskModalVisible(false)}
-        onSend={(subj, msg) => {
-          Alert.alert('Inquiry Sent', `Your query regarding "${subj}" has been forwarded.`);
+        onSend={(subj, _msg) => {
+          setModal({
+            visible: true,
+            type: 'success',
+            title: 'Inquiry Sent',
+            message: `Your query regarding "${subj}" has been forwarded to our support team.`,
+          });
         }}
       />
 
@@ -840,6 +902,14 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
         visible={filterModalVisible}
         onClose={() => setFilterModalVisible(false)}
         onApply={filters => navigation.navigate('AllGadgets', { appliedFilters: filters })}
+      />
+
+      <AlertModal
+        visible={modal.visible}
+        type={modal.type}
+        title={modal.title}
+        message={modal.message}
+        onClose={() => setModal(prev => ({ ...prev, visible: false }))}
       />
     </View>
   );

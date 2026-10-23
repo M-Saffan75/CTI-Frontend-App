@@ -1,10 +1,21 @@
-import { useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Image,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
 import Button from '@/components/Button';
 import ConfirmModal from '@/components/ConfirmModal';
+import AlertModal from '@/components/AlertModal';
 import Squeeze from '@/components/Squeeze';
 import { FadeUp } from '@/animations';
 import {
@@ -20,11 +31,17 @@ import { ctiLogo } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
 import { badges } from '@/theme/colors';
 import { fonts } from '@/theme/fonts';
-import { ORDERS, RETURNS, SHIPPING_ADDRESS } from '../data/orders';
+import { RETURNS, SHIPPING_ADDRESS } from '../data/orders';
+import {
+  getCustomerOrders,
+  getCustomerReturnsApi,
+  cancelCustomerOrder,
+  MobileOrder,
+} from '../services/orderApi';
 
-const money = n => `$${n.toFixed(2)}`;
+const money = (n: number) => `$${Number(n || 0).toFixed(2)}`;
 
-function StatusPill({ label, badge }) {
+function StatusPill({ label, badge }: { label: string; badge: { bg: string; text: string } }) {
   return (
     <View style={[styles.pill, { backgroundColor: badge.bg }]}>
       <Text style={[styles.pillText, { color: badge.text }]}>{label}</Text>
@@ -32,10 +49,26 @@ function StatusPill({ label, badge }) {
   );
 }
 
-function OrderCard({ order, index, onViewAll }) {
+function OrderCard({
+  order,
+  index,
+  onViewAll,
+}: {
+  order: MobileOrder;
+  index: number;
+  onViewAll: () => void;
+}) {
   const { colors } = useTheme();
   // The design shows the first card open and the rest collapsed.
   const [open, setOpen] = useState(index === 0);
+
+  const getStatusBadge = (status: string) => {
+    const s = (status || '').toLowerCase();
+    if (s.includes('deliver') || s.includes('paid') || s.includes('success')) return badges.accepted;
+    if (s.includes('cancel') || s.includes('fail')) return badges.dispute;
+    if (s.includes('shipp')) return badges.booked;
+    return badges.inProgress;
+  };
 
   return (
     <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -56,8 +89,8 @@ function OrderCard({ order, index, onViewAll }) {
       <Text style={[styles.orderNo, { color: colors.textMuted }]}>{order.orderNo}</Text>
 
       <View style={styles.tags}>
-        <StatusPill label={order.statusTag} badge={badges.inProgress} />
-        <StatusPill label={order.paymentTag} badge={badges.accepted} />
+        <StatusPill label={order.statusTag} badge={getStatusBadge(order.statusTag)} />
+        <StatusPill label={order.paymentTag} badge={getStatusBadge(order.paymentTag)} />
       </View>
 
       <View style={[styles.divider, { backgroundColor: colors.border }]} />
@@ -70,15 +103,18 @@ function OrderCard({ order, index, onViewAll }) {
         </View>
         <View style={[styles.rowCol, styles.rowColEnd]}>
           <Text style={[styles.rowLabel, { color: colors.textMuted }]}>Item</Text>
-          <Text style={[styles.rowValue, { color: colors.text }]}>{order.itemCount} item</Text>
+          <Text style={[styles.rowValue, { color: colors.text }]}>
+            {order.itemCount} {order.itemCount === 1 ? 'item' : 'items'}
+          </Text>
         </View>
       </View>
 
       <View style={styles.row}>
         <View style={styles.rowCol}>
           <Text style={[styles.rowLabel, { color: colors.textMuted }]}>Total</Text>
-          <Text style={[styles.rowValue, { color: colors.text }]}>{order.date}</Text>
-          <Text style={[styles.rowSub, { color: colors.textMuted }]}>{order.time}</Text>
+          <Text style={[styles.rowValue, { color: colors.primary, fontFamily: fonts.bold }]}>
+            {money(order.total)}
+          </Text>
         </View>
         <View style={[styles.rowCol, styles.rowColEnd]}>
           <Text style={[styles.rowLabel, { color: colors.textMuted }]}>Payment</Text>
@@ -98,11 +134,13 @@ function OrderCard({ order, index, onViewAll }) {
                   {item.variant}
                 </Text>
                 <Text style={[styles.itemQty, { color: colors.textMuted }]}>
-                  QTY. {money(item.price)} each
+                  Qty: {item.qty} · {money(item.price)} each
                 </Text>
               </View>
               <View style={styles.itemPriceCol}>
-                <Text style={[styles.itemPrice, { color: colors.text }]}>{money(item.price)}</Text>
+                <Text style={[styles.itemPrice, { color: colors.text }]}>
+                  {money(item.price * item.qty)}
+                </Text>
                 <Text style={[styles.rowSub, { color: colors.textMuted }]}>Subtotal</Text>
               </View>
             </View>
@@ -110,14 +148,14 @@ function OrderCard({ order, index, onViewAll }) {
         </>
       )}
 
-      <Pressable onPress={onViewAll} hitSlop={6}>
-        <Text style={[styles.viewAll, { color: colors.primary }]}>View all  →</Text>
+      <Pressable onPress={onViewAll} hitSlop={6} style={{ marginTop: 8 }}>
+        <Text style={[styles.viewAll, { color: colors.primary }]}>View details & tracking →</Text>
       </Pressable>
     </View>
   );
 }
 
-function ReturnCard({ item, onViewAll }) {
+function ReturnCard({ item, onViewAll }: { item: any; onViewAll: () => void }) {
   const { colors } = useTheme();
 
   return (
@@ -142,14 +180,105 @@ function ReturnCard({ item, onViewAll }) {
   );
 }
 
-export default function OrdersScreen({ navigation }) {
+export default function OrdersScreen({ navigation }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const [tab, setTab] = useState('orders');
+  const [tab, setTab] = useState<'orders' | 'returns'>('orders');
   const [search, setSearch] = useState('');
-  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [orders, setOrders] = useState<MobileOrder[]>([]);
+  const [returnsList, setReturnsList] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [cancellingOrder, setCancellingOrder] = useState<MobileOrder | null>(null);
+  const [modal, setModal] = useState({
+    visible: false,
+    type: 'success' as 'success' | 'error',
+    title: '',
+    message: '',
+  });
 
-  const goToDetail = () => navigation.navigate('OrderDetail');
+  const loadOrders = async () => {
+    try {
+      const [ordersData, returnsData] = await Promise.all([
+        getCustomerOrders({ search }),
+        getCustomerReturnsApi().catch(() => []),
+      ]);
+      setOrders(ordersData);
+
+      if (Array.isArray(returnsData) && returnsData.length > 0) {
+        const mapped = returnsData.map((ret: any, idx: number) => ({
+          id: ret._id || `ret-${idx}`,
+          returnId: `RET-${(ret._id || '000000').slice(-6).toUpperCase()}`,
+          device:
+            ret.items?.[0]?.productId?.title ||
+            ret.orderId?.items?.[0]?.productId?.title ||
+            'Returned Device',
+          orderNo: ret.orderId?.orderNo || ret.orderId?.orderId || ret.orderNo || 'TRB-Order',
+          amount: Number(ret.refundAmount || ret.amount || 0),
+          date: ret.createdAt ? new Date(ret.createdAt).toLocaleDateString() : 'Recent',
+          note: ret.reason || 'Return request under processing',
+          status: (ret.returnStatus || 'Requested').toUpperCase(),
+        }));
+        setReturnsList(mapped);
+      } else {
+        setReturnsList([]);
+      }
+    } catch (err: any) {
+      console.warn('Failed to load customer orders:', err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    loadOrders();
+  }, []);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadOrders();
+  };
+
+  const filteredOrders = orders.filter(o => {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return (
+      o.orderId.toLowerCase().includes(q) ||
+      o.orderNo.toLowerCase().includes(q) ||
+      o.items.some(item => item.name.toLowerCase().includes(q))
+    );
+  });
+
+  const goToDetail = (order: MobileOrder) => {
+    navigation.navigate('OrderDetail', { orderId: order.id, order });
+  };
+
+  const handleCancelOrder = async () => {
+    if (!cancellingOrder) return;
+    try {
+      const isRefurbished = cancellingOrder.orderNo?.startsWith('REF-');
+      await cancelCustomerOrder(cancellingOrder.id, isRefurbished);
+      setCancellingOrder(null);
+      setModal({
+        visible: true,
+        type: 'success',
+        title: 'Order Cancelled',
+        message: 'Your order cancellation request was processed successfully.',
+      });
+      loadOrders();
+    } catch (err: any) {
+      setCancellingOrder(null);
+      setModal({
+        visible: true,
+        type: 'error',
+        title: 'Cancel Failed',
+        message: err.message || 'Could not cancel this order.',
+      });
+    }
+  };
+
+  const latestOrder = filteredOrders[0] || orders[0];
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -160,7 +289,10 @@ export default function OrdersScreen({ navigation }) {
       <ScrollView
         contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled">
+        keyboardShouldPersistTaps="handled"
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+        }>
         <Squeeze onPress={() => navigation.goBack()} scale={0.9} style={styles.backWrap}>
           <View style={[styles.back, { backgroundColor: colors.primary }]}>
             <Icon source={arrowLeftBold} size={20} color={colors.onPrimary} />
@@ -207,72 +339,83 @@ export default function OrdersScreen({ navigation }) {
           <TextInput
             value={search}
             onChangeText={setSearch}
-            placeholder="Search  order custom product"
+            placeholder="Search order or product"
             placeholderTextColor={colors.textMuted}
             style={[styles.searchInput, { color: colors.text }]}
           />
         </View>
 
-        {tab === 'orders' && (
-          <View style={styles.filters}>
-            {['All', 'All'].map((label, index) => (
-              <View
-                key={index}
-                style={[styles.filter, { borderColor: colors.border, backgroundColor: colors.surfaceAlt }]}>
-                <View style={[styles.filterIcon, { backgroundColor: colors.primary }]}>
-                  <Icon source={tagBold} size={11} color={colors.onPrimary} />
-                </View>
-                <Text style={[styles.filterText, { color: colors.text }]}>{label}</Text>
-                <Icon source={chevronDownBold} size={13} color={colors.textMuted} />
-              </View>
-            ))}
+        {loading ? (
+          <View style={styles.loaderWrap}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={[styles.loaderText, { color: colors.textMuted }]}>
+              Loading your orders...
+            </Text>
           </View>
-        )}
-
-        {tab === 'orders'
-          ? ORDERS.map((order, index) => (
-              <FadeUp key={order.id} delay={80 + index * 60} duration={500} style={styles.cardWrap}>
-                <OrderCard order={order} index={index} onViewAll={goToDetail} />
+        ) : tab === 'orders' ? (
+          filteredOrders.length === 0 ? (
+            <View style={styles.emptyWrap}>
+              <Icon source={packageBold} size={42} color={colors.textMuted} />
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>No Orders Found</Text>
+              <Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>
+                {search ? 'No orders match your search filter.' : 'You have not placed any orders yet.'}
+              </Text>
+            </View>
+          ) : (
+            filteredOrders.map((order, index) => (
+              <FadeUp key={order.id} delay={60 + index * 50} duration={400} style={styles.cardWrap}>
+                <OrderCard order={order} index={index} onViewAll={() => goToDetail(order)} />
               </FadeUp>
             ))
-          : RETURNS.map((item, index) => (
-              <FadeUp key={item.id} delay={80 + index * 60} duration={500} style={styles.cardWrap}>
-                <ReturnCard item={item} onViewAll={goToDetail} />
-              </FadeUp>
-            ))}
+          )
+        ) : returnsList.length === 0 ? (
+          <View style={styles.emptyWrap}>
+            <Icon source={packageBold} size={42} color={colors.textMuted} />
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>No Return Requests</Text>
+            <Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>
+              You have not submitted any return requests yet.
+            </Text>
+          </View>
+        ) : (
+          returnsList.map((item, index) => (
+            <FadeUp key={item.id} delay={60 + index * 50} duration={400} style={styles.cardWrap}>
+              <ReturnCard item={item} onViewAll={() => {}} />
+            </FadeUp>
+          ))
+        )}
 
-        {tab === 'orders' && (
-          <FadeUp delay={80 + ORDERS.length * 60} duration={500} style={styles.cardWrap}>
+        {tab === 'orders' && latestOrder && (
+          <FadeUp delay={100} duration={500} style={styles.cardWrap}>
             <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <View style={styles.summaryHead}>
                 <Icon source={mapPinBold} size={16} color={colors.text} />
                 <Text style={[styles.sectionTitle, { color: colors.text, marginTop: 0 }]}>
-                  shipping Address
+                  Shipping Address
                 </Text>
               </View>
-              <Text style={[styles.text, { color: colors.textMuted }]}>{SHIPPING_ADDRESS}</Text>
+              <Text style={[styles.text, { color: colors.textMuted }]}>
+                {latestOrder.shippingAddress || SHIPPING_ADDRESS}
+              </Text>
 
               <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
               <View style={styles.summaryHead}>
                 <Icon source={tagBold} size={16} color={colors.text} />
                 <Text style={[styles.sectionTitle, { color: colors.text, marginTop: 0 }]}>
-                  Price Summary
+                  Recent Order Summary
                 </Text>
               </View>
               <View style={styles.row}>
-                <Text style={[styles.text, { color: colors.textMuted, marginTop: 0 }]}>
-                  Subtatal
-                </Text>
+                <Text style={[styles.text, { color: colors.textMuted, marginTop: 0 }]}>Subtotal</Text>
                 <Text style={[styles.text, { color: colors.text, marginTop: 0 }]}>
-                  {money(ORDERS[0].total)}
+                  {money(latestOrder.subtotal || latestOrder.total)}
                 </Text>
               </View>
               <View style={[styles.divider, { backgroundColor: colors.border }]} />
               <View style={styles.row}>
                 <Text style={[styles.rowValue, { color: colors.text }]}>Total</Text>
-                <Text style={[styles.rowValue, { color: colors.text }]}>
-                  {money(ORDERS[0].total)}
+                <Text style={[styles.rowValue, { color: colors.primary, fontFamily: fonts.bold }]}>
+                  {money(latestOrder.total)}
                 </Text>
               </View>
 
@@ -280,11 +423,12 @@ export default function OrdersScreen({ navigation }) {
                 <Button
                   title="Cancel Order"
                   size="sm"
-                  onPress={() => setConfirmCancel(true)}
+                  variant="outline"
+                  onPress={() => setCancellingOrder(latestOrder)}
                   style={styles.summaryAction}
                 />
                 <Button
-                  title="Returns order"
+                  title="Returns"
                   variant="soft"
                   color={colors.error}
                   size="sm"
@@ -298,14 +442,22 @@ export default function OrdersScreen({ navigation }) {
       </ScrollView>
 
       <ConfirmModal
-        visible={confirmCancel}
+        visible={Boolean(cancellingOrder)}
         title="Cancel Order"
-        message="Are you sure you want to cancel this order?"
+        message={`Are you sure you want to cancel order ${cancellingOrder?.orderNo || ''}?`}
         cancelText="Not now"
-        confirmText="Cancel Order"
+        confirmText="Yes, Cancel Order"
         danger
-        onCancel={() => setConfirmCancel(false)}
-        onConfirm={() => setConfirmCancel(false)}
+        onCancel={() => setCancellingOrder(null)}
+        onConfirm={handleCancelOrder}
+      />
+
+      <AlertModal
+        visible={modal.visible}
+        type={modal.type}
+        title={modal.title}
+        message={modal.message}
+        onClose={() => setModal(m => ({ ...m, visible: false }))}
       />
     </View>
   );
@@ -407,4 +559,10 @@ const styles = StyleSheet.create({
 
   summaryActions: { flexDirection: 'row', gap: 12, marginTop: 18 },
   summaryAction: { flex: 1 },
+
+  loaderWrap: { paddingVertical: 40, alignItems: 'center', justifyContent: 'center' },
+  loaderText: { fontFamily: fonts.regular, fontSize: 13, marginTop: 10 },
+  emptyWrap: { paddingVertical: 40, alignItems: 'center', justifyContent: 'center', gap: 6 },
+  emptyTitle: { fontFamily: fonts.bold, fontSize: 16, marginTop: 8 },
+  emptySubtitle: { fontFamily: fonts.regular, fontSize: 12, textAlign: 'center', paddingHorizontal: 20 },
 });

@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Image,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -17,6 +18,7 @@ import { searchBold } from '@/assets/icons';
 import { dummyProfileExtra } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import { fetchSellerQueriesApi } from '@/roles/Seller/services/sellerApi';
 
 interface EnquiryCardItem {
   id: string;
@@ -75,8 +77,42 @@ export default function EnquiriesScreen({ navigation }: any) {
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [activeTab, setActiveTab] = useState<'Product Queries' | 'Order Queries'>('Product Queries');
   const [searchQuery, setSearchQuery] = useState('');
+  const [enquiries, setEnquiries] = useState<EnquiryCardItem[]>(MOCK_ENQUIRIES);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const filteredEnquiries = MOCK_ENQUIRIES.filter(item => {
+  const loadQueries = useCallback(async () => {
+    try {
+      const data = await fetchSellerQueriesApi(selectedStatus);
+      if (data && data.length > 0) {
+        setEnquiries(
+          data.map((q: any) => ({
+            id: q._id || q.id,
+            queryId: q.queryNo || q.queryId || 'QRY-000001',
+            customerName: q.customer?.name || q.customerName || 'Customer',
+            question: q.message || q.question || 'Product enquiry',
+            date: q.createdAt ? new Date(q.createdAt).toLocaleDateString() : 'Today',
+            status: q.status || 'Open',
+            statusColor: q.status === 'Open' ? '#EF4444' : q.status === 'Replied' ? '#10B981' : '#6B7280',
+            type: q.type || 'Product',
+          }))
+        );
+      }
+    } catch {
+      // Keep initial
+    }
+  }, [selectedStatus]);
+
+  useEffect(() => {
+    loadQueries();
+  }, [loadQueries]);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadQueries();
+    setRefreshing(false);
+  };
+
+  const filteredEnquiries = enquiries.filter(item => {
     if (activeTab === 'Product Queries' && item.type !== 'Product') return false;
     if (activeTab === 'Order Queries' && item.type !== 'Order') return false;
     if (selectedStatus === 'open' && item.status !== 'Open') return false;
@@ -105,7 +141,8 @@ export default function EnquiriesScreen({ navigation }: any) {
   return (
     <ScrollView
       contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 40 }]}
-      showsVerticalScrollIndicator={false}>
+      showsVerticalScrollIndicator={false}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />}>
       {/* Top Search Bar & Refresh Button matching Enquiries screen.png */}
       <FadeUp delay={30} duration={300}>
         <View style={styles.topSearchRow}>
@@ -124,6 +161,7 @@ export default function EnquiriesScreen({ navigation }: any) {
             />
           </View>
           <TouchableOpacity
+            onPress={onRefresh}
             style={[
               styles.refreshBtn,
               { backgroundColor: colors.surface, borderColor: colors.border },

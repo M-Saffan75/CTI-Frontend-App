@@ -1,4 +1,5 @@
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Button from '@/components/Button';
@@ -8,6 +9,7 @@ import { fonts } from '@/theme/fonts';
 import EarningsLineChart from '../components/EarningsLineChart';
 import JobDonutChart from '../components/JobDonutChart';
 import { BOOKINGS, EARNINGS_CHART, JOB_DISTRIBUTION, JOB_DISTRIBUTION_TOTAL, STATS } from '../data/dashboard';
+import repairmanApi from '@/roles/Repairman/api/repairmanApi';
 
 const STATUS_COLORS = {
   Confirmed: 'success',
@@ -67,69 +69,113 @@ function BookingCard({ booking }) {
 export default function DashboardContent() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const [refreshing, setRefreshing] = useState(false);
+  const [stats, setStats] = useState(STATS);
+  const [earningsChart, setEarningsChart] = useState(EARNINGS_CHART);
+  const [jobDistribution, setJobDistribution] = useState(JOB_DISTRIBUTION);
+  const [jobTotal, setJobTotal] = useState(JOB_DISTRIBUTION_TOTAL);
+
+  const loadData = useCallback(async () => {
+    try {
+      const [earningsRes, distRes] = await Promise.all([
+        repairmanApi.getEarningsAnalytics(),
+        repairmanApi.getJobDistribution(),
+      ]);
+
+      if (earningsRes?.points && earningsRes.points.length > 0) {
+        setEarningsChart(earningsRes.points);
+      }
+      if (distRes?.distribution && distRes.distribution.length > 0) {
+        const formatted = distRes.distribution.map((d: any) => ({
+          label: d.label,
+          value: Number(d.value ?? d.count ?? 0),
+          color: d.color || '#3B82F6',
+        }));
+        setJobDistribution(formatted);
+        setJobTotal(distRes.total || formatted.reduce((acc: number, cur: any) => acc + (cur.value || 0), 0));
+        setStats(prev => ({
+          ...prev,
+          totalJobs: Number(distRes.total || prev.totalJobs),
+        }));
+      }
+    } catch (err) {
+      // Fallback preserved
+    }
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadData();
+    setRefreshing(false);
+  };
 
   return (
-      <ScrollView
-        contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
-        showsVerticalScrollIndicator={false}>
-        <FadeUp delay={60} duration={500}>
-          <View style={styles.statsRow}>
-            <StatCard label="Total Jobs" value={STATS.totalJobs} />
-            <StatCard label="Active Jobs" value={STATS.activeJobs} />
-          </View>
-        </FadeUp>
+    <ScrollView
+      contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
+      showsVerticalScrollIndicator={false}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />}>
+      <FadeUp delay={60} duration={500}>
+        <View style={styles.statsRow}>
+          <StatCard label="Total Jobs" value={stats.totalJobs} />
+          <StatCard label="Active Jobs" value={stats.activeJobs} />
+        </View>
+      </FadeUp>
 
-        <FadeUp delay={110} duration={500}>
-          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={styles.cardHead}>
-              <Text style={[styles.cardTitle, { color: colors.text }]}>Earnings Analytics</Text>
-              <View style={[styles.pill, { backgroundColor: colors.surfaceAlt }]}>
-                <Text style={[styles.pillText, { color: colors.textMuted }]}>7 Days</Text>
+      <FadeUp delay={110} duration={500}>
+        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={styles.cardHead}>
+            <Text style={[styles.cardTitle, { color: colors.text }]}>Earnings Analytics</Text>
+            <View style={[styles.pill, { backgroundColor: colors.surfaceAlt }]}>
+              <Text style={[styles.pillText, { color: colors.textMuted }]}>7 Days</Text>
+            </View>
+          </View>
+          <EarningsLineChart data={earningsChart} />
+        </View>
+      </FadeUp>
+
+      <FadeUp delay={160} duration={500}>
+        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={styles.cardHead}>
+            <Text style={[styles.cardTitle, { color: colors.text }]}>Job Distribution</Text>
+            <View style={[styles.pill, { backgroundColor: colors.surfaceAlt }]}>
+              <Text style={[styles.pillText, { color: colors.textMuted }]}>Last Month</Text>
+            </View>
+          </View>
+
+          <JobDonutChart data={jobDistribution} total={jobTotal} label="Total Jobs" />
+
+          <View style={styles.legend}>
+            {jobDistribution.map(slice => (
+              <View key={slice.label} style={styles.legendRow}>
+                <View style={[styles.legendDot, { backgroundColor: slice.color }]} />
+                <Text style={[styles.legendText, { color: colors.textMuted }]}>{slice.label}</Text>
               </View>
-            </View>
-            <EarningsLineChart data={EARNINGS_CHART} />
+            ))}
           </View>
-        </FadeUp>
+        </View>
+      </FadeUp>
 
-        <FadeUp delay={160} duration={500}>
-          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={styles.cardHead}>
-              <Text style={[styles.cardTitle, { color: colors.text }]}>Job Distribution</Text>
-              <View style={[styles.pill, { backgroundColor: colors.surfaceAlt }]}>
-                <Text style={[styles.pillText, { color: colors.textMuted }]}>Last Month</Text>
-              </View>
-            </View>
-
-            <JobDonutChart data={JOB_DISTRIBUTION} total={JOB_DISTRIBUTION_TOTAL} label="Total Jobs" />
-
-            <View style={styles.legend}>
-              {JOB_DISTRIBUTION.map(slice => (
-                <View key={slice.label} style={styles.legendRow}>
-                  <View style={[styles.legendDot, { backgroundColor: slice.color }]} />
-                  <Text style={[styles.legendText, { color: colors.textMuted }]}>{slice.label}</Text>
-                </View>
-              ))}
+      <FadeUp delay={210} duration={500}>
+        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={styles.cardHead}>
+            <Text style={[styles.cardTitle, { color: colors.text }]}>Bookings</Text>
+            <View style={[styles.pill, { backgroundColor: colors.surfaceAlt }]}>
+              <Text style={[styles.pillText, { color: colors.textMuted }]}>{BOOKINGS.length} Total</Text>
             </View>
           </View>
-        </FadeUp>
 
-        <FadeUp delay={210} duration={500}>
-          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={styles.cardHead}>
-              <Text style={[styles.cardTitle, { color: colors.text }]}>Bookings</Text>
-              <View style={[styles.pill, { backgroundColor: colors.surfaceAlt }]}>
-                <Text style={[styles.pillText, { color: colors.textMuted }]}>{BOOKINGS.length} Total</Text>
-              </View>
-            </View>
-
-            <View style={styles.bookingsList}>
-              {BOOKINGS.map(booking => (
-                <BookingCard key={booking.id} booking={booking} />
-              ))}
-            </View>
+          <View style={styles.bookingsList}>
+            {BOOKINGS.map(booking => (
+              <BookingCard key={booking.id} booking={booking} />
+            ))}
           </View>
-        </FadeUp>
-      </ScrollView>
+        </View>
+      </FadeUp>
+    </ScrollView>
   );
 }
 

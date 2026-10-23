@@ -1,15 +1,19 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import {
   calendarBold,
@@ -19,6 +23,11 @@ import {
 } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import {
+  fetchSellerOrdersApi,
+  updateSellerOrderStatusApi,
+  SellerOrderItem,
+} from '@/roles/Seller/services/sellerApi';
 
 const STATUS_OPTIONS = [
   'All Order',
@@ -74,12 +83,103 @@ const ORDERS = [
   },
 ];
 
-export default function OrderManagementScreen({ navigation }) {
+export default function OrderManagementScreen({ navigation }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [selectedStatus, setSelectedStatus] = useState('All statuses');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+
+  const [orders, setOrders] = useState<SellerOrderItem[]>(ORDERS as any);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // AlertModal State
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    type: AlertModalType;
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
+
+  const loadOrders = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+
+    try {
+      const res = await fetchSellerOrdersApi({
+        status: selectedStatus !== 'All statuses' && selectedStatus !== 'All Order' ? selectedStatus : undefined,
+        search: searchQuery.trim() || undefined,
+      });
+
+      if (res.orders && res.orders.length > 0) {
+        setOrders(res.orders);
+      } else if (!searchQuery && selectedStatus === 'All statuses') {
+        setOrders(ORDERS as any);
+      } else {
+        setOrders([]);
+      }
+    } catch {
+      setOrders(ORDERS as any);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [searchQuery, selectedStatus]);
+
+  useEffect(() => {
+    loadOrders();
+  }, [loadOrders]);
+
+  const handleUpdateStatus = async (order: SellerOrderItem) => {
+    const nextStatus =
+      order.status.toLowerCase() === 'pending'
+        ? 'Processing'
+        : order.status.toLowerCase() === 'processing'
+        ? 'Shipped'
+        : order.status.toLowerCase() === 'shipped'
+        ? 'Delivered'
+        : 'Completed';
+
+    if (nextStatus === 'Completed') {
+      setAlertConfig({
+        visible: true,
+        type: 'info',
+        title: 'Order Completed',
+        message: `Order ${order.orderNumber} is already marked as Delivered.`,
+      });
+      return;
+    }
+
+    try {
+      // Optimistic update
+      setOrders(prev =>
+        prev.map(o => (o.id === order.id ? { ...o, status: nextStatus } : o)),
+      );
+
+      await updateSellerOrderStatusApi(order.id, nextStatus);
+
+      setAlertConfig({
+        visible: true,
+        type: 'success',
+        title: 'Status Updated',
+        message: `Order ${order.orderNumber} status changed to ${nextStatus}.`,
+      });
+    } catch (e: any) {
+      loadOrders();
+      setAlertConfig({
+        visible: true,
+        type: 'error',
+        title: 'Update Failed',
+        message: e?.response?.data?.message || 'Could not update order status right now.',
+      });
+    }
+  };
 
   const getBadgeColors = (status: string) => {
     switch (status.toLowerCase()) {
@@ -95,7 +195,7 @@ export default function OrderManagementScreen({ navigation }) {
     }
   };
 
-  const filteredOrders = ORDERS.filter(order => {
+  const filteredOrders = orders.filter(order => {
     const matchesSearch =
       order.customer.toLowerCase().includes(searchQuery.toLowerCase()) ||
       order.item.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -111,9 +211,18 @@ export default function OrderManagementScreen({ navigation }) {
   });
 
   return (
-    <ScrollView
-      contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 40 }]}
-      showsVerticalScrollIndicator={false}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <ScrollView
+        contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 40 }]}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => loadOrders(true)}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }>
       {/* Title & Subtitle */}
       <FadeUp delay={20} duration={300}>
         <View style={styles.topHeader}>
@@ -259,9 +368,12 @@ export default function OrderManagementScreen({ navigation }) {
                 <View style={[styles.orderCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                   <View style={styles.cardHeaderRow}>
                     <Text style={[styles.trackingId, { color: colors.text }]}>{order.trackingId}</Text>
-                    <View style={[styles.deliveredBadge, { backgroundColor: badge.bg }]}>
-                      <Text style={[styles.deliveredBadgeText, { color: badge.text }]}>{order.status}</Text>
-                    </View>
+                    <TouchableOpacity
+                      onPress={() => handleUpdateStatus(order)}
+                      activeOpacity={0.7}
+                      style={[styles.deliveredBadge, { backgroundColor: badge.bg }]}>
+                      <Text style={[styles.deliveredBadgeText, { color: badge.text }]}>{order.status} ✎</Text>
+                    </TouchableOpacity>
                   </View>
 
                   <Text style={[styles.orderSubNum, { color: colors.textMuted }]}>
@@ -299,6 +411,16 @@ export default function OrderManagementScreen({ navigation }) {
         )}
       </View>
     </ScrollView>
+
+    {/* Alert Modal */}
+    <AlertModal
+      visible={alertConfig.visible}
+      type={alertConfig.type}
+      title={alertConfig.title}
+      message={alertConfig.message}
+      onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
+    />
+  </View>
   );
 }
 

@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Dimensions,
   Image,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -35,6 +36,7 @@ import {
   REFURBISHED_TESTIMONIALS,
   RefurbishedProduct,
 } from '../data/refurbishedData';
+import { getTopSellingProducts } from '../services/refurbishedApi';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = (SCREEN_WIDTH - 44) / 2;
@@ -46,6 +48,29 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [wishlist, setWishlist] = useState<string[]>([]);
+  const [productsList, setProductsList] = useState<RefurbishedProduct[]>(REFURBISHED_PRODUCTS);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadLiveData = async () => {
+    try {
+      const live = await getTopSellingProducts();
+      if (Array.isArray(live) && live.length > 0) {
+        setProductsList(live);
+      }
+    } catch (e) {
+      // Retain fallback data seamlessly
+    }
+  };
+
+  useEffect(() => {
+    loadLiveData();
+  }, []);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadLiveData();
+    setRefreshing(false);
+  };
 
   const toggleWishlist = (id: string) => {
     if (wishlist.includes(id)) {
@@ -167,6 +192,14 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        }
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 40 }]}>
         {/* Search Bar */}
         <View
@@ -287,7 +320,7 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
           </TouchableOpacity>
         </View>
         <View style={styles.productsGrid}>
-          {REFURBISHED_PRODUCTS.slice(0, 4).map((item, idx) => renderProductCard(item, idx))}
+          {(productsList || []).slice(0, 4).map((item, idx) => renderProductCard(item, idx))}
         </View>
 
         {/* Section: Top Selling Phone */}
@@ -301,7 +334,8 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
           </TouchableOpacity>
         </View>
         <View style={styles.productsGrid}>
-          {REFURBISHED_PRODUCTS.filter(p => p.category === 'Sell Phone' || p.category === 'Earbuds')
+          {(productsList || [])
+            .filter(p => p?.category === 'Sell Phone' || p?.category === 'Earbuds')
             .slice(0, 2)
             .map((item, idx) => renderProductCard(item, idx + 4))}
         </View>
@@ -317,8 +351,9 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
           </TouchableOpacity>
         </View>
         <View style={styles.productsGrid}>
-          {REFURBISHED_PRODUCTS.filter(p => p.category === 'Laptop' || p.brand === 'Hp')
-            .concat(REFURBISHED_PRODUCTS.slice(0, 1))
+          {(productsList || [])
+            .filter(p => p?.category === 'Laptop' || p?.brand === 'Hp')
+            .concat((productsList || []).slice(0, 1))
             .slice(0, 2)
             .map((item, idx) => renderProductCard(item, idx + 6))}
         </View>
@@ -336,8 +371,9 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
           </TouchableOpacity>
         </View>
         <View style={styles.productsGrid}>
-          {REFURBISHED_PRODUCTS.filter(p => p.category === 'Smart watches')
-            .concat(REFURBISHED_PRODUCTS.slice(1, 2))
+          {(productsList || [])
+            .filter(p => p?.category === 'Smart watches')
+            .concat((productsList || []).slice(1, 2))
             .slice(0, 2)
             .map((item, idx) => renderProductCard(item, idx + 8))}
         </View>
@@ -355,8 +391,9 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
           </TouchableOpacity>
         </View>
         <View style={styles.productsGrid}>
-          {REFURBISHED_PRODUCTS.filter(p => p.category === 'Gaming Console')
-            .concat(REFURBISHED_PRODUCTS.slice(0, 1))
+          {(productsList || [])
+            .filter(p => p?.category === 'Gaming Console')
+            .concat((productsList || []).slice(0, 1))
             .slice(0, 2)
             .map((item, idx) => renderProductCard(item, idx + 10))}
         </View>
@@ -371,9 +408,9 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.testimonialsScroll}>
-            {REFURBISHED_TESTIMONIALS.map(t => (
+            {(REFURBISHED_TESTIMONIALS || []).map(t => (
               <View
-                key={t.id}
+                key={t?.id}
                 style={[
                   styles.testimonialCard,
                   {
@@ -383,16 +420,16 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
                 ]}>
                 <Text style={[styles.quoteMark, { color: colors.primary }]}>“</Text>
                 <Text style={[styles.testimonialFeedback, { color: colors.text }]}>
-                  {t.feedback}
+                  {t?.feedback || ''}
                 </Text>
                 <View style={styles.testimonialUserRow}>
                   <View style={[styles.avatarCircle, { backgroundColor: colors.primary + '22' }]}>
                     <Text style={[styles.avatarText, { color: colors.primary }]}>
-                      {t.name.charAt(0)}
+                      {t?.name ? t.name.charAt(0) : 'U'}
                     </Text>
                   </View>
                   <Text style={[styles.testimonialUserName, { color: colors.text }]}>
-                    {t.name}
+                    {t?.name || 'Customer'}
                   </Text>
                 </View>
               </View>

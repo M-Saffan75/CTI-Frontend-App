@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import {
-  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,6 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Button from '@/components/Button';
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
@@ -71,14 +71,31 @@ const HISTORY_ITEMS = [
   },
 ];
 
-export default function ImportExportScreen({ navigation }) {
+export default function ImportExportScreen({ navigation }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [activeSubTab, setActiveSubTab] = useState('Export'); // 'Export' | 'Import' | 'History'
   const [importStep, setImportStep] = useState('1 Required');
 
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    type: AlertModalType;
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
+
   const handleExport = () => {
-    Alert.alert('Export Started', '21 products export has been scheduled.');
+    setAlertConfig({
+      visible: true,
+      type: 'success',
+      title: 'Export Started',
+      message: 'Product catalog export has been scheduled. Your CSV file will be ready to download shortly.',
+    });
   };
 
   return (
@@ -357,6 +374,15 @@ export default function ImportExportScreen({ navigation }) {
           </FadeUp>
         )}
       </ScrollView>
+
+      {/* Alert Modal */}
+      <AlertModal
+        visible={alertConfig.visible}
+        type={alertConfig.type}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
+      />
     </View>
   );
 }

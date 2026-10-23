@@ -4,14 +4,20 @@ import { StyleSheet } from 'react-native';
 import AuthLayout from '@/components/AuthLayout';
 import Button from '@/components/Button';
 import Input from '@/components/Input';
+import AlertModal from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import { validateEmailOrPhone } from '@/utils/validators';
 import { forgotPassword } from '../api/authApi';
 
-export default function ForgotPasswordScreen({ navigation }) {
+export default function ForgotPasswordScreen({ navigation }: any) {
   const [emailOrPhone, setEmailOrPhone] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [modal, setModal] = useState({
+    visible: false,
+    title: '',
+    message: '',
+  });
 
   const onSubmit = async () => {
     const message = validateEmailOrPhone(emailOrPhone);
@@ -21,7 +27,13 @@ export default function ForgotPasswordScreen({ navigation }) {
     setLoading(true);
     try {
       await forgotPassword({ emailOrPhone });
-      navigation.navigate('VerifyOtp', { next: 'ResetPassword' });
+      navigation.navigate('VerifyOtp', { email: emailOrPhone, next: 'ResetPassword' });
+    } catch (err: any) {
+      setModal({
+        visible: true,
+        title: 'Reset Request Failed',
+        message: err.message || 'Could not send reset code. Please check your email.',
+      });
     } finally {
       setLoading(false);
     }
@@ -29,7 +41,7 @@ export default function ForgotPasswordScreen({ navigation }) {
 
   return (
     <AuthLayout
-      title="Forget Password?"
+      title="Forgot Password?"
       subtitle="Enter your email or phone to reset your password">
       <FadeUp delay={150} duration={700}>
         <Input
@@ -55,6 +67,14 @@ export default function ForgotPasswordScreen({ navigation }) {
           style={styles.button}
         />
       </FadeUp>
+
+      <AlertModal
+        visible={modal.visible}
+        type="error"
+        title={modal.title}
+        message={modal.message}
+        onClose={() => setModal(m => ({ ...m, visible: false }))}
+      />
     </AuthLayout>
   );
 }

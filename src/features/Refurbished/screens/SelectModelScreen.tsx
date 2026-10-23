@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Dimensions,
   Image,
@@ -23,6 +23,7 @@ import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import RefurbishedHeader from '../components/RefurbishedHeader';
 import { SELLER_DEVICE_MODELS } from '../data/refurbishedData';
+import { getSellDeviceModels } from '../services/refurbishedApi';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = (SCREEN_WIDTH - 44) / 2;
@@ -33,13 +34,25 @@ export default function SelectModelScreen({ navigation, route }: any) {
   const brand = route?.params?.brand || 'Apple';
 
   const [searchQuery, setSearchQuery] = useState('');
-
-  const modelsList =
+  const [modelsList, setModelsList] = useState<string[]>(
     SELLER_DEVICE_MODELS?.[brand] ||
     SELLER_DEVICE_MODELS?.['Apple'] ||
-    [];
+    [],
+  );
 
-  const filteredModels = modelsList.filter(m =>
+  useEffect(() => {
+    if (brand && brand !== 'All') {
+      getSellDeviceModels(brand)
+        .then(res => {
+          if (Array.isArray(res) && res.length > 0) {
+            setModelsList(res);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [brand]);
+
+  const filteredModels = (modelsList || []).filter(m =>
     m?.toLowerCase()?.includes((searchQuery || '').toLowerCase()),
   );
 

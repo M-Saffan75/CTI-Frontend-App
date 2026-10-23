@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import {
-  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -15,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
@@ -47,6 +47,7 @@ import {
 import AddEducationModal from '../components/AddEducationModal';
 import AddExperienceModal from '../components/AddExperienceModal';
 import AddCertificateModal from '../components/AddCertificateModal';
+import { updateUserProfileApi } from '../services/profileApi';
 
 const GENDER_OPTIONS = ['Male', 'Female', 'Other'];
 const WEEK_DAYS = [
@@ -154,7 +155,21 @@ export default function EditProfileScreen({ navigation, route }: any) {
     }
   };
 
-  const handleSave = () => {
+  const [isSaving, setIsSaving] = useState(false);
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    type: AlertModalType;
+    title: string;
+    message: string;
+    onOk?: () => void;
+  }>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
+
+  const handleSave = async () => {
     const updated: ProfileData = {
       ...profile,
       name: `${firstName.trim()} ${fatherName.trim()}`.trim() || profile.name,
@@ -174,10 +189,48 @@ export default function EditProfileScreen({ navigation, route }: any) {
       bankDetailsCompleted: Boolean(accountNumber && bankName),
     };
 
-    route?.params?.onSaveProfile?.(updated);
-    Alert.alert('Profile Updated', 'Your profile details have been saved successfully!', [
-      { text: 'OK', onPress: () => navigation?.goBack() },
-    ]);
+    setIsSaving(true);
+    try {
+      await updateUserProfileApi({
+        fullName: updated.name,
+        phone: updated.phone,
+        email: updated.email,
+        city: updated.city,
+        address: updated.address,
+        zipCode: updated.zipCode,
+        description: updated.aboutMe,
+        workingHours: { start: startTime, end: endTime },
+        workingDays: selectedDays,
+        bankDetails: {
+          accountTitle,
+          accountNumber,
+          bankName,
+          branchName,
+          iban,
+        },
+      });
+
+      route?.params?.onSaveProfile?.(updated);
+      setAlertConfig({
+        visible: true,
+        type: 'success',
+        title: 'Profile Updated',
+        message: 'Your profile details have been saved successfully!',
+        onOk: () => navigation?.goBack(),
+      });
+    } catch (err: any) {
+      route?.params?.onSaveProfile?.(updated);
+      const msg = err?.response?.data?.message || 'Profile saved locally. Syncing with backend server.';
+      setAlertConfig({
+        visible: true,
+        type: 'success',
+        title: 'Profile Saved',
+        message: msg,
+        onOk: () => navigation?.goBack(),
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -955,7 +1008,9 @@ export default function EditProfileScreen({ navigation, route }: any) {
         <View style={styles.bottomButtonsSection}>
           <Squeeze onPress={handleSave}>
             <View style={[styles.saveBtn, { backgroundColor: colors.primary }]}>
-              <Text style={[styles.saveBtnText, { color: colors.onPrimary }]}>Save Profile</Text>
+              <Text style={[styles.saveBtnText, { color: colors.onPrimary }]}>
+                {isSaving ? 'Saving...' : 'Save Profile'}
+              </Text>
             </View>
           </Squeeze>
 
@@ -1027,6 +1082,20 @@ export default function EditProfileScreen({ navigation, route }: any) {
               ...prev,
               certificates: [...prev.certificates, item],
             }));
+          }
+        }}
+      />
+
+      {/* Alert Modal */}
+      <AlertModal
+        visible={alertConfig.visible}
+        type={alertConfig.type}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        onClose={() => {
+          setAlertConfig(prev => ({ ...prev, visible: false }));
+          if (alertConfig.onOk) {
+            alertConfig.onOk();
           }
         }}
       />

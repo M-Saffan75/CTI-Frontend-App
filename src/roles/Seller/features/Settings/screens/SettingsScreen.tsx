@@ -30,6 +30,7 @@ import {
   headphonesBold,
   homeBold,
   infoCircleBold,
+  lockBold,
   logOutBold,
   mobileBold,
   packageBold,
@@ -89,6 +90,7 @@ const MENU = [
       },
     ],
   },
+  { label: 'Change Password', icon: lockBold, screen: 'ChangePassword' },
   { label: 'Privacy Policy', icon: shieldBold, screen: 'PrivacyPolicy' },
   { label: 'Terms & Conditions', icon: fileBold, screen: 'Terms' },
 ];
@@ -100,20 +102,24 @@ function MenuRow({ item, depth = 0, navigation, onSelectTab, searchQuery }: any)
 
   const isChildMatched = Boolean(
     searchQuery &&
-      item.children?.some((child: any) =>
-        child.label.toLowerCase().includes(searchQuery.toLowerCase()),
+      item?.children?.some((child: any) =>
+        child?.label?.toLowerCase()?.includes(String(searchQuery).toLowerCase()),
       ),
   );
   const isOpen = open || isChildMatched;
 
   const onPress = () => {
-    if (hasChildren) {
-      setOpen(!open);
-    } else if (item.tab) {
-      onSelectTab?.(item.tab);
-      navigation?.navigate('SellerMain', { initialTab: item.tab });
-    } else if (item.screen) {
-      navigation?.navigate(item.screen, item.params);
+    try {
+      if (hasChildren) {
+        setOpen(!open);
+      } else if (item?.tab) {
+        onSelectTab?.(item.tab);
+        navigation?.navigate('SellerMain', { initialTab: item.tab });
+      } else if (item?.screen) {
+        navigation?.navigate(item.screen, item.params);
+      }
+    } catch (err) {
+      console.warn('Navigation error:', err);
     }
   };
 
@@ -153,9 +159,9 @@ function MenuRow({ item, depth = 0, navigation, onSelectTab, searchQuery }: any)
 
       {hasChildren &&
         isOpen &&
-        item.children.map((child: any) => (
+        (item?.children || []).map((child: any) => (
           <MenuRow
-            key={child.label}
+            key={child?.label || Math.random().toString()}
             item={child}
             depth={depth + 1}
             navigation={navigation}
@@ -173,14 +179,14 @@ export default function SettingsScreen({ navigation, onLogout, onSelectTab }: an
   const [search, setSearch] = useState('');
   const [confirmLogout, setConfirmLogout] = useState(false);
 
-  const query = search.trim().toLowerCase();
+  const query = (search || '').trim().toLowerCase();
   const menu = query
-    ? MENU.filter(
+    ? (MENU || []).filter(
         item =>
-          item.label.toLowerCase().includes(query) ||
-          item.children?.some((c: any) => c.label.toLowerCase().includes(query)),
+          item?.label?.toLowerCase()?.includes(query) ||
+          item?.children?.some((c: any) => c?.label?.toLowerCase()?.includes(query)),
       )
-    : MENU;
+    : (MENU || []);
 
   return (
     <View

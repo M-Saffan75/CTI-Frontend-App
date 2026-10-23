@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Image, Linking, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Image, Linking, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
@@ -27,6 +27,7 @@ import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { BLOG_SECTIONS } from '@/roles/Customer/features/Blogs/data/blogs';
 import { REPAIRMEN } from '@/roles/Customer/features/Repairmen/data/repairmen';
+import homeApi, { HomeData } from '@/services/homeApi';
 import {
   FAQS,
   FAQ_CATEGORIES,
@@ -83,25 +84,28 @@ function Header({ navigation }) {
   );
 }
 
-function Hero() {
+function Hero({ banner }: { banner?: any }) {
   const { colors } = useTheme();
+  const imgUri = banner?.image || 'https://picsum.photos/seed/cti-home-hero/700/700';
+  const title = banner?.title || 'Fast & Reliable Device Repairs';
+  const desc = banner?.description || 'Hundreds of repairs completed every month, handled by verified professionals. Book in minutes and track your repair the whole way through.';
+  const label = banner?.label || 'Trusted Repair Service';
 
   return (
     <View style={[styles.hero, { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.border }]}>
       <Image
-        source={{ uri: 'https://picsum.photos/seed/cti-home-hero/700/700' }}
+        source={{ uri: imgUri }}
         style={styles.heroImage}
       />
       <View style={[styles.heroPill, { backgroundColor: colors.onPrimary }]}>
         <View style={[styles.badgeDot, { backgroundColor: colors.primary }]} />
         <Text style={[styles.heroPillText, { color: colors.primary }]}>
-          Trusted Repair Service
+          {label}
         </Text>
       </View>
-      <Text style={[styles.heroTitle, { color: colors.text }]}>Fast &amp; Reliable Device Repairs</Text>
+      <Text style={[styles.heroTitle, { color: colors.text }]}>{title}</Text>
       <Text style={[styles.heroText, { color: colors.textMuted }]}>
-        Hundreds of repairs completed every month, handled by verified professionals. Book in
-        minutes and track your repair the whole way through.
+        {desc}
       </Text>
       <Button title="Shop Now" size="lg" style={styles.heroButton} />
     </View>
@@ -144,8 +148,15 @@ function SelectField({ label, value, style = null }) {
   );
 }
 
-function OurServices() {
+function OurServices({ liveServices }: { liveServices?: any[] }) {
   const { colors } = useTheme();
+  const servicesList = liveServices && liveServices.length > 0
+    ? liveServices.map((s, idx) => ({
+        id: s._id || String(idx),
+        label: s.name,
+        icon: s.icon,
+      }))
+    : QUICK_SERVICES;
 
   return (
     <View style={styles.section}>
@@ -157,11 +168,15 @@ function OurServices() {
         showsHorizontalScrollIndicator={false}
         style={styles.bleed}
         contentContainerStyle={styles.servicesRow}>
-        {QUICK_SERVICES.map(service => (
+        {servicesList.map((service: any) => (
           <Squeeze key={service.id}>
             <View style={styles.serviceItem}>
               <View style={[styles.serviceIcon, { backgroundColor: colors.surfaceAlt }]}>
-                <Icon source={SERVICE_ICONS[service.label]} size={26} color={colors.primary} />
+                {service.icon?.startsWith('http') ? (
+                  <Image source={{ uri: service.icon }} style={{ width: 30, height: 30, borderRadius: 6 }} resizeMode="contain" />
+                ) : (
+                  <Icon source={SERVICE_ICONS[service.label] || mobileBold} size={26} color={colors.primary} />
+                )}
               </View>
               <Text style={[styles.serviceLabel, { color: colors.text }]} numberOfLines={1}>
                 {service.label}
@@ -174,38 +189,43 @@ function OurServices() {
   );
 }
 
-function SpecialistCard({ repairman }) {
+function SpecialistCard({ repairman }: { repairman: any }) {
   const { colors } = useTheme();
+  const name = repairman.name || repairman.repairmanProfile?.fullName || 'Verified Professional';
+  const role = repairman.role || (repairman.repairmanProfile?.specializations?.[0] ?? 'Repair Specialist');
+  const photo = repairman.photo || repairman.repairmanProfile?.profilePhoto || 'https://picsum.photos/seed/repairman/400/400';
+  const location = repairman.shortLocation || repairman.city?.name || 'Lahore, Pakistan';
+  const description = repairman.description || repairman.repairmanProfile?.description || 'Certified repair technician.';
 
   return (
     <View style={[styles.specialistCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-      <Image source={{ uri: repairman.photo }} style={styles.specialistImage} />
+      <Image source={{ uri: photo }} style={styles.specialistImage} />
 
       <View style={styles.specialistBody}>
-        <Text style={[styles.specialistName, { color: colors.text }]}>{repairman.name}</Text>
-        <Text style={[styles.specialistRole, { color: colors.textMuted }]}>{repairman.role}</Text>
+        <Text style={[styles.specialistName, { color: colors.text }]}>{name}</Text>
+        <Text style={[styles.specialistRole, { color: colors.textMuted }]}>{role}</Text>
 
         <View style={styles.metaRow}>
           <Icon source={mapPinBold} size={13} color={colors.textMuted} />
           <Text style={[styles.metaText, { color: colors.textMuted }]}>
-            {repairman.shortLocation}
+            {location}
           </Text>
         </View>
 
         <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
         <Text style={[styles.specialistDescription, { color: colors.textMuted }]} numberOfLines={3}>
-          {repairman.description}
+          {description}
         </Text>
 
         <View style={styles.socialRow}>
-          <Squeeze onPress={() => Linking.openURL(repairman.social.facebook)} scale={0.85}>
+          <Squeeze onPress={() => repairman.social?.facebook && Linking.openURL(repairman.social.facebook)} scale={0.85}>
             <Icon source={facebookIcon} size={22} />
           </Squeeze>
-          <Squeeze onPress={() => Linking.openURL(repairman.social.twitter)} scale={0.85}>
+          <Squeeze onPress={() => repairman.social?.twitter && Linking.openURL(repairman.social.twitter)} scale={0.85}>
             <Icon source={twitterIcon} size={22} />
           </Squeeze>
-          <Squeeze onPress={() => Linking.openURL(repairman.social.linkedin)} scale={0.85}>
+          <Squeeze onPress={() => repairman.social?.linkedin && Linking.openURL(repairman.social.linkedin)} scale={0.85}>
             <Icon source={linkedinIcon} size={22} />
           </Squeeze>
         </View>
@@ -221,8 +241,9 @@ function SpecialistCard({ repairman }) {
   );
 }
 
-function OurSpecialists() {
+function OurSpecialists({ liveRepairmen }: { liveRepairmen?: any[] }) {
   const { colors } = useTheme();
+  const list = liveRepairmen && liveRepairmen.length > 0 ? liveRepairmen : REPAIRMEN.slice(0, 4);
 
   return (
     <View style={styles.section}>
@@ -238,8 +259,8 @@ function OurSpecialists() {
         showsHorizontalScrollIndicator={false}
         style={styles.bleed}
         contentContainerStyle={styles.specialistsRow}>
-        {REPAIRMEN.slice(0, 4).map(repairman => (
-          <SpecialistCard key={repairman.id} repairman={repairman} />
+        {list.map((repairman, idx) => (
+          <SpecialistCard key={repairman._id || repairman.id || idx} repairman={repairman} />
         ))}
       </ScrollView>
     </View>
@@ -365,12 +386,22 @@ function FAQSection() {
   );
 }
 
-function RatingsSlider() {
+function RatingsSlider({ liveReviews }: { liveReviews?: any[] }) {
   const { colors } = useTheme();
   const [width, setWidth] = useState(0);
   const [index, setIndex] = useState(0);
 
-  const onScrollEnd = event => {
+  const reviewsList = liveReviews && liveReviews.length > 0
+    ? liveReviews.map((review, i) => ({
+        id: review._id || String(i),
+        photo: review.profilePhoto || 'https://picsum.photos/seed/customer/200/200',
+        name: review.username || 'Verified Customer',
+        text: review.reviewText || '',
+        date: review.createdAt ? new Date(review.createdAt).toLocaleDateString() : 'Recent',
+      }))
+    : REVIEWS;
+
+  const onScrollEnd = (event: any) => {
     if (!width) return;
     setIndex(Math.round(event.nativeEvent.contentOffset.x / width));
   };
@@ -385,7 +416,7 @@ function RatingsSlider() {
           pagingEnabled
           showsHorizontalScrollIndicator={false}
           onMomentumScrollEnd={onScrollEnd}>
-          {REVIEWS.map(review => (
+          {reviewsList.map(review => (
             <View key={review.id} style={{ width, paddingHorizontal: 6 }}>
               <View
                 style={[
@@ -407,7 +438,7 @@ function RatingsSlider() {
         </ScrollView>
 
         <View style={styles.dots}>
-          {REVIEWS.map((_, i) => (
+          {reviewsList.map((_, i) => (
             <View
               key={i}
               style={[
@@ -422,7 +453,7 @@ function RatingsSlider() {
   );
 }
 
-function ProductCard({ product }) {
+function ProductCard({ product }: { product: any }) {
   const { colors } = useTheme();
 
   return (
@@ -462,7 +493,7 @@ function ProductCard({ product }) {
   );
 }
 
-function ProductsSlider({ title, products }) {
+function ProductsSlider({ title, products }: { title: string; products: any[] }) {
   const { colors } = useTheme();
 
   return (
@@ -474,36 +505,41 @@ function ProductsSlider({ title, products }) {
         showsHorizontalScrollIndicator={false}
         style={styles.bleed}
         contentContainerStyle={styles.productsRow}>
-        {products.map(product => (
-          <ProductCard key={product.id} product={product} />
+        {products.map((product, idx) => (
+          <ProductCard key={product.id || idx} product={product} />
         ))}
       </ScrollView>
     </View>
   );
 }
 
-function StoreCard({ store }) {
+function StoreCard({ store }: { store: any }) {
   const { colors } = useTheme();
+  const name = store.name || store.businessName || 'Verified Store';
+  const tagline = store.tagline || (store.productCategories?.[0] ?? 'Top Electronics Seller');
+  const description = store.description || store.storeDescription || 'Official multi-category retailer.';
+  const address = store.address || (store.city?.name ?? 'Pakistan');
+  const image = store.image || store.profilePictureOrLogo || 'https://picsum.photos/seed/store/400/300';
 
   return (
     <View style={[styles.storeCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
       <View style={styles.storeImageWrap}>
-        <Image source={{ uri: store.image }} style={styles.storeImage} />
+        <Image source={{ uri: image }} style={styles.storeImage} />
         <View style={[styles.sponsoredBadge, { backgroundColor: colors.text }]}>
           <Text style={[styles.sponsoredBadgeText, { color: colors.background }]}>Sponsored</Text>
         </View>
       </View>
 
-      <Text style={[styles.storeName, { color: colors.text }]}>{store.name}</Text>
-      <Text style={[styles.storeTagline, { color: colors.primary }]}>{store.tagline}</Text>
+      <Text style={[styles.storeName, { color: colors.text }]}>{name}</Text>
+      <Text style={[styles.storeTagline, { color: colors.primary }]}>{tagline}</Text>
       <Text style={[styles.storeDescription, { color: colors.textMuted }]} numberOfLines={2}>
-        {store.description}
+        {description}
       </Text>
 
       <View style={styles.metaRow}>
         <Icon source={mapPinBold} size={13} color={colors.textMuted} />
         <Text style={[styles.metaText, { color: colors.textMuted }]} numberOfLines={1}>
-          {store.address}
+          {address}
         </Text>
       </View>
 
@@ -512,8 +548,9 @@ function StoreCard({ store }) {
   );
 }
 
-function BestRatedStores() {
+function BestRatedStores({ liveSellers }: { liveSellers?: any[] }) {
   const { colors } = useTheme();
+  const storesList = liveSellers && liveSellers.length > 0 ? liveSellers : STORES;
 
   return (
     <View style={styles.section}>
@@ -528,17 +565,38 @@ function BestRatedStores() {
         showsHorizontalScrollIndicator={false}
         style={styles.bleed}
         contentContainerStyle={styles.storesRow}>
-        {STORES.map(store => (
-          <StoreCard key={store.id} store={store} />
+        {storesList.map((store: any, idx: number) => (
+          <StoreCard key={store._id || store.id || idx} store={store} />
         ))}
       </ScrollView>
     </View>
   );
 }
 
-export default function HomeScreen({ navigation }) {
+export default function HomeScreen({ navigation }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const [homeData, setHomeData] = useState<HomeData | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadData = useCallback(async () => {
+    try {
+      const data = await homeApi.getHomeData();
+      if (data) setHomeData(data);
+    } catch (e) {
+      // Graceful fallback
+    }
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadData();
+    setRefreshing(false);
+  };
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -546,18 +604,19 @@ export default function HomeScreen({ navigation }) {
 
       <ScrollView
         contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
-        showsVerticalScrollIndicator={false}>
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />}>
         <FadeUp duration={500}>
-          <Hero />
+          <Hero banner={homeData?.banners?.[0]} />
         </FadeUp>
         <FadeUp duration={500} delay={60}>
           <ServiceFinder />
         </FadeUp>
         <FadeUp duration={500} delay={100}>
-          <OurServices />
+          <OurServices liveServices={homeData?.services} />
         </FadeUp>
         <FadeUp duration={500} delay={140}>
-          <OurSpecialists />
+          <OurSpecialists liveRepairmen={homeData?.repairmen} />
         </FadeUp>
         <FadeUp duration={500} delay={180}>
           <TrustedStats />
@@ -569,13 +628,13 @@ export default function HomeScreen({ navigation }) {
           <FAQSection />
         </FadeUp>
         <FadeUp duration={500} delay={300}>
-          <RatingsSlider />
+          <RatingsSlider liveReviews={homeData?.reviews} />
         </FadeUp>
         <FadeUp duration={500} delay={340}>
           <ProductsSlider title="Sponsored Products" products={SPONSORED_PRODUCTS} />
         </FadeUp>
         <FadeUp duration={500} delay={380}>
-          <BestRatedStores />
+          <BestRatedStores liveSellers={homeData?.sellers} />
         </FadeUp>
         <FadeUp duration={500} delay={420}>
           <ProductsSlider title="Top Products" products={TOP_PRODUCTS} />

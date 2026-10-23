@@ -32,6 +32,7 @@ import TermsScreen from '@/features/Legal/screens/TermsScreen';
 import ProfileScreen from '@/features/Profile/screens/ProfileScreen';
 import EditProfileScreen from '@/features/Profile/screens/EditProfileScreen';
 import ServiceCatalogScreen from '@/features/Profile/screens/ServiceCatalogScreen';
+import ChangePasswordScreen from '@/features/Profile/screens/ChangePasswordScreen';
 
 // Refurbished screens
 import BuyRefurbishedScreen from '@/features/Refurbished/screens/BuyRefurbishedScreen';
@@ -91,6 +92,7 @@ export default function RepairmanNavigator({ onLogout }) {
         <Stack.Screen name="Profile" component={ProfileScreen} />
         <Stack.Screen name="EditProfile" component={EditProfileScreen} />
         <Stack.Screen name="ServiceCatalog" component={ServiceCatalogScreen} />
+        <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
 
         {/* Refurbished screens */}
         <Stack.Screen name="BuyRefurbished" component={BuyRefurbishedScreen} />

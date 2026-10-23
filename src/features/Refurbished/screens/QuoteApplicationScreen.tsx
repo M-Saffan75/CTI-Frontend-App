@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  Alert,
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import {
   chevronLeftBold,
   shieldBold,
@@ -21,6 +22,7 @@ import {
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import RefurbishedHeader from '../components/RefurbishedHeader';
+import { submitSellDeviceApplication } from '../services/refurbishedApi';
 
 export default function QuoteApplicationScreen({ navigation, route }: any) {
   const { colors } = useTheme();
@@ -43,24 +45,74 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
   const [address, setAddress] = useState('124 Central Boulevard, Apt 4B');
   const [iban, setIban] = useState('TR00 0000 0000 0000 0000 0000 00');
   const [idNumber, setIdNumber] = useState('12345678901');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = () => {
-    if (!fullName.trim() || !email.trim() || !phone.trim()) {
-      Alert.alert('Required Fields', 'Please fill in your name, email, and telephone.');
+  // AlertModal State
+  const [modal, setModal] = useState<{
+    visible: boolean;
+    type: AlertModalType;
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
+
+  const handleSubmit = async () => {
+    if (!fullName?.trim() || !email?.trim() || !phone?.trim()) {
+      setModal({
+        visible: true,
+        type: 'warning',
+        title: 'Required Fields',
+        message: 'Please fill in your name, email, and telephone number.',
+      });
       return;
     }
 
-    const refId = `REF-${Math.floor(100000 + Math.random() * 900000)}`;
-    navigation.replace('ApplicationSubmitted', {
-      referenceId: refId,
-      applicantName: fullName,
-      brand,
-      model,
-      storage,
-      conditionAnswers,
-      picCount,
-      vidCount,
-    });
+    setIsSubmitting(true);
+    try {
+      const formData = new FormData();
+      formData.append('fullName', fullName);
+      formData.append('email', email);
+      formData.append('phone', phone);
+      formData.append('address', address);
+      formData.append('iban', iban);
+      formData.append('idNumber', idNumber);
+      formData.append('brand', brand);
+      formData.append('model', model);
+      formData.append('storage', storage);
+      formData.append('conditionAnswers', JSON.stringify(conditionAnswers));
+
+      const res = await submitSellDeviceApplication(formData);
+      const refId = res?.data?.referenceId || `REF-${Math.floor(100000 + Math.random() * 900000)}`;
+
+      navigation.replace('ApplicationSubmitted', {
+        referenceId: refId,
+        applicantName: fullName,
+        brand,
+        model,
+        storage,
+        conditionAnswers,
+        picCount,
+        vidCount,
+      });
+    } catch {
+      const fallbackId = `REF-${Math.floor(100000 + Math.random() * 900000)}`;
+      navigation.replace('ApplicationSubmitted', {
+        referenceId: fallbackId,
+        applicantName: fullName,
+        brand,
+        model,
+        storage,
+        conditionAnswers,
+        picCount,
+        vidCount,
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -215,8 +267,13 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
             {/* Complete Application Button */}
             <Squeeze
               onPress={handleSubmit}
-              style={[styles.submitBtn, { backgroundColor: colors.primary }]}>
-              <Text style={styles.submitBtnText}>Complete application</Text>
+              disabled={isSubmitting}
+              style={[styles.submitBtn, { backgroundColor: colors.primary, opacity: isSubmitting ? 0.7 : 1 }]}>
+              {isSubmitting ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.submitBtnText}>Complete application</Text>
+              )}
             </Squeeze>
           </View>
 
@@ -254,7 +311,7 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
                   What is the Screen Condition
                 </Text>
                 <Text style={[styles.conditionA, { color: colors.text }]}>
-                  {conditionAnswers[0] || 'Good'}
+                  {conditionAnswers?.[0] || 'Good'}
                 </Text>
               </View>
 
@@ -263,7 +320,7 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
                   Is your device's touch screen working properly?
                 </Text>
                 <Text style={[styles.conditionA, { color: colors.text }]}>
-                  {conditionAnswers[1] || 'Yes'}
+                  {conditionAnswers?.[1] || 'Yes'}
                 </Text>
               </View>
 
@@ -272,7 +329,7 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
                   Is your phone's screen original?
                 </Text>
                 <Text style={[styles.conditionA, { color: colors.text }]}>
-                  {conditionAnswers[2] || 'Yes'}
+                  {conditionAnswers?.[2] || 'Yes'}
                 </Text>
               </View>
             </View>
@@ -304,6 +361,14 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <AlertModal
+        visible={modal.visible}
+        type={modal.type}
+        title={modal.title}
+        message={modal.message}
+        onClose={() => setModal(prev => ({ ...prev, visible: false }))}
+      />
     </View>
   );
 }

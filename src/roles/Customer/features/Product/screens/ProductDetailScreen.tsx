@@ -1,11 +1,12 @@
-import { useState } from 'react';
-import { Image, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { launchImageLibrary } from 'react-native-image-picker';
 
 import Icon from '@/components/Icon';
 import Button from '@/components/Button';
 import Squeeze from '@/components/Squeeze';
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
@@ -33,6 +34,7 @@ import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { useWishlist } from '../../../context/WishlistContext';
 import { getProductById, PRODUCTS } from '../data/products';
+import { addToCartApi, getEcomProductDetail, MobileEcomProduct } from '../services/ecomApi';
 
 function ImageCarousel({ images }) {
   const { colors } = useTheme();
@@ -151,22 +153,101 @@ function RelatedCard({ product, navigation }) {
   );
 }
 
-export default function ProductDetailScreen({ navigation, route }) {
+export default function ProductDetailScreen({ navigation, route }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
-  const product = getProductById(route.params?.productId) ?? PRODUCTS[0];
+  const initialProduct = route.params?.product ?? getProductById(route.params?.productId) ?? PRODUCTS[0];
+  const [product, setProduct] = useState<MobileEcomProduct>(initialProduct as any);
+  const [loading, setLoading] = useState(false);
+  const [addingToCart, setAddingToCart] = useState(false);
+
   const related = PRODUCTS.filter(item => item.id !== product.id);
 
   const { isSaved, toggle: toggleWishlist } = useWishlist();
   const saved = isSaved(product.id);
-  const [color, setColor] = useState(product.colors[0]);
+  const [color, setColor] = useState(product.colors?.[0] || '#222222');
   const [quantity, setQuantity] = useState(1);
-  const [variantId, setVariantId] = useState(product.variants[0]?.id);
+  const [variantId, setVariantId] = useState(product.variants?.[0]?.id);
   const [myRating, setMyRating] = useState(0);
   const [reviewText, setReviewText] = useState('');
   const [reviewPhoto, setReviewPhoto] = useState(null);
   const [reviewVideo, setReviewVideo] = useState(null);
+
+  // AlertModal State
+  const [modal, setModal] = useState<{
+    visible: boolean;
+    type: AlertModalType;
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
+
+  const productId = route.params?.productId || initialProduct?.id;
+
+  useEffect(() => {
+    if (!productId) return;
+    let isMounted = true;
+    getEcomProductDetail(productId)
+      .then(liveProd => {
+        if (isMounted && liveProd) {
+          setProduct(liveProd);
+          if (liveProd.variants?.length && !variantId) {
+            setVariantId(liveProd.variants[0].id);
+          }
+          if (liveProd.colors?.length && !color) {
+            setColor(liveProd.colors[0]);
+          }
+        }
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, [productId]);
+
+  const handleAddToCart = async () => {
+    try {
+      setAddingToCart(true);
+      await addToCartApi(product.id, variantId, quantity);
+      setModal({
+        visible: true,
+        type: 'success',
+        title: 'Added to Cart',
+        message: `${product.title} (${quantity}x) has been added to your shopping cart.`,
+      });
+    } catch (err: any) {
+      setModal({
+        visible: true,
+        type: 'error',
+        title: 'Add to Cart Failed',
+        message: err?.message || 'Could not add product to cart. Please try again.',
+      });
+    } finally {
+      setAddingToCart(false);
+    }
+  };
+
+  const handleBuyNow = async () => {
+    try {
+      setAddingToCart(true);
+      await addToCartApi(product.id, variantId, quantity);
+      navigation.navigate('Cart');
+    } catch (err: any) {
+      setModal({
+        visible: true,
+        type: 'error',
+        title: 'Checkout Error',
+        message: err?.message || 'Could not proceed to checkout.',
+      });
+    } finally {
+      setAddingToCart(false);
+    }
+  };
 
   const submitReview = () => {
     setMyRating(0);
@@ -220,14 +301,14 @@ export default function ProductDetailScreen({ navigation, route }) {
 
         <FadeUp delay={60} duration={450}>
           <View style={[styles.imageCard, { backgroundColor: colors.surfaceAlt }]}>
-            <ImageCarousel images={product.images} />
+            <ImageCarousel images={product.images || [product.image]} />
           </View>
         </FadeUp>
 
         <FadeUp delay={110} duration={450}>
           <View style={styles.titleRow}>
             <Text style={[styles.title, { color: colors.text }]}>{product.title}</Text>
-            <Text style={[styles.price, { color: colors.text }]}>${product.price.toFixed(2)}</Text>
+            <Text style={[styles.price, { color: colors.text }]}>${Number(product.price || 0).toFixed(2)}</Text>
           </View>
           <Text style={[styles.bestProduct, { color: colors.textMuted }]}>Best Product</Text>
         </FadeUp>
@@ -235,7 +316,7 @@ export default function ProductDetailScreen({ navigation, route }) {
         <FadeUp delay={150} duration={450}>
           <Text style={[styles.label, { color: colors.text }]}>Color</Text>
           <View style={styles.colorsRow}>
-            {product.colors.map(hex => (
+            {(product.colors || []).map(hex => (
               <Squeeze key={hex} onPress={() => setColor(hex)} scale={0.9}>
                 <View
                   style={[
@@ -263,8 +344,20 @@ export default function ProductDetailScreen({ navigation, route }) {
             </View>
           </View>
 
-          <Button title="Buy Now" variant="outline" onPress={() => navigation.navigate('Checkout')} style={styles.spaced} />
-          <Button title="Add to Cart" icon={shoppingCartExtra} onPress={() => navigation.navigate('Cart')} style={styles.spaced} />
+          <Button
+            title="Buy Now"
+            variant="outline"
+            loading={addingToCart}
+            onPress={handleBuyNow}
+            style={styles.spaced}
+          />
+          <Button
+            title="Add to Cart"
+            icon={shoppingCartExtra}
+            loading={addingToCart}
+            onPress={handleAddToCart}
+            style={styles.spaced}
+          />
         </FadeUp>
 
         <FadeUp delay={230} duration={450}>
@@ -469,6 +562,14 @@ export default function ProductDetailScreen({ navigation, route }) {
           </ScrollView>
         </FadeUp>
       </ScrollView>
+
+      <AlertModal
+        visible={modal.visible}
+        type={modal.type}
+        title={modal.title}
+        message={modal.message}
+        onClose={() => setModal(prev => ({ ...prev, visible: false }))}
+      />
     </View>
   );
 }

@@ -30,6 +30,7 @@ import {
   headphonesBold,
   homeBold,
   infoCircleBold,
+  lockBold,
   logOutBold,
   mobileBold,
   packageBold,
@@ -90,6 +91,7 @@ const MENU = [
       },
     ],
   },
+  { label: 'Change Password', icon: lockBold, screen: 'ChangePassword' },
   { label: 'Privacy Policy', icon: shieldBold, screen: 'PrivacyPolicy' },
   { label: 'Terms & Conditions', icon: fileBold, screen: 'Terms' },
 ];
@@ -100,9 +102,13 @@ function MenuRow({ item, depth = 0, navigation }) {
   const hasChildren = Boolean(item.children);
 
   const onPress = () => {
-    if (hasChildren) setOpen(!open);
-    else if (item.tab) navigation?.navigate('Home', { screen: item.tab });
-    else if (item.screen) navigation?.navigate(item.screen, item.params);
+    try {
+      if (hasChildren) setOpen(!open);
+      else if (item?.tab) navigation?.navigate('Home', { screen: item.tab });
+      else if (item?.screen) navigation?.navigate(item.screen, item.params);
+    } catch (e) {
+      console.warn('Navigation error:', e);
+    }
   };
 
   return (
@@ -135,8 +141,8 @@ function MenuRow({ item, depth = 0, navigation }) {
 
       {hasChildren &&
         open &&
-        item.children.map(child => (
-          <MenuRow key={child.label} item={child} depth={depth + 1} navigation={navigation} />
+        (item?.children || []).map(child => (
+          <MenuRow key={child?.label || Math.random().toString()} item={child} depth={depth + 1} navigation={navigation} />
         ))}
     </>
   );
@@ -148,8 +154,14 @@ export default function SettingsScreen({ navigation, onLogout }) {
   const [search, setSearch] = useState('');
   const [confirmLogout, setConfirmLogout] = useState(false);
 
-  const query = search.trim().toLowerCase();
-  const menu = query ? MENU.filter(item => item.label.toLowerCase().includes(query)) : MENU;
+  const query = (search || '').trim().toLowerCase();
+  const menu = query
+    ? (MENU || []).filter(
+        item =>
+          item?.label?.toLowerCase()?.includes(query) ||
+          item?.children?.some((c: any) => c?.label?.toLowerCase()?.includes(query)),
+      )
+    : (MENU || []);
 
   return (
     <View

@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,6 +14,7 @@ import { FadeUp } from '@/animations';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import AddCardModal from '../components/AddCardModal';
+import { fetchSellerAdsApi } from '@/roles/Seller/services/sellerApi';
 
 interface CampaignItem {
   id: string;
@@ -50,6 +52,41 @@ export default function AdsScreen({ navigation }: any) {
   const [selectedFilter, setSelectedFilter] = useState('All');
   const [campaigns, setCampaigns] = useState<CampaignItem[]>(MOCK_CAMPAIGNS);
   const [isAddCardVisible, setIsAddCardVisible] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadAds = useCallback(async () => {
+    try {
+      const data = await fetchSellerAdsApi();
+      if (data && data.length > 0) {
+        setCampaigns(
+          data.map((ad: any) => ({
+            id: ad._id || ad.id,
+            name: ad.name || ad.title || 'Ad Campaign',
+            type: ad.type || 'Sponsored Products',
+            dateRange: `${ad.startDate ? new Date(ad.startDate).toLocaleDateString() : 'Active'} - ${ad.endDate ? new Date(ad.endDate).toLocaleDateString() : 'Ongoing'}`,
+            status: ad.status || 'Active',
+            totalBudget: `$${ad.totalBudget || ad.budget || '50.00'}`,
+            dailyBudget: `$${ad.dailyBudget || '10.00'}`,
+            spent: `$${ad.spent || '0.00'}`,
+            impressions: String(ad.impressions || 0),
+            clicks: String(ad.clicks || 0),
+          }))
+        );
+      }
+    } catch {
+      // Keep initial
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAds();
+  }, [loadAds]);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadAds();
+    setRefreshing(false);
+  };
 
   const filteredCampaigns = campaigns.filter(c => {
     if (selectedFilter === 'All') return true;
@@ -59,7 +96,8 @@ export default function AdsScreen({ navigation }: any) {
   return (
     <ScrollView
       contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 40 }]}
-      showsVerticalScrollIndicator={false}>
+      showsVerticalScrollIndicator={false}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />}>
       {/* Top Header matching Ads screens.png */}
       <FadeUp delay={30} duration={300}>
         <View style={styles.topSection}>

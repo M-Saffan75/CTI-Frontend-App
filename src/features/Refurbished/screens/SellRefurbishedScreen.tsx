@@ -239,7 +239,7 @@ export default function SellRefurbishedScreen({ navigation }: any) {
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.howItWorksScroll}>
-            {HOW_IT_WORKS_STEPS.map(step => (
+            {(HOW_IT_WORKS_STEPS || []).map(step => (
               <View
                 key={step.step}
                 style={[
@@ -267,7 +267,7 @@ export default function SellRefurbishedScreen({ navigation }: any) {
           <Text style={[styles.sectionHeading, { color: colors.text }]}>Why Us</Text>
 
           <View style={styles.whyUsList}>
-            {WHY_SELL_WITH_US.map((item, idx) => (
+            {(WHY_SELL_WITH_US || []).map((item, idx) => (
               <FadeUp key={item.id} delay={idx * 40}>
                 <View
                   style={[
@@ -300,25 +300,25 @@ export default function SellRefurbishedScreen({ navigation }: any) {
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.testimonialsScroll}>
-            {REFURBISHED_TESTIMONIALS.map(t => (
+            {(REFURBISHED_TESTIMONIALS || []).map(t => (
               <View
-                key={t.id}
+                key={t?.id}
                 style={[
                   styles.testimonialCard,
                   { backgroundColor: colors.surface, borderColor: colors.border + '33' },
                 ]}>
                 <Text style={[styles.quoteMark, { color: colors.primary }]}>“</Text>
                 <Text style={[styles.testimonialFeedback, { color: colors.text }]}>
-                  {t.feedback}
+                  {t?.feedback || ''}
                 </Text>
                 <View style={styles.testimonialUserRow}>
                   <View style={[styles.avatarCircle, { backgroundColor: colors.primary + '22' }]}>
                     <Text style={[styles.avatarText, { color: colors.primary }]}>
-                      {t.name.charAt(0)}
+                      {t?.name ? t.name.charAt(0) : 'U'}
                     </Text>
                   </View>
                   <Text style={[styles.testimonialUserName, { color: colors.text }]}>
-                    {t.name}
+                    {t?.name || 'Customer'}
                   </Text>
                 </View>
               </View>

@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  Alert,
   FlatList,
   Image,
+  RefreshControl,
   StyleSheet,
   Text,
   TextInput,
@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
@@ -30,6 +31,7 @@ import { ctiLogo } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { CatalogServiceItem, INITIAL_CATALOG_SERVICES } from '../data/profileData';
+import { fetchCatalogServicesApi } from '../services/profileApi';
 
 const STATUS_OPTIONS = ['All Status', 'Pending', 'In Progress', 'Completed'];
 
@@ -37,10 +39,40 @@ export default function ServiceCatalogScreen({ navigation }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
-  const [services] = useState<CatalogServiceItem[]>(INITIAL_CATALOG_SERVICES);
+  const [services, setServices] = useState<CatalogServiceItem[]>(INITIAL_CATALOG_SERVICES);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState('All Status');
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // AlertModal State
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    type: AlertModalType;
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
+
+  const loadServices = async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    try {
+      const data = await fetchCatalogServicesApi();
+      if (data && data.length > 0) setServices(data);
+    } catch {
+      // keep fallback
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    loadServices();
+  }, []);
 
   const filteredServices = (services || []).filter(item => {
     if (selectedStatus !== 'All Status' && item?.status !== selectedStatus) return false;
@@ -273,7 +305,12 @@ export default function ServiceCatalogScreen({ navigation }: any) {
 
                   <Squeeze
                     onPress={() =>
-                      Alert.alert(item.title, `${item.description}\n\nPrice: ${item.price}`)
+                      setAlertConfig({
+                        visible: true,
+                        type: 'info',
+                        title: item.title,
+                        message: `Customer: ${item.customerName}\nDevice: ${item.device}\nLocation: ${item.location}\nDate: ${item.date}\nStatus: ${item.status}\n\nPrice: ${item.price} (Base: ${item.basePrice} | Parts: ${item.partsPrice})\n\n${item.description}`,
+                      })
                     }
                     style={{ flex: 1 }}>
                     <View
@@ -290,6 +327,15 @@ export default function ServiceCatalogScreen({ navigation }: any) {
             </View>
           </FadeUp>
         )}
+      />
+
+      {/* Alert Modal */}
+      <AlertModal
+        visible={alertConfig.visible}
+        type={alertConfig.type}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
       />
     </View>
   );

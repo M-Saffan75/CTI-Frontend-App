@@ -4,9 +4,15 @@ import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 
-export default function OtpInput({ value, onChange, length = 4, error = '', style = null }) {
+export default function OtpInput({ value, onChange, length = 6, error = '', style = null }) {
   const { colors } = useTheme();
   const boxes = useRef([]);
+
+  const isSix = length >= 6;
+  const boxWidth = isSix ? 48 : 62;
+  const boxHeight = isSix ? 52 : 62;
+  const gap = isSix ? 8 : 14;
+  const fontSize = isSix ? 18 : 22;
 
   const setDigit = (index, digit) => {
     const clean = digit.replace(/[^0-9]/g, '');
@@ -24,7 +30,7 @@ export default function OtpInput({ value, onChange, length = 4, error = '', styl
 
   return (
     <View>
-      <View style={[styles.row, style]}>
+      <View style={[styles.row, { gap }, style]}>
         {Array.from({ length }).map((_, index) => {
           const filled = Boolean(value[index]);
 
@@ -42,6 +48,9 @@ export default function OtpInput({ value, onChange, length = 4, error = '', styl
               style={[
                 styles.box,
                 {
+                  width: boxWidth,
+                  height: boxHeight,
+                  fontSize,
                   color: colors.text,
                   backgroundColor: colors.background,
                   borderColor: error ? colors.error : filled ? colors.primary : colors.border,
@@ -61,16 +70,13 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 14,
+    alignItems: 'center',
   },
   box: {
-    width: 62,
-    height: 62,
     borderRadius: 12,
     borderWidth: 1.5,
     textAlign: 'center',
     fontFamily: fonts.bold,
-    fontSize: 22,
   },
   error: {
     fontFamily: fonts.regular,

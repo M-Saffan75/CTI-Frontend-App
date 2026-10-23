@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import {
-  Alert,
   Modal,
   ScrollView,
   StyleSheet,
@@ -13,6 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Button from '@/components/Button';
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import { timesSquareBold } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
@@ -65,6 +65,18 @@ export default function ReportsScreen({ navigation }: any) {
   const [groups, setGroups] = useState<TransactionGroup[]>(INITIAL_GROUPS);
   const [isStatementModalVisible, setIsStatementModalVisible] = useState(false);
 
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    type: AlertModalType;
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
+
   const toggleGroup = (date: string) => {
     setGroups(prev =>
       prev.map(g => (g.date === date ? { ...g, expanded: !g.expanded } : g))
@@ -73,10 +85,12 @@ export default function ReportsScreen({ navigation }: any) {
 
   const handleRequestStatement = () => {
     setIsStatementModalVisible(false);
-    Alert.alert(
-      'Statement Requested',
-      `Official account statement for ${selectedFilter} has been generated and sent to your registered email.`
-    );
+    setAlertConfig({
+      visible: true,
+      type: 'success',
+      title: 'Statement Requested',
+      message: `Official account statement for ${selectedFilter} has been generated and sent to your registered email address.`,
+    });
   };
 
   return (
@@ -288,6 +302,15 @@ export default function ReportsScreen({ navigation }: any) {
           </View>
         </View>
       </Modal>
+
+      {/* Alert Modal */}
+      <AlertModal
+        visible={alertConfig.visible}
+        type={alertConfig.type}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
+      />
     </ScrollView>
   );
 }

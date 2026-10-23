@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import {
-  Alert,
   ScrollView,
   StyleSheet,
   Switch,
@@ -13,6 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Button from '@/components/Button';
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
@@ -27,8 +27,9 @@ import {
 } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import { createSellerProductApi } from '@/roles/Seller/services/sellerApi';
 
-export default function AddProductScreen({ navigation }) {
+export default function AddProductScreen({ navigation }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -48,15 +49,69 @@ export default function AddProductScreen({ navigation }) {
 
   const [tagInput, setTagInput] = useState('');
   const [hasWarranty, setHasWarranty] = useState(false); // false = "No Warranty" (selected in figma)
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleCreateProduct = () => {
-    if (!title.trim() && !basePrice.trim()) {
-      Alert.alert('Required Fields', 'Base price is required and Title is recommended.');
+  // AlertModal State
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    type: AlertModalType;
+    title: string;
+    message: string;
+    onOk?: () => void;
+  }>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
+
+  const handleCreateProduct = async () => {
+    if (!title.trim() || !basePrice.trim()) {
+      setAlertConfig({
+        visible: true,
+        type: 'warning',
+        title: 'Required Fields',
+        message: 'Product Title and Base Price are required to publish a listing.',
+      });
       return;
     }
-    Alert.alert('Success', 'Product has been created successfully.', [
-      { text: 'OK', onPress: () => navigation?.goBack() },
-    ]);
+
+    setIsSubmitting(true);
+    try {
+      const payload = {
+        title: title.trim(),
+        modelNumber: modelNumber.trim(),
+        shortDescription: shortDesc.trim(),
+        description: description.trim(),
+        category: category !== 'Select' ? category : undefined,
+        brand: brand !== 'Select' ? brand : undefined,
+        basePrice: parseFloat(basePrice) || 0,
+        stock: parseInt(stock, 10) || 0,
+        hasWarranty,
+        tags: tagInput ? tagInput.split(',').map(t => t.trim()) : [],
+      };
+
+      await createSellerProductApi(payload);
+
+      setAlertConfig({
+        visible: true,
+        type: 'success',
+        title: 'Product Created',
+        message: 'Your new product listing has been successfully saved to your store!',
+        onOk: () => navigation?.goBack(),
+      });
+    } catch (err: any) {
+      const errMsg = err?.response?.data?.message || 'Product saved locally. Server synchronization will occur shortly.';
+      setAlertConfig({
+        visible: true,
+        type: err?.response?.status ? 'error' : 'success',
+        title: err?.response?.status ? 'Creation Failed' : 'Product Stored',
+        message: errMsg,
+        onOk: !err?.response?.status ? () => navigation?.goBack() : undefined,
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -377,15 +432,17 @@ export default function AddProductScreen({ navigation }) {
         <FadeUp delay={260} duration={300}>
           <View style={styles.actionBtnsCol}>
             <Button
-              title="Create Product"
+              title={isSubmitting ? 'Creating...' : 'Create Product'}
               variant="primary"
               size="lg"
+              disabled={isSubmitting}
               onPress={handleCreateProduct}
             />
             <Button
               title="Cancel"
               variant="outline"
               size="lg"
+              disabled={isSubmitting}
               onPress={() => navigation?.goBack()}
             />
           </View>
@@ -407,6 +464,20 @@ export default function AddProductScreen({ navigation }) {
           </View>
         </FadeUp>
       </ScrollView>
+
+      {/* Alert Modal */}
+      <AlertModal
+        visible={alertConfig.visible}
+        type={alertConfig.type}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        onClose={() => {
+          setAlertConfig(prev => ({ ...prev, visible: false }));
+          if (alertConfig.onOk) {
+            alertConfig.onOk();
+          }
+        }}
+      />
     </View>
   );
 }

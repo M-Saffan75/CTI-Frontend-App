@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import {
-  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -12,6 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Button from '@/components/Button';
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import { downloadBold } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
@@ -58,20 +58,40 @@ export default function InvoicesScreen({ navigation }: any) {
   const [selectedFilter, setSelectedFilter] = useState('All');
   const [invoices, setInvoices] = useState<InvoiceItem[]>(MOCK_INVOICES);
 
+  // AlertModal State
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    type: AlertModalType;
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
+
   const filteredInvoices = invoices.filter(inv => {
     if (selectedFilter === 'All') return true;
     return inv.status === selectedFilter;
   });
 
   const handleDownload = (code: string) => {
-    Alert.alert('Invoice Download', `Downloading ${code}.pdf to your device.`);
+    setAlertConfig({
+      visible: true,
+      type: 'success',
+      title: 'Invoice Downloaded',
+      message: `Tax invoice ${code}.pdf has been saved to your device.`,
+    });
   };
 
   const handleUploadNewInvoice = () => {
-    Alert.alert(
-      'Upload Invoice PDF',
-      'Select a generated tax invoice or sales receipt PDF to submit for administrative clearance.'
-    );
+    setAlertConfig({
+      visible: true,
+      type: 'info',
+      title: 'Upload Invoice PDF',
+      message: 'Please select an invoice or sales receipt PDF to submit for clearance.',
+    });
   };
 
   return (
@@ -181,6 +201,15 @@ export default function InvoicesScreen({ navigation }: any) {
           </FadeUp>
         ))}
       </View>
+
+      {/* Alert Modal */}
+      <AlertModal
+        visible={alertConfig.visible}
+        type={alertConfig.type}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
+      />
     </ScrollView>
   );
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
@@ -12,6 +12,9 @@ import RepairmanAuthStack from '@/roles/Repairman/navigation/RepairmanAuthStack'
 import RepairmanNavigator from '@/roles/Repairman/navigation/RepairmanNavigator';
 import { useTheme } from '@/theme/ThemeContext';
 import { ROLES } from '@/constants/roles';
+import AuthService from '@/services/authService';
+
+import socketService from '@/services/socketService';
 
 const Stack = createNativeStackNavigator();
 
@@ -25,8 +28,31 @@ const ROLE_STACKS = {
 export default function RootNavigator() {
   const { colors } = useTheme();
   const [showSplash, setShowSplash] = useState(true);
-  const [role, setRole] = useState(null);
+  const [role, setRole] = useState<string | null>(null);
   const [loggedIn, setLoggedIn] = useState(false);
+
+  // Auto-login: Check if user already has an active session
+  useEffect(() => {
+    (async () => {
+      try {
+        const session = await AuthService.getStoredSession();
+        if (session?.token && session?.role && ROLE_STACKS[session.role]) {
+          setRole(session.role);
+          setLoggedIn(true);
+          socketService.connect().catch(() => {});
+        }
+      } catch (err) {
+        // Silently continue to login
+      }
+    })();
+  }, []);
+
+  const handleLogout = async () => {
+    socketService.disconnect();
+    await AuthService.logout();
+    setLoggedIn(false);
+    setRole(null);
+  };
 
   // Giving React Navigation our colours stops the white flash between screens.
   const navigationTheme = {
@@ -51,12 +77,7 @@ export default function RootNavigator() {
   if (loggedIn && stacks) {
     return (
       <NavigationContainer theme={navigationTheme}>
-        <stacks.app
-          onLogout={() => {
-            setLoggedIn(false);
-            setRole(null);
-          }}
-        />
+        <stacks.app onLogout={handleLogout} />
       </NavigationContainer>
     );
   }
@@ -80,7 +101,16 @@ export default function RootNavigator() {
           )}
         </Stack.Screen>
         <Stack.Screen name="Auth">
-          {() => (stacks?.auth ? <stacks.auth onLoggedIn={() => setLoggedIn(true)} /> : null)}
+          {() =>
+            stacks?.auth ? (
+              <stacks.auth
+                onLoggedIn={() => {
+                  setLoggedIn(true);
+                  socketService.connect().catch(() => {});
+                }}
+              />
+            ) : null
+          }
         </Stack.Screen>
       </Stack.Navigator>
     </NavigationContainer>

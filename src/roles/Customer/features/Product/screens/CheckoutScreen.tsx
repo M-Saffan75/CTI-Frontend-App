@@ -7,6 +7,7 @@ import Input from '@/components/Input';
 import Button from '@/components/Button';
 import Squeeze from '@/components/Squeeze';
 import ConfirmModal from '@/components/ConfirmModal';
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
@@ -21,28 +22,100 @@ import { ctiLogo } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { useWishlist } from '../../../context/WishlistContext';
+import { createCustomerOrderApi } from '../../Orders/services/orderApi';
 
-export default function CheckoutScreen({ navigation }) {
+export default function CheckoutScreen({ navigation, route }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { ids: wishlistIds } = useWishlist();
 
-  const [firstName, setFirstName] = useState('Customer');
-  const [lastName, setLastName] = useState('Doe');
-  const [email, setEmail] = useState('customer@gmail.com');
-  const [phone, setPhone] = useState('');
-  const [address, setAddress] = useState('');
-  const [city, setCity] = useState('Karachi');
-  const [postalCode, setPostalCode] = useState('75000');
+  const cartItems = route?.params?.cartItems || [];
 
-  const [cardSelected, setCardSelected] = useState(false);
+  const [firstName, setFirstName] = useState('Customer');
+  const [lastName, setLastName] = useState('User');
+  const [email, setEmail] = useState('customer@gmail.com');
+  const [phone, setPhone] = useState('03001234567');
+  const [address, setAddress] = useState('Main Boulevard, Gulberg');
+  const [city, setCity] = useState('Lahore');
+  const [postalCode, setPostalCode] = useState('54000');
+
+  const [cardSelected, setCardSelected] = useState(true);
   const [cardNumber, setCardNumber] = useState('');
   const [cardExpiry, setCardExpiry] = useState('');
   const [cardCvv, setCardCvv] = useState('');
   const [placed, setPlaced] = useState(false);
-  const scrollRef = useRef(null);
+  const [placing, setPlacing] = useState(false);
+  const scrollRef = useRef<any>(null);
 
-  const canPlaceOrder = cardSelected && cardNumber && cardExpiry && cardCvv;
+  // AlertModal State
+  const [modal, setModal] = useState<{
+    visible: boolean;
+    type: AlertModalType;
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
+
+  const canPlaceOrder =
+    phone.trim() &&
+    address.trim() &&
+    city.trim() &&
+    (!cardSelected || (cardNumber.trim() && cardExpiry.trim() && cardCvv.trim()));
+
+  const handlePlaceOrder = async () => {
+    if (!address.trim() || !phone.trim() || !city.trim()) {
+      setModal({
+        visible: true,
+        type: 'warning',
+        title: 'Missing Details',
+        message: 'Please fill in your shipping address, city and phone number.',
+      });
+      return;
+    }
+
+    try {
+      setPlacing(true);
+      const [expireMonth, expireYearShort] = cardExpiry.split('/');
+      const expireYear = expireYearShort ? `20${expireYearShort}` : undefined;
+
+      await createCustomerOrderApi({
+        shippingAddress: {
+          fullName: `${firstName} ${lastName}`.trim(),
+          phone: phone.trim(),
+          country: 'Pakistan',
+          city: city.trim(),
+          addressLine: address.trim(),
+          postalCode: postalCode.trim(),
+        },
+        paymentMethod: cardSelected ? 'card' : 'cod',
+        cardHolder: `${firstName} ${lastName}`.trim(),
+        cardNumber: cardNumber.replace(/\s/g, ''),
+        expireMonth: expireMonth?.trim(),
+        expireYear: expireYear?.trim(),
+        cvc: cardCvv.trim(),
+        items: cartItems.map((i: any) => ({
+          productId: i.productId,
+          variantId: i.variantId,
+          quantity: i.quantity,
+        })),
+      });
+
+      setPlaced(true);
+    } catch (err: any) {
+      setModal({
+        visible: true,
+        type: 'error',
+        title: 'Order Failed',
+        message: err?.message || 'Could not place your order. Please try again.',
+      });
+    } finally {
+      setPlacing(false);
+    }
+  };
   // Card fields sit right above the keyboard once it opens — scroll them
   // into view instead of letting the keyboard cover them.
   const scrollToCardFields = () => scrollRef.current?.scrollToEnd({ animated: true });
@@ -160,11 +233,12 @@ export default function CheckoutScreen({ navigation }) {
         </FadeUp>
 
         <Button
-          title="Place Order Securely"
+          title={placing ? "Placing Order..." : "Place Order Securely"}
           icon={checkCircleIcon}
           iconPosition="left"
-          disabled={!canPlaceOrder}
-          onPress={() => setPlaced(true)}
+          disabled={!canPlaceOrder || placing}
+          loading={placing}
+          onPress={handlePlaceOrder}
           style={styles.placeOrder}
         />
       </ScrollView>
@@ -183,6 +257,14 @@ export default function CheckoutScreen({ navigation }) {
           setPlaced(false);
           navigation.navigate('Orders');
         }}
+      />
+
+      <AlertModal
+        visible={modal.visible}
+        type={modal.type}
+        title={modal.title}
+        message={modal.message}
+        onClose={() => setModal(prev => ({ ...prev, visible: false }))}
       />
     </View>
   );

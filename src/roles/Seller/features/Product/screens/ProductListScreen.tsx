@@ -1,8 +1,20 @@
-import { useState } from 'react';
-import { Image, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Image,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import {
   chevronDownBold,
@@ -13,31 +25,132 @@ import {
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { SELLER_PRODUCTS_DATA } from '../data/productsData';
+import {
+  fetchSellerProductsApi,
+  toggleProductStatusApi,
+  SellerProductItem,
+} from '@/roles/Seller/services/sellerApi';
 
 export default function ProductListScreen({ navigation }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const [products, setProducts] = useState(SELLER_PRODUCTS_DATA);
-  const [searchQuery, setSearchQuery] = useState('');
 
-  const toggleProductActive = (id: string) => {
+  const [products, setProducts] = useState<SellerProductItem[]>(SELLER_PRODUCTS_DATA as any);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'All' | 'Active' | 'Disable'>('All');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(SELLER_PRODUCTS_DATA.length);
+
+  // AlertModal State
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    type: AlertModalType;
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
+
+  const loadProducts = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+
+    try {
+      const res = await fetchSellerProductsApi({
+        page: currentPage,
+        limit: 10,
+        search: searchQuery.trim() || undefined,
+        status: statusFilter !== 'All' ? statusFilter : undefined,
+      });
+
+      if (res.products && res.products.length > 0) {
+        setProducts(res.products);
+        setTotalCount(res.pagination.total);
+      } else if (!searchQuery && statusFilter === 'All') {
+        // Fallback to local data if initial fetch is empty
+        setProducts(SELLER_PRODUCTS_DATA as any);
+        setTotalCount(SELLER_PRODUCTS_DATA.length);
+      } else {
+        setProducts([]);
+        setTotalCount(0);
+      }
+    } catch {
+      // Keep resilient fallback
+      setProducts(SELLER_PRODUCTS_DATA as any);
+      setTotalCount(SELLER_PRODUCTS_DATA.length);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [currentPage, searchQuery, statusFilter]);
+
+  useEffect(() => {
+    loadProducts();
+  }, [loadProducts]);
+
+  const toggleProductActive = async (id: string) => {
+    // Optimistic UI update
     setProducts(prev =>
       prev.map(p =>
-        p.id === id ? { ...p, isActive: !p.isActive, status: !p.isActive ? 'Active' : 'Disable' } : p
-      )
+        p.id === id
+          ? {
+              ...p,
+              isActive: !p.isActive,
+              status: !p.isActive ? 'Active' : 'Disable',
+            }
+          : p,
+      ),
     );
+
+    try {
+      await toggleProductStatusApi(id);
+    } catch (err: any) {
+      // Revert if API fails
+      setProducts(prev =>
+        prev.map(p =>
+          p.id === id
+            ? {
+                ...p,
+                isActive: !p.isActive,
+                status: !p.isActive ? 'Active' : 'Disable',
+              }
+            : p,
+        ),
+      );
+      setAlertConfig({
+        visible: true,
+        type: 'error',
+        title: 'Status Update Failed',
+        message: err?.response?.data?.message || 'Unable to update product status right now.',
+      });
+    }
   };
 
-  const filteredProducts = products.filter(p =>
-    p.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const cycleStatusFilter = () => {
+    if (statusFilter === 'All') setStatusFilter('Active');
+    else if (statusFilter === 'Active') setStatusFilter('Disable');
+    else setStatusFilter('All');
+  };
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <ScrollView
         contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 32 }]}
-        showsVerticalScrollIndicator={false}>
-        {/* Header Info matching Figma exactly */}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => loadProducts(true)}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }>
+        {/* Header Info matching Figma */}
         <FadeUp delay={30} duration={350}>
           <View style={styles.topRow}>
             <Text style={[styles.title, { color: colors.text }]}>Products</Text>
@@ -58,6 +171,7 @@ export default function ProductListScreen({ navigation }: any) {
               placeholderTextColor={colors.textMuted}
               value={searchQuery}
               onChangeText={setSearchQuery}
+              onSubmitEditing={() => loadProducts()}
               style={[styles.searchInput, { color: colors.text }]}
             />
           </View>
@@ -65,19 +179,40 @@ export default function ProductListScreen({ navigation }: any) {
           {/* Filters Row */}
           <View style={styles.filtersWrapper}>
             <View style={styles.filterPillsRow}>
-              <View style={[styles.filterPill, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+              <TouchableOpacity
+                onPress={cycleStatusFilter}
+                activeOpacity={0.7}
+                style={[
+                  styles.filterPill,
+                  {
+                    backgroundColor: statusFilter !== 'All' ? colors.primary + '20' : colors.surfaceAlt,
+                    borderColor: statusFilter !== 'All' ? colors.primary : colors.border,
+                  },
+                ]}>
                 <Icon source={slidersHBold} size={12} color={colors.primary} />
-                <Text style={[styles.filterPillText, { color: colors.text }]}>All Status</Text>
+                <Text style={[styles.filterPillText, { color: colors.text }]}>
+                  {statusFilter === 'All' ? 'All Status' : statusFilter}
+                </Text>
                 <Icon source={chevronDownBold} size={10} color={colors.textMuted} />
-              </View>
-              <View style={[styles.filterPill, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+              </TouchableOpacity>
+
+              <View
+                style={[
+                  styles.filterPill,
+                  { backgroundColor: colors.surfaceAlt, borderColor: colors.border },
+                ]}>
                 <Icon source={slidersHBold} size={12} color={colors.primary} />
-                <Text style={[styles.filterPillText, { color: colors.text }]}>All Categori..</Text>
+                <Text style={[styles.filterPillText, { color: colors.text }]}>All Categories</Text>
                 <Icon source={chevronDownBold} size={10} color={colors.textMuted} />
               </View>
             </View>
+
             <View style={styles.filterPillsRow}>
-              <View style={[styles.filterPill, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+              <View
+                style={[
+                  styles.filterPill,
+                  { backgroundColor: colors.surfaceAlt, borderColor: colors.border },
+                ]}>
                 <Icon source={tagBold} size={12} color={colors.primary} />
                 <Text style={[styles.filterPillText, { color: colors.text }]}>All Brands</Text>
                 <Icon source={chevronDownBold} size={10} color={colors.textMuted} />
@@ -86,11 +221,22 @@ export default function ProductListScreen({ navigation }: any) {
           </View>
         </FadeUp>
 
+        {/* Loading Indicator */}
+        {loading && !refreshing && (
+          <View style={styles.loadingWrap}>
+            <ActivityIndicator size="small" color={colors.primary} />
+          </View>
+        )}
+
         {/* Products List matching Figma Cards */}
         <View style={styles.productList}>
-          {filteredProducts.map((prod, index) => (
-            <FadeUp key={prod.id} delay={60 + index * 40} duration={350}>
-              <View style={[styles.productCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          {products.map((prod, index) => (
+            <FadeUp key={prod.id || String(index)} delay={60 + index * 30} duration={300}>
+              <View
+                style={[
+                  styles.productCard,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                ]}>
                 {/* Product Image */}
                 <View style={[styles.imageWrap, { backgroundColor: colors.surfaceAlt }]}>
                   <Image source={prod.image} style={styles.productImg} resizeMode="cover" />
@@ -126,20 +272,56 @@ export default function ProductListScreen({ navigation }: any) {
           ))}
         </View>
 
-        {/* Exact Figma Pagination Footer */}
-        <View style={styles.paginationWrap}>
-          <View style={styles.pageNumbers}>
-            <Text style={[styles.pageNumberItem, { color: colors.text }]}>1</Text>
-            <View style={[styles.activePageBox, { backgroundColor: colors.primary }]}>
-              <Text style={styles.activePageText}>2</Text>
+        {/* Dynamic Pagination Footer */}
+        {products.length > 0 && (
+          <View style={styles.paginationWrap}>
+            <View style={styles.pageNumbers}>
+              <TouchableOpacity
+                onPress={() => setCurrentPage(1)}
+                style={[
+                  currentPage === 1 ? styles.activePageBox : null,
+                  currentPage === 1 ? { backgroundColor: colors.primary } : null,
+                ]}>
+                <Text
+                  style={[
+                    styles.pageNumberItem,
+                    { color: currentPage === 1 ? '#fff' : colors.text },
+                  ]}>
+                  1
+                </Text>
+              </TouchableOpacity>
+              {totalCount > 10 && (
+                <TouchableOpacity
+                  onPress={() => setCurrentPage(2)}
+                  style={[
+                    currentPage === 2 ? styles.activePageBox : null,
+                    currentPage === 2 ? { backgroundColor: colors.primary } : null,
+                  ]}>
+                  <Text
+                    style={[
+                      styles.pageNumberItem,
+                      { color: currentPage === 2 ? '#fff' : colors.text },
+                    ]}>
+                    2
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
-            <Text style={[styles.pageNumberItem, { color: colors.text }]}>3</Text>
+            <Text style={[styles.pageInfoText, { color: colors.textMuted }]}>
+              Showing 1 to {products.length} of {totalCount} results
+            </Text>
           </View>
-          <Text style={[styles.pageInfoText, { color: colors.textMuted }]}>
-            Showing NaN to NaN of 21 result
-          </Text>
-        </View>
+        )}
       </ScrollView>
+
+      {/* Alert Modal */}
+      <AlertModal
+        visible={alertConfig.visible}
+        type={alertConfig.type}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
+      />
     </View>
   );
 }
@@ -186,6 +368,11 @@ const styles = StyleSheet.create({
   },
   filterPillText: { fontFamily: fonts.medium, fontSize: 12 },
 
+  loadingWrap: {
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+
   productList: { gap: 16 },
   productCard: {
     borderRadius: 16,
@@ -194,7 +381,7 @@ const styles = StyleSheet.create({
   },
   imageWrap: {
     width: '100%',
-    height: 300,
+    height: 240,
   },
   productImg: {
     width: '100%',
@@ -229,19 +416,14 @@ const styles = StyleSheet.create({
   pageNumberItem: {
     fontFamily: fonts.medium,
     fontSize: 13,
-    paddingHorizontal: 4,
+    paddingHorizontal: 6,
   },
   activePageBox: {
-    width: 26,
-    height: 26,
+    width: 28,
+    height: 28,
     borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  activePageText: {
-    color: '#fff',
-    fontFamily: fonts.bold,
-    fontSize: 13,
   },
   pageInfoText: {
     fontFamily: fonts.regular,

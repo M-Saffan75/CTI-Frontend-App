@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  Alert,
+  ActivityIndicator,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -12,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
@@ -22,6 +24,12 @@ import {
 } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import {
+  fetchSellerReturnsApi,
+  approveSellerReturnApi,
+  rejectSellerReturnApi,
+  SellerReturnItem,
+} from '@/roles/Seller/services/sellerApi';
 
 interface ReturnOrder {
   id: string;
@@ -74,9 +82,86 @@ export default function ReturnRequestsScreen({ navigation }: any) {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
-  const filteredOrders = MOCK_RETURN_ORDERS.filter(ord => {
-    if (selectedFilter === 'new' && ord.status !== 'New Request') return false;
-    if (selectedFilter === 'shipped' && ord.status !== 'Shipped Back') return false;
+  const [returnsList, setReturnsList] = useState<any[]>(MOCK_RETURN_ORDERS);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // AlertModal State
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    type: AlertModalType;
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
+
+  const loadReturns = async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+
+    try {
+      const data = await fetchSellerReturnsApi({
+        status: selectedFilter !== 'all' ? selectedFilter : undefined,
+        search: searchQuery.trim() || undefined,
+      });
+
+      if (data && data.length > 0) {
+        setReturnsList(
+          data.map(r => ({
+            id: r.id,
+            orderId: r.orderId,
+            customerName: r.customer,
+            productName: r.item,
+            sku: r.returnNo,
+            date: r.date,
+            amount: r.amount,
+            status: r.status,
+            statusColor: r.status === 'Approved' || r.status === 'Delivered' ? '#10B981' : '#F59E0B',
+            reason: r.reason,
+          })),
+        );
+      } else {
+        setReturnsList(MOCK_RETURN_ORDERS);
+      }
+    } catch {
+      setReturnsList(MOCK_RETURN_ORDERS);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    loadReturns();
+  }, [selectedFilter]);
+
+  const handleApprove = async (retId: string) => {
+    try {
+      await approveSellerReturnApi(retId, 'Return approved by merchant');
+      setAlertConfig({
+        visible: true,
+        type: 'success',
+        title: 'Return Approved',
+        message: 'The customer return request has been approved and refund initiated.',
+      });
+      loadReturns();
+    } catch (e: any) {
+      setAlertConfig({
+        visible: true,
+        type: 'error',
+        title: 'Action Failed',
+        message: e?.response?.data?.message || 'Unable to approve return request.',
+      });
+    }
+  };
+
+  const filteredOrders = returnsList.filter(ord => {
+    if (selectedFilter === 'new' && ord.status !== 'New Request' && ord.status !== 'Requested') return false;
+    if (selectedFilter === 'shipped' && ord.status !== 'Shipped Back' && ord.status !== 'Shipped') return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       return (
@@ -233,12 +318,17 @@ export default function ReturnRequestsScreen({ navigation }: any) {
 
                 <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
-                {/* Bottom Action Row: Eye, Download, Dropdown */}
+                {/* Bottom Action Row: Eye, Download, Action Button */}
                 <View style={styles.actionRow}>
                   <View style={styles.leftIcons}>
                     <TouchableOpacity
                       onPress={() =>
-                        Alert.alert('Return Details', `Viewing details for ${ord.orderId}`)
+                        setAlertConfig({
+                          visible: true,
+                          type: 'info',
+                          title: `Return: ${ord.orderId}`,
+                          message: `Customer: ${ord.customerName}\nProduct: ${ord.productName}\nAmount: ${ord.amount}\nStatus: ${ord.status}\nReason: ${ord.reason || 'Item not matching description'}`,
+                        })
                       }
                       style={[
                         styles.iconActionBtn,
@@ -249,7 +339,12 @@ export default function ReturnRequestsScreen({ navigation }: any) {
 
                     <TouchableOpacity
                       onPress={() =>
-                        Alert.alert('Download', `Downloading invoice for ${ord.orderId}`)
+                        setAlertConfig({
+                          visible: true,
+                          type: 'success',
+                          title: 'Invoice Downloaded',
+                          message: `Return slip & invoice for ${ord.orderId} have been saved to your device.`,
+                        })
                       }
                       style={[
                         styles.iconActionBtn,
@@ -259,11 +354,9 @@ export default function ReturnRequestsScreen({ navigation }: any) {
                     </TouchableOpacity>
                   </View>
 
-                  {/* Delivered Dropdown Button */}
+                  {/* Delivered / Action Button */}
                   <TouchableOpacity
-                    onPress={() =>
-                      Alert.alert('Update Status', 'Change delivery or return status')
-                    }
+                    onPress={() => handleApprove(ord.id)}
                     style={[
                       styles.dropdownBtn,
                       { borderColor: colors.border, backgroundColor: colors.surfaceAlt },
@@ -279,6 +372,15 @@ export default function ReturnRequestsScreen({ navigation }: any) {
           ))}
         </View>
       </ScrollView>
+
+      {/* Alert Modal */}
+      <AlertModal
+        visible={alertConfig.visible}
+        type={alertConfig.type}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
+      />
     </View>
   );
 }

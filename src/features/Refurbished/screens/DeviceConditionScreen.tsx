@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -20,6 +20,7 @@ import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import RefurbishedHeader from '../components/RefurbishedHeader';
 import { CONDITION_QUESTIONS } from '../data/refurbishedData';
+import { getSellDeviceConfig } from '../services/refurbishedApi';
 
 export default function DeviceConditionScreen({ navigation, route }: any) {
   const { colors } = useTheme();
@@ -30,6 +31,7 @@ export default function DeviceConditionScreen({ navigation, route }: any) {
   const storage = route?.params?.storage || '128 GB';
 
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
+  const [questionsList, setQuestionsList] = useState(CONDITION_QUESTIONS);
   const [answers, setAnswers] = useState<Record<number, string>>({
     0: 'Good / Minor Scratches',
     1: 'Yes',
@@ -37,8 +39,34 @@ export default function DeviceConditionScreen({ navigation, route }: any) {
     3: 'Clean & Pristine',
   });
 
-  const currentQ = CONDITION_QUESTIONS[currentStepIndex] || CONDITION_QUESTIONS[0];
-  const isLastQuestion = currentStepIndex === CONDITION_QUESTIONS.length - 1;
+  useEffect(() => {
+    if (brand && model) {
+      getSellDeviceConfig(brand, model)
+        .then(config => {
+          const fetched = config?.categoryQuestions;
+          if (Array.isArray(fetched) && fetched.length > 0) {
+            const mapped = fetched.map((q: any, idx: number) => ({
+              id: q._id || idx + 1,
+              question: q.question || q.title || 'Condition question',
+              options: Array.isArray(q.options)
+                ? q.options.map((opt: any, oIdx: number) => ({
+                    id: opt._id || oIdx + 1,
+                    label: opt.label || opt.text || String(opt),
+                    description: opt.description || '',
+                  }))
+                : [],
+            }));
+            if (mapped.length > 0) {
+              setQuestionsList(mapped);
+            }
+          }
+        })
+        .catch(() => {});
+    }
+  }, [brand, model]);
+
+  const currentQ = questionsList[currentStepIndex] || questionsList[0] || CONDITION_QUESTIONS[0];
+  const isLastQuestion = currentStepIndex >= questionsList.length - 1;
 
   const handleSelectOption = (label: string) => {
     setAnswers(prev => ({ ...prev, [currentStepIndex]: label }));
@@ -79,21 +107,21 @@ export default function DeviceConditionScreen({ navigation, route }: any) {
             { backgroundColor: colors.surface, borderColor: colors.border + '44' },
           ]}>
           <Text style={[styles.stepCaption, { color: colors.primary }]}>
-            QUESTION {currentStepIndex + 1} OF {CONDITION_QUESTIONS.length}
+            QUESTION {currentStepIndex + 1} OF {questionsList.length}
           </Text>
 
           <Text style={[styles.questionTitle, { color: colors.text }]}>
-            {currentQ.question}
+            {currentQ?.question || ''}
           </Text>
 
           {/* Options List */}
           <View style={styles.optionsList}>
-            {currentQ.options.map(opt => {
-              const isSelected = answers[currentStepIndex] === opt.label;
+            {(currentQ?.options || []).map(opt => {
+              const isSelected = answers?.[currentStepIndex] === opt?.label;
               return (
                 <TouchableOpacity
-                  key={opt.id}
-                  onPress={() => handleSelectOption(opt.label)}
+                  key={opt?.id}
+                  onPress={() => handleSelectOption(opt?.label || '')}
                   style={[
                     styles.optionRow,
                     {

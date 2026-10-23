@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import {
-  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,6 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import {
   cameraBold,
   chevronLeftBold,
@@ -34,21 +34,54 @@ export default function UploadDeviceMediaScreen({ navigation, route }: any) {
   const [picCount, setPicCount] = useState(3);
   const [vidCount, setVidCount] = useState(1);
 
+  // AlertModal State
+  const [modal, setModal] = useState<{
+    visible: boolean;
+    type: AlertModalType;
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
+
   const handlePickPicture = () => {
     if (picCount < 10) {
       setPicCount(picCount + 1);
-      Alert.alert('Photo Added', 'Photo attached successfully to device verification.');
+      setModal({
+        visible: true,
+        type: 'success',
+        title: 'Photo Added',
+        message: 'Photo attached successfully to device verification.',
+      });
     } else {
-      Alert.alert('Limit Reached', 'Maximum 10 pictures allowed.');
+      setModal({
+        visible: true,
+        type: 'warning',
+        title: 'Limit Reached',
+        message: 'Maximum 10 pictures allowed.',
+      });
     }
   };
 
   const handlePickVideo = () => {
     if (vidCount < 3) {
       setVidCount(vidCount + 1);
-      Alert.alert('Video Added', '360° device inspection video attached.');
+      setModal({
+        visible: true,
+        type: 'success',
+        title: 'Video Added',
+        message: '360° device inspection video attached.',
+      });
     } else {
-      Alert.alert('Limit Reached', 'Maximum 3 videos allowed.');
+      setModal({
+        visible: true,
+        type: 'warning',
+        title: 'Limit Reached',
+        message: 'Maximum 3 videos allowed.',
+      });
     }
   };
 
@@ -211,6 +244,14 @@ export default function UploadDeviceMediaScreen({ navigation, route }: any) {
           </Text>
         </View>
       </ScrollView>
+
+      <AlertModal
+        visible={modal.visible}
+        type={modal.type}
+        title={modal.title}
+        message={modal.message}
+        onClose={() => setModal(prev => ({ ...prev, visible: false }))}
+      />
     </View>
   );
 }

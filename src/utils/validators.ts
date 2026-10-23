@@ -42,8 +42,8 @@ export function validateConfirmPassword(value, password) {
   return '';
 }
 
-export function validateOtp(value, length = 4) {
-  if (value.length < length) return `Enter all ${length} digits`;
+export function validateOtp(value, length = 6) {
+  if (!value || value.length < length) return `Enter all ${length} digits`;
   return '';
 }
 

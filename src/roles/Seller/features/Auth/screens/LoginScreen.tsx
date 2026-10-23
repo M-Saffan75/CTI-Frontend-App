@@ -5,20 +5,30 @@ import AuthLayout from '@/components/AuthLayout';
 import Button from '@/components/Button';
 import Checkbox from '@/components/Checkbox';
 import Input from '@/components/Input';
+import AlertModal from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { PASSWORD_MAX, validateEmail, validatePassword } from '@/utils/validators';
 import { login } from '../api/authApi';
 
-export default function LoginScreen({ navigation, onLoggedIn }) {
+export default function LoginScreen({ navigation, onLoggedIn }: any) {
   const { colors } = useTheme();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [remember, setRemember] = useState(false);
+  const [remember, setRemember] = useState(true);
   const [errors, setErrors] = useState({ email: '', password: '' });
   const [loading, setLoading] = useState(false);
+  const [modal, setModal] = useState({
+    visible: false,
+    type: 'error' as 'error' | 'warning' | 'success',
+    title: '',
+    message: '',
+    buttonText: 'Okay',
+    secondaryButtonText: '',
+    onPrimary: () => {},
+  });
 
   const onSubmit = async () => {
     const next = {
@@ -30,8 +40,36 @@ export default function LoginScreen({ navigation, onLoggedIn }) {
 
     setLoading(true);
     try {
-      await login({ email, password });
+      const res: any = await login({ email, password, rememberMe: remember });
+      if (res?.requiresVerification) {
+        setModal({
+          visible: true,
+          type: 'warning',
+          title: 'Verification Required',
+          message: res.message || 'Please verify your email address to continue.',
+          buttonText: 'Verify Now',
+          secondaryButtonText: 'Cancel',
+          onPrimary: () => {
+            setModal(m => ({ ...m, visible: false }));
+            navigation.navigate('VerifyOtp', {
+              email: res.email || email,
+              userId: res.userId,
+            });
+          },
+        });
+        return;
+      }
       onLoggedIn?.();
+    } catch (err: any) {
+      setModal({
+        visible: true,
+        type: 'error',
+        title: 'Login Failed',
+        message: err.message || 'Invalid email or password',
+        buttonText: 'Okay',
+        secondaryButtonText: '',
+        onPrimary: () => setModal(m => ({ ...m, visible: false })),
+      });
     } finally {
       setLoading(false);
     }
@@ -74,7 +112,7 @@ export default function LoginScreen({ navigation, onLoggedIn }) {
         <View style={styles.row}>
           <Checkbox checked={remember} onChange={setRemember} label="Remember me" />
           <Pressable onPress={() => navigation.navigate('ForgotPassword')} hitSlop={8}>
-            <Text style={[styles.link, { color: colors.textMuted }]}>Forget Passwod?</Text>
+            <Text style={[styles.link, { color: colors.textMuted }]}>Forgot Password?</Text>
           </Pressable>
         </View>
       </FadeUp>
@@ -91,6 +129,18 @@ export default function LoginScreen({ navigation, onLoggedIn }) {
           <Text style={[styles.footerLink, { color: colors.primary }]}>Sign up</Text>
         </Pressable>
       </View>
+
+      <AlertModal
+        visible={modal.visible}
+        type={modal.type}
+        title={modal.title}
+        message={modal.message}
+        buttonText={modal.buttonText}
+        secondaryButtonText={modal.secondaryButtonText}
+        onButtonPress={modal.onPrimary}
+        onSecondaryButtonPress={() => setModal(m => ({ ...m, visible: false }))}
+        onClose={() => setModal(m => ({ ...m, visible: false }))}
+      />
     </AuthLayout>
   );
 }

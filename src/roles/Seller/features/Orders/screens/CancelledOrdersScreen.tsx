@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -20,6 +22,7 @@ import {
 } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import { fetchSellerOrdersApi, SellerOrderItem } from '@/roles/Seller/services/sellerApi';
 
 const CANCEL_FILTERS = [
   { key: 'All', label: 'All Order' },
@@ -27,11 +30,36 @@ const CANCEL_FILTERS = [
   { key: 'My', label: 'My Cancelled' },
 ];
 
-export default function CancelledOrdersScreen({ navigation }) {
+export default function CancelledOrdersScreen({ navigation }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
+  const [cancelledOrders, setCancelledOrders] = useState<SellerOrderItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadCancelled = async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+
+    try {
+      const res = await fetchSellerOrdersApi({
+        status: 'cancelled',
+        search: searchQuery.trim() || undefined,
+      });
+      setCancelledOrders(res.orders || []);
+    } catch {
+      setCancelledOrders([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    loadCancelled();
+  }, [searchQuery, activeFilter]);
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: insets.top + 8 }]}>
@@ -111,14 +139,41 @@ export default function CancelledOrdersScreen({ navigation }) {
             </View>
           </View>
 
-          {/* Empty State Dashed Box matching Figma */}
-          <View style={[styles.emptyDashedBox, { borderColor: '#8B5CF6' }]}>
-            <Text style={styles.emptyIcon}>⊘</Text>
-            <Text style={[styles.emptyTitle, { color: colors.text }]}>No cancelled orders</Text>
-            <Text style={[styles.emptySub, { color: colors.textMuted }]}>
-              No orders match the current filters.
-            </Text>
-          </View>
+          {/* Orders or Empty State */}
+          {cancelledOrders.length === 0 ? (
+            <View style={[styles.emptyDashedBox, { borderColor: '#8B5CF6' }]}>
+              <Text style={styles.emptyIcon}>⊘</Text>
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>No cancelled orders</Text>
+              <Text style={[styles.emptySub, { color: colors.textMuted }]}>
+                No orders match the current filters.
+              </Text>
+            </View>
+          ) : (
+            cancelledOrders.map((ord, idx) => (
+              <View
+                key={ord.id}
+                style={[
+                  styles.orderCard,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                ]}>
+                <View style={styles.cardHeaderRow}>
+                  <Text style={[styles.trackingId, { color: colors.text }]}>{ord.trackingId}</Text>
+                  <View style={[styles.badge, { backgroundColor: '#FEE2E2' }]}>
+                    <Text style={{ color: '#EF4444', fontFamily: fonts.bold, fontSize: 12 }}>
+                      Cancelled
+                    </Text>
+                  </View>
+                </View>
+                <Text style={{ color: colors.textMuted, fontSize: 12 }}>{ord.orderNumber}</Text>
+                <Text style={{ color: colors.text, fontFamily: fonts.bold, fontSize: 14, marginTop: 4 }}>
+                  {ord.customer} • {ord.item}
+                </Text>
+                <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }}>
+                  Total: {ord.total}
+                </Text>
+              </View>
+            ))
+          )}
         </FadeUp>
       </ScrollView>
     </View>
@@ -239,5 +294,26 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     fontSize: 13,
     textAlign: 'center',
+  },
+  orderCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 16,
+    gap: 8,
+    marginTop: 12,
+  },
+  cardHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  trackingId: {
+    fontFamily: fonts.bold,
+    fontSize: 15,
+  },
+  badge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
   },
 });

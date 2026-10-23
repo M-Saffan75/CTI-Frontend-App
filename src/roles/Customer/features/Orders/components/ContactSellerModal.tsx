@@ -30,16 +30,33 @@ const OPEN_MS = 220;
 const CLOSE_MS = 160;
 const EASING = Easing.bezier(0.4, 0, 0.2, 1);
 
-export default function ContactSellerModal({ visible, orderId, onClose }) {
+import { sendOrderQueryApi } from '../services/orderApi';
+
+export default function ContactSellerModal({
+  visible,
+  orderId,
+  sellerId,
+  onClose,
+  onSuccess,
+}: {
+  visible: boolean;
+  orderId: string;
+  sellerId?: string;
+  onClose: () => void;
+  onSuccess?: () => void;
+}) {
   const { colors } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const progress = useSharedValue(0);
 
   useEffect(() => {
     if (visible) {
       setMounted(true);
+      setError('');
       progress.value = withTiming(1, { duration: OPEN_MS, easing: EASING });
     } else if (mounted) {
       progress.value = withTiming(0, { duration: CLOSE_MS, easing: EASING }, finished => {
@@ -54,11 +71,34 @@ export default function ContactSellerModal({ visible, orderId, onClose }) {
     transform: [{ scale: 0.94 + progress.value * 0.06 }],
   }));
 
-  const send = () => {
-    // No backend yet — just clear the form and close.
-    setSubject('');
-    setMessage('');
-    onClose();
+  const send = async () => {
+    if (!subject.trim()) {
+      setError('Please select or enter a subject.');
+      return;
+    }
+    if (!message.trim()) {
+      setError('Please enter your message for the seller.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError('');
+      await sendOrderQueryApi({
+        orderId,
+        subject: subject.trim(),
+        message: message.trim(),
+        sellerId,
+      });
+      setSubject('');
+      setMessage('');
+      onSuccess?.();
+      onClose();
+    } catch (err: any) {
+      setError(err?.message || 'Failed to send message.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -119,12 +159,25 @@ export default function ContactSellerModal({ visible, orderId, onClose }) {
               ]}
             />
 
+            {!!error && (
+              <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: colors.error, marginTop: 10 }}>
+                {error}
+              </Text>
+            )}
+
             <View style={styles.actions}>
-              <Button title="Send Message" size="sm" onPress={send} style={styles.action} />
+              <Button
+                title="Send Message"
+                size="sm"
+                loading={loading}
+                onPress={send}
+                style={styles.action}
+              />
               <Button
                 title="Cancel"
                 variant="soft"
                 size="sm"
+                disabled={loading}
                 onPress={onClose}
                 style={styles.action}
               />

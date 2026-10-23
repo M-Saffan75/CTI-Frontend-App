@@ -6,6 +6,7 @@ import Button from '@/components/Button';
 import Icon from '@/components/Icon';
 import Input from '@/components/Input';
 import PasswordStrength from '@/components/PasswordStrength';
+import AlertModal from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import { googleIcon, sellerIcon } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
@@ -23,7 +24,7 @@ import { register } from '../api/authApi';
 const ROLE_LABEL = 'Seller';
 const ROLE_ICON = sellerIcon;
 
-export default function SignUpScreen({ navigation }) {
+export default function SignUpScreen({ navigation }: any) {
   const { colors } = useTheme();
 
   const [name, setName] = useState('');
@@ -33,6 +34,11 @@ export default function SignUpScreen({ navigation }) {
   const [confirm, setConfirm] = useState('');
   const [errors, setErrors] = useState({ name: '', email: '', phone: '', password: '', confirm: '' });
   const [loading, setLoading] = useState(false);
+  const [modal, setModal] = useState({
+    visible: false,
+    title: '',
+    message: '',
+  });
 
   const onSubmit = async () => {
     const next = {
@@ -48,7 +54,13 @@ export default function SignUpScreen({ navigation }) {
     setLoading(true);
     try {
       await register({ name, email, phone, password });
-      navigation.navigate('VerifyOtp');
+      navigation.navigate('VerifyOtp', { email });
+    } catch (err: any) {
+      setModal({
+        visible: true,
+        title: 'Registration Error',
+        message: err.message || 'Could not complete registration',
+      });
     } finally {
       setLoading(false);
     }
@@ -180,6 +192,14 @@ export default function SignUpScreen({ navigation }) {
           <Text style={[styles.footerLink, { color: colors.primary }]}>Login</Text>
         </Pressable>
       </View>
+
+      <AlertModal
+        visible={modal.visible}
+        type="error"
+        title={modal.title}
+        message={modal.message}
+        onClose={() => setModal(m => ({ ...m, visible: false }))}
+      />
     </AuthLayout>
   );
 }

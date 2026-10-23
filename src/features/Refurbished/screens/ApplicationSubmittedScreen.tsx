@@ -179,7 +179,7 @@ export default function ApplicationSubmittedScreen({ navigation, route }: any) {
                 What is the Screen Condition
               </Text>
               <Text style={[styles.conditionA, { color: colors.text }]}>
-                {conditionAnswers[0] || 'Good'}
+                {conditionAnswers?.[0] || 'Good'}
               </Text>
             </View>
 
@@ -188,7 +188,7 @@ export default function ApplicationSubmittedScreen({ navigation, route }: any) {
                 Is your device's touch screen working properly?
               </Text>
               <Text style={[styles.conditionA, { color: colors.text }]}>
-                {conditionAnswers[1] || 'Yes'}
+                {conditionAnswers?.[1] || 'Yes'}
               </Text>
             </View>
 
@@ -197,7 +197,7 @@ export default function ApplicationSubmittedScreen({ navigation, route }: any) {
                 Is your phone's screen original?
               </Text>
               <Text style={[styles.conditionA, { color: colors.text }]}>
-                {conditionAnswers[2] || 'Yes'}
+                {conditionAnswers?.[2] || 'Yes'}
               </Text>
             </View>
           </View>

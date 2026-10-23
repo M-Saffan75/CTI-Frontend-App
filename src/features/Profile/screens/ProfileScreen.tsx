@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
-  Alert,
   Image,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -50,6 +50,7 @@ import {
 import AddEducationModal from '../components/AddEducationModal';
 import AddExperienceModal from '../components/AddExperienceModal';
 import AddCertificateModal from '../components/AddCertificateModal';
+import { fetchUserProfileApi } from '../services/profileApi';
 
 const CATALOG_FILTER_TABS = ['All 1', 'Approved 0', 'Pending 1', 'Rejected 0'];
 
@@ -58,7 +59,26 @@ export default function ProfileScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
 
   const [profile, setProfile] = useState<ProfileData>(INITIAL_PROFILE_DATA);
+  const [refreshing, setRefreshing] = useState(false);
   const [activeCatalogFilter, setActiveCatalogFilter] = useState('All 1');
+
+  const loadProfile = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    try {
+      const data = await fetchUserProfileApi();
+      if (data) {
+        setProfile(data);
+      }
+    } catch {
+      // keep fallback
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadProfile();
+  }, [loadProfile]);
 
   // Modals state
   const [showEduModal, setShowEduModal] = useState(false);
@@ -95,7 +115,15 @@ export default function ProfileScreen({ navigation }: any) {
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]}
-        showsVerticalScrollIndicator={false}>
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => loadProfile(true)}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }>
         {/* Top Cover Banner */}
         <View style={[styles.coverBanner, { backgroundColor: '#374151' }]}>
           {/* ATP Geometric Brand Artwork */}

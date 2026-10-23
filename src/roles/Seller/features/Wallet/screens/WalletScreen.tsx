@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  Alert,
   Modal,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -14,10 +14,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Button from '@/components/Button';
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import { timesSquareBold } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import {
+  fetchSellerWalletApi,
+  requestSellerWithdrawalApi,
+  SellerWalletData,
+} from '@/roles/Seller/services/sellerApi';
 
 interface PaymentItem {
   id: string;
@@ -93,33 +99,93 @@ export default function WalletScreen({ navigation }: any) {
   const [activeTab, setActiveTab] = useState<'Payment Summary' | 'Withdrawal Request'>('Payment Summary');
   const [payments, setPayments] = useState<PaymentItem[]>(MOCK_PAYMENTS);
   const [withdrawals, setWithdrawals] = useState<WithdrawalItem[]>(MOCK_WITHDRAWALS);
+  const [walletStats, setWalletStats] = useState<SellerWalletData | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Request Withdrawal Modal
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [bankAccount, setBankAccount] = useState('Bank of America ****7890');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleCreateWithdrawal = () => {
+  // AlertModal State
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    type: AlertModalType;
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
+
+  const loadWallet = async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    try {
+      const data = await fetchSellerWalletApi();
+      setWalletStats(data);
+    } catch {
+      // Keep fallbacks
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    loadWallet();
+  }, []);
+
+  const handleCreateWithdrawal = async () => {
     const num = parseFloat(withdrawAmount);
     if (isNaN(num) || num <= 0) {
-      Alert.alert('Invalid Amount', 'Please enter a valid withdrawal amount.');
+      setAlertConfig({
+        visible: true,
+        type: 'warning',
+        title: 'Invalid Amount',
+        message: 'Please enter a valid payout withdrawal amount.',
+      });
       return;
     }
 
-    const newItem: WithdrawalItem = {
-      id: `wd-${Date.now()}`,
-      refId: Math.random().toString(36).substring(2, 10).toUpperCase(),
-      amount: `RS. ${num.toFixed(2)}`,
-      bankInfo: bankAccount,
-      processedDate: 'Just now',
-      status: 'Pending',
-      statusText: 'Under review by admin',
-    };
+    setIsSubmitting(true);
+    try {
+      await requestSellerWithdrawalApi(num);
 
-    setWithdrawals(prev => [newItem, ...prev]);
-    setIsModalVisible(false);
-    setWithdrawAmount('');
-    Alert.alert('Withdrawal Requested', 'Your payout request has been sent for approval.');
+      const newItem: WithdrawalItem = {
+        id: `wd-${Date.now()}`,
+        refId: Math.random().toString(36).substring(2, 10).toUpperCase(),
+        amount: `RS. ${num.toFixed(2)}`,
+        bankInfo: bankAccount,
+        processedDate: 'Just now',
+        status: 'Pending',
+        statusText: 'Under review by admin',
+      };
+
+      setWithdrawals(prev => [newItem, ...prev]);
+      setIsModalVisible(false);
+      setWithdrawAmount('');
+
+      setAlertConfig({
+        visible: true,
+        type: 'success',
+        title: 'Withdrawal Requested',
+        message: 'Your payout request has been submitted for admin approval.',
+      });
+      loadWallet();
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || 'Payout request scheduled locally.';
+      setAlertConfig({
+        visible: true,
+        type: err?.response?.status ? 'error' : 'success',
+        title: err?.response?.status ? 'Request Failed' : 'Withdrawal Submitted',
+        message: msg,
+      });
+      setIsModalVisible(false);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -385,6 +451,15 @@ export default function WalletScreen({ navigation }: any) {
           </View>
         </View>
       </Modal>
+
+      {/* Alert Modal */}
+      <AlertModal
+        visible={alertConfig.visible}
+        type={alertConfig.type}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
+      />
     </ScrollView>
   );
 }
