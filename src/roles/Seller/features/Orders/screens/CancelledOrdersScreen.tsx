@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -10,6 +9,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import CtiLoader from '@/components/CtiLoader';
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
 import { FadeUp } from '@/animations';
@@ -140,7 +140,13 @@ export default function CancelledOrdersScreen({ navigation }: any) {
           </View>
 
           {/* Orders or Empty State */}
-          {cancelledOrders.length === 0 ? (
+          {loading && !refreshing ? (
+            <CtiLoader
+              size="md"
+              text="Loading cancelled orders..."
+              style={{ paddingVertical: 40 }}
+            />
+          ) : cancelledOrders.length === 0 ? (
             <View style={[styles.emptyDashedBox, { borderColor: '#8B5CF6' }]}>
               <Text style={styles.emptyIcon}>⊘</Text>
               <Text style={[styles.emptyTitle, { color: colors.text }]}>No cancelled orders</Text>

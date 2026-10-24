@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import CtiLoader from '@/components/CtiLoader';
 import Squeeze from '@/components/Squeeze';
 import { FadeUp } from '@/animations';
 import { useTheme } from '@/theme/ThemeContext';
@@ -52,9 +53,12 @@ export default function AdsScreen({ navigation }: any) {
   const [selectedFilter, setSelectedFilter] = useState('All');
   const [campaigns, setCampaigns] = useState<CampaignItem[]>(MOCK_CAMPAIGNS);
   const [isAddCardVisible, setIsAddCardVisible] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  const loadAds = useCallback(async () => {
+  const loadAds = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
     try {
       const data = await fetchSellerAdsApi();
       if (data && data.length > 0) {
@@ -75,6 +79,9 @@ export default function AdsScreen({ navigation }: any) {
       }
     } catch {
       // Keep initial
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
@@ -83,9 +90,7 @@ export default function AdsScreen({ navigation }: any) {
   }, [loadAds]);
 
   const onRefresh = async () => {
-    setRefreshing(true);
-    await loadAds();
-    setRefreshing(false);
+    await loadAds(true);
   };
 
   const filteredCampaigns = campaigns.filter(c => {
@@ -148,7 +153,14 @@ export default function AdsScreen({ navigation }: any) {
 
       {/* Campaign Cards with Full Width Layout matching Ads screens.png */}
       <View style={styles.campaignList}>
-        {filteredCampaigns.map((camp, idx) => (
+        {loading && !refreshing ? (
+          <CtiLoader
+            size="md"
+            text="Loading campaigns..."
+            style={{ paddingVertical: 40 }}
+          />
+        ) : (
+          filteredCampaigns.map((camp, idx) => (
           <FadeUp key={camp.id} delay={60 + idx * 40} duration={320}>
             <View
               style={[
@@ -218,7 +230,7 @@ export default function AdsScreen({ navigation }: any) {
               </View>
             </View>
           </FadeUp>
-        ))}
+        )))}
       </View>
 
       <AddCardModal

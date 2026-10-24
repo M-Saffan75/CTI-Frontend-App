@@ -33,13 +33,13 @@ function WishlistCard({ product, navigation, onRemove }) {
 
       <View style={styles.cardBody}>
         <Text style={[styles.brand, { color: colors.textMuted }]} numberOfLines={1}>
-          {product.brand}
+          {typeof product.brand === 'string' ? product.brand : (product.brand as any)?.title || (product.brand as any)?.name || 'CTI Store'}
         </Text>
         <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={1}>
-          {product.title}
+          {typeof product.title === 'string' ? product.title : (product.title as any)?.title || (product.title as any)?.name || 'Product'}
         </Text>
         <Text style={[styles.description, { color: colors.textMuted }]} numberOfLines={2}>
-          {product.description}
+          {typeof product.description === 'string' ? product.description : ''}
         </Text>
         <Text style={[styles.reviews, { color: colors.textMuted }]}>
           {product.reviewCount ? `${product.reviewCount} Reviews` : 'No Reviews'}

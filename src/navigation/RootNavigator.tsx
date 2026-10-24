@@ -13,8 +13,8 @@ import RepairmanNavigator from '@/roles/Repairman/navigation/RepairmanNavigator'
 import { useTheme } from '@/theme/ThemeContext';
 import { ROLES } from '@/constants/roles';
 import AuthService from '@/services/authService';
-
 import socketService from '@/services/socketService';
+import fcmService from '@/services/fcmService';
 
 const Stack = createNativeStackNavigator();
 
@@ -33,6 +33,9 @@ export default function RootNavigator() {
 
   // Auto-login: Check if user already has an active session
   useEffect(() => {
+    // Initialize push notifications
+    fcmService.initialize().catch(() => {});
+
     (async () => {
       try {
         const session = await AuthService.getStoredSession();
@@ -40,6 +43,7 @@ export default function RootNavigator() {
           setRole(session.role);
           setLoggedIn(true);
           socketService.connect().catch(() => {});
+          fcmService.syncTokenWithBackend().catch(() => {});
         }
       } catch (err) {
         // Silently continue to login
@@ -49,6 +53,7 @@ export default function RootNavigator() {
 
   const handleLogout = async () => {
     socketService.disconnect();
+    await fcmService.deleteToken().catch(() => {});
     await AuthService.logout();
     setLoggedIn(false);
     setRole(null);
@@ -107,6 +112,7 @@ export default function RootNavigator() {
                 onLoggedIn={() => {
                   setLoggedIn(true);
                   socketService.connect().catch(() => {});
+                  fcmService.syncTokenWithBackend().catch(() => {});
                 }}
               />
             ) : null

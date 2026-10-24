@@ -50,41 +50,41 @@ import { fonts } from '@/theme/fonts';
 // what each row actually does.
 const MENU = [
   { label: 'Home', icon: homeBold, screen: 'Home' },
-  { label: 'Top expert repairman', icon: usersThreeBold, screen: 'ExpertRepairmen' },
+  { label: 'Top Expert Repairmen', icon: usersThreeBold, screen: 'ExpertRepairmen' },
   { label: 'About', icon: infoCircleBold, screen: 'About' },
   { label: 'Academy', icon: bookmarkBold, screen: 'Academy' },
   { label: 'Blogs', icon: blogExtra, screen: 'Blogs' },
   { label: 'Support', icon: headphonesBold },
-  { label: 'My Order', icon: packageBold, screen: 'Orders' },
+  { label: 'My Orders', icon: packageBold, screen: 'Orders' },
   { label: 'My Messages', icon: commentDotsBold },
   { label: 'My Sell Request', icon: tagBold },
   {
-    label: 'Refurbished devices',
+    label: 'Refurbished Devices',
     icon: mobileBold,
     children: [
-      { label: 'Sell gadgets', icon: storeBold, screen: 'SellRefurbished' },
-      { label: 'Sell  phone', icon: phoneBold, screen: 'SellRefurbished' },
+      { label: 'Sell Gadgets', icon: storeBold, screen: 'SellRefurbished' },
+      { label: 'Sell Phone', icon: phoneBold, screen: 'SellRefurbished' },
     ],
   },
   {
-    label: 'Buy refurbished devices',
+    label: 'Buy Refurbished Devices',
     icon: shoppingBasketBold,
     children: [
       { label: 'Browse Refurbished Store', icon: shoppingBasketBold, screen: 'BuyRefurbished' },
       {
-        label: 'refurbished Smart watch',
+        label: 'Refurbished Smart Watch',
         icon: clockBold,
         screen: 'AllGadgets',
         params: { initialCategory: 'Smart watches' },
       },
       {
-        label: 'refurbished Tablet',
+        label: 'Refurbished Tablet',
         icon: tabletBold,
         screen: 'AllGadgets',
         params: { initialCategory: 'Tablets' },
       },
       {
-        label: 'refurbished Gaming consolt',
+        label: 'Refurbished Gaming Console',
         icon: desktopBold,
         screen: 'AllGadgets',
         params: { initialCategory: 'Gaming Console' },

@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import CtiLoader from '@/components/CtiLoader';
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
 import { FadeUp } from '@/animations';
@@ -78,9 +79,12 @@ export default function EnquiriesScreen({ navigation }: any) {
   const [activeTab, setActiveTab] = useState<'Product Queries' | 'Order Queries'>('Product Queries');
   const [searchQuery, setSearchQuery] = useState('');
   const [enquiries, setEnquiries] = useState<EnquiryCardItem[]>(MOCK_ENQUIRIES);
+  const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  const loadQueries = useCallback(async () => {
+  const loadQueries = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
     try {
       const data = await fetchSellerQueriesApi(selectedStatus);
       if (data && data.length > 0) {
@@ -99,6 +103,9 @@ export default function EnquiriesScreen({ navigation }: any) {
       }
     } catch {
       // Keep initial
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
   }, [selectedStatus]);
 
@@ -107,9 +114,7 @@ export default function EnquiriesScreen({ navigation }: any) {
   }, [loadQueries]);
 
   const onRefresh = async () => {
-    setRefreshing(true);
-    await loadQueries();
-    setRefreshing(false);
+    await loadQueries(true);
   };
 
   const filteredEnquiries = enquiries.filter(item => {
@@ -245,7 +250,14 @@ export default function EnquiriesScreen({ navigation }: any) {
 
       {/* Enquiries Cards List matching Figma */}
       <View style={styles.enquiriesList}>
-        {filteredEnquiries.map((item, idx) => (
+        {loading && !refreshing ? (
+          <CtiLoader
+            size="md"
+            text="Loading queries..."
+            style={{ paddingVertical: 40 }}
+          />
+        ) : (
+          filteredEnquiries.map((item, idx) => (
           <FadeUp key={item.id} delay={60 + idx * 40} duration={320}>
             <Squeeze onPress={() => openChat(item)}>
               <View
@@ -286,7 +298,7 @@ export default function EnquiriesScreen({ navigation }: any) {
               </View>
             </Squeeze>
           </FadeUp>
-        ))}
+        )))}
       </View>
     </ScrollView>
   );

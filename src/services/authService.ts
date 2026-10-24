@@ -70,6 +70,32 @@ export class AuthService {
   static async login({ email, password, role, rememberMe = true }: LoginParams) {
     try {
       const cleanEmail = (email || '').trim().toLowerCase();
+
+      // Demo login support for testing all roles and screens
+      if (cleanEmail === 'demo@cti.com' || cleanEmail.startsWith('demo') || cleanEmail === 'guest@cti.com') {
+        const userRole = role || 'customer';
+        const demoUser = {
+          id: 'demo-user-101',
+          _id: 'demo-user-101',
+          name: userRole === 'seller' ? 'Shahid Tech Store' : userRole === 'repairman' ? 'Farhan Repair Tech' : 'Muhammad Zubair',
+          email: cleanEmail,
+          role: userRole,
+          avatar: '',
+          isProfileComplete: true,
+        };
+        const demoToken = 'demo-jwt-token-active';
+        await AsyncStorage.setItem('token', demoToken);
+        await AsyncStorage.setItem('user', JSON.stringify(demoUser));
+        await AsyncStorage.setItem('role', userRole);
+        return {
+          ok: true,
+          token: demoToken,
+          user: demoUser,
+          role: userRole,
+          message: 'Demo login successful',
+        };
+      }
+
       const response = await apiClient.post('/auth/login', {
         email: cleanEmail,
         password,

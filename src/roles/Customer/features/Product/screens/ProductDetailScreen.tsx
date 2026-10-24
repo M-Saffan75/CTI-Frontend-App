@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { launchImageLibrary } from 'react-native-image-picker';
 
@@ -72,10 +72,13 @@ function ImageCarousel({ images }) {
 
 function SpecRow({ label, value, alt = false }) {
   const { colors } = useTheme();
+  const displayVal = typeof value === 'object' && value !== null
+    ? (value.name || value.title || '')
+    : String(value ?? '');
   return (
     <View style={[styles.specRow, alt && { backgroundColor: colors.surfaceAlt }]}>
       <Text style={[styles.specLabel, { color: colors.textMuted }]}>{label}</Text>
-      <Text style={[styles.specValue, { color: colors.text }]}>{value}</Text>
+      <Text style={[styles.specValue, { color: colors.text }]}>{displayVal}</Text>
     </View>
   );
 }
@@ -142,12 +145,12 @@ function RelatedCard({ product, navigation }) {
       </View>
       <View style={styles.relatedBody}>
         <Text style={[styles.relatedBrand, { color: colors.textMuted }]} numberOfLines={1}>
-          {product.brand}
+          {typeof product.brand === 'string' ? product.brand : (product.brand as any)?.title || (product.brand as any)?.name || 'CTI Store'}
         </Text>
         <Text style={[styles.relatedTitle, { color: colors.text }]} numberOfLines={1}>
-          {product.title}
+          {typeof product.title === 'string' ? product.title : (product.title as any)?.title || (product.title as any)?.name || 'Product'}
         </Text>
-        <Text style={[styles.relatedPrice, { color: colors.text }]}>${product.price.toFixed(2)}</Text>
+        <Text style={[styles.relatedPrice, { color: colors.text }]}>${Number(product.price || 0).toFixed(2)}</Text>
       </View>
     </Squeeze>
   );

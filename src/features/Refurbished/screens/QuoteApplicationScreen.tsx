@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -12,6 +11,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import CtiLoader from '@/components/CtiLoader';
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
 import AlertModal, { AlertModalType } from '@/components/AlertModal';
@@ -270,7 +270,7 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
               disabled={isSubmitting}
               style={[styles.submitBtn, { backgroundColor: colors.primary, opacity: isSubmitting ? 0.7 : 1 }]}>
               {isSubmitting ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
+                <CtiLoader size="xs" />
               ) : (
                 <Text style={styles.submitBtnText}>Complete application</Text>
               )}

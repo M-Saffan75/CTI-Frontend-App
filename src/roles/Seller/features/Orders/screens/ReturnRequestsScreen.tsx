@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -11,6 +10,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import CtiLoader from '@/components/CtiLoader';
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
 import AlertModal, { AlertModalType } from '@/components/AlertModal';
@@ -281,7 +281,18 @@ export default function ReturnRequestsScreen({ navigation }: any) {
 
         {/* Orders List matching Order Returns.png */}
         <View style={styles.ordersList}>
-          {filteredOrders.map((ord, idx) => (
+          {loading && !refreshing ? (
+            <CtiLoader
+              size="md"
+              text="Loading return requests..."
+              style={{ paddingVertical: 40 }}
+            />
+          ) : filteredOrders.length === 0 ? (
+            <View style={[styles.orderCard, { backgroundColor: colors.surface, borderColor: colors.border, padding: 30, alignItems: 'center' }]}>
+              <Text style={{ color: colors.textMuted, fontFamily: fonts.medium }}>No return requests found</Text>
+            </View>
+          ) : (
+            filteredOrders.map((ord, idx) => (
             <FadeUp key={ord.id} delay={90 + idx * 40} duration={320}>
               <View
                 style={[
@@ -369,8 +380,9 @@ export default function ReturnRequestsScreen({ navigation }: any) {
                 </View>
               </View>
             </FadeUp>
-          ))}
-        </View>
+          ))
+        )}
+      </View>
       </ScrollView>
 
       {/* Alert Modal */}

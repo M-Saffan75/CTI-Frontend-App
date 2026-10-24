@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -11,6 +10,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import CtiLoader from '@/components/CtiLoader';
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
 import AlertModal, { AlertModalType } from '@/components/AlertModal';
@@ -354,7 +354,13 @@ export default function OrderManagementScreen({ navigation }: any) {
 
       {/* Orders List matching Figma cards */}
       <View style={styles.ordersList}>
-        {filteredOrders.length === 0 ? (
+        {loading && !refreshing ? (
+          <CtiLoader
+            size="md"
+            text="Loading orders..."
+            style={{ paddingVertical: 40 }}
+          />
+        ) : filteredOrders.length === 0 ? (
           <View style={[styles.emptyBox, { borderColor: colors.border, backgroundColor: colors.surface }]}>
             <Text style={[styles.emptyText, { color: colors.textMuted }]}>
               No orders found

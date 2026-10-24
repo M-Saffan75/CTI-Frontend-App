@@ -102,10 +102,22 @@ export function mapBackendToEcomProduct(raw: any): MobileEcomProduct {
     image: v.images?.[0]?.url ? { uri: v.images[0].url } : mainImage,
   }));
 
+  const safeString = (val: any, fallback = ''): string => {
+    if (typeof val === 'string') return val;
+    if (val && typeof val === 'object') {
+      return val.name || val.title || val.storeName || fallback;
+    }
+    return fallback;
+  };
+
+  const finalBrand = safeString(raw.brand, safeString(raw.brandName, safeString(raw.category, 'CTI Store')));
+  const finalTitle = safeString(raw.title, safeString(raw.name, 'Electronic Gadget'));
+  const finalCategory = safeString(raw.category, safeString(raw.productCategoryId, safeString(raw.productSubCategoryId, 'Electronics')));
+
   return {
     id: String(raw._id || raw.id || Math.random().toString()),
-    brand: raw.brand || raw.brandName || raw.category?.name || 'Top Brand',
-    title: raw.title || raw.name || 'Electronic Gadget',
+    brand: finalBrand,
+    title: finalTitle,
     description: cleanDescription,
     price,
     originalPrice,
@@ -113,7 +125,7 @@ export function mapBackendToEcomProduct(raw: any): MobileEcomProduct {
     inStock: stock > 0,
     rating: Number(raw.averageRating || raw.rating || 4.5),
     reviewCount: Number(raw.numReviews || raw.reviewCount || 0),
-    category: raw.category?.name || raw.category || 'Electronics',
+    category: finalCategory,
     colors: COLORS,
     storage: STORAGE_OPTIONS[0],
     image: mainImage,
@@ -124,13 +136,13 @@ export function mapBackendToEcomProduct(raw: any): MobileEcomProduct {
       avatar: sellerAvatar,
     },
     specs: {
-      brand: raw.brand || 'Original Brand',
-      sku: raw.sku || `SKU-${raw._id?.slice(-8) || 'CTI-V1'}`,
-      category: raw.category?.name || raw.category || 'Electronics',
+      brand: finalBrand,
+      sku: typeof raw.sku === 'string' ? raw.sku : `SKU-${String(raw._id || 'CTI-V1').slice(-8)}`,
+      category: finalCategory,
       totalVariants: mappedVariants.length || 1,
       totalStock: stock,
       priceRange: `$${price} - $${originalPrice}`,
-      warranty: raw.warranty || '1 Year Official Warranty',
+      warranty: typeof raw.warranty === 'string' ? raw.warranty : '1 Year Official Warranty',
     },
     variants: mappedVariants.length > 0 ? mappedVariants : (PRODUCTS[0].variants as any),
     reviewBreakdown: [

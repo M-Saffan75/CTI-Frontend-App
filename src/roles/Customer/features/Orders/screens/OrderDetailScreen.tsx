@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Image,
   RefreshControl,
   ScrollView,
@@ -10,6 +9,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import CtiLoader from '@/components/CtiLoader';
 import Icon from '@/components/Icon';
 import Button from '@/components/Button';
 import Squeeze from '@/components/Squeeze';
@@ -134,12 +134,11 @@ export default function OrderDetailScreen({ navigation, route }: any) {
         <ProgressBar step={order.progressStep ?? 0} />
 
         {loading && !refreshing ? (
-          <View style={{ paddingVertical: 40, alignItems: 'center' }}>
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={{ marginTop: 12, color: colors.textMuted, fontFamily: fonts.regular }}>
-              Loading order details...
-            </Text>
-          </View>
+          <CtiLoader
+            size="md"
+            text="Loading order details..."
+            style={{ paddingVertical: 40 }}
+          />
         ) : (
           <>
             <FadeUp delay={100} duration={500}>

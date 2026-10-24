@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Image,
   RefreshControl,
   ScrollView,
@@ -10,6 +9,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import CtiLoader from '@/components/CtiLoader';
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
 import AlertModal, { AlertModalType } from '@/components/AlertModal';
@@ -52,13 +52,13 @@ function ProductCard({ product, navigation }: { product: MobileEcomProduct; navi
 
       <View style={styles.cardBody}>
         <Text style={[styles.brand, { color: colors.textMuted }]} numberOfLines={1}>
-          {product.brand || 'CTI Store'}
+          {typeof product.brand === 'string' ? product.brand : (product.brand as any)?.title || (product.brand as any)?.name || 'CTI Store'}
         </Text>
         <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
-          {product.title}
+          {typeof product.title === 'string' ? product.title : (product.title as any)?.title || (product.title as any)?.name || 'Product'}
         </Text>
         <Text style={[styles.description, { color: colors.textMuted }]} numberOfLines={2}>
-          {product.description}
+          {typeof product.description === 'string' ? product.description : ''}
         </Text>
         <Text style={[styles.reviews, { color: colors.textMuted }]}>
           {product.reviewCount ? `${product.reviewCount} Reviews` : 'No Reviews'}
@@ -202,12 +202,11 @@ export default function ProductScreen({ navigation }: any) {
           />
         }>
         {loading && !refreshing ? (
-          <View style={{ paddingVertical: 50, alignItems: 'center' }}>
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={{ marginTop: 12, color: colors.textMuted, fontFamily: fonts.regular }}>
-              Loading marketplace products...
-            </Text>
-          </View>
+          <CtiLoader
+            size="md"
+            text="Loading marketplace products..."
+            style={{ paddingVertical: 45 }}
+          />
         ) : products.length === 0 ? (
           <View style={{ paddingVertical: 50, alignItems: 'center' }}>
             <Text style={{ color: colors.textMuted, fontFamily: fonts.regular, fontSize: 14 }}>

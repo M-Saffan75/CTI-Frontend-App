@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Image,
   RefreshControl,
   ScrollView,
@@ -10,6 +9,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import CtiLoader from '@/components/CtiLoader';
 import Icon from '@/components/Icon';
 import Button from '@/components/Button';
 import Squeeze from '@/components/Squeeze';
@@ -253,12 +253,11 @@ export default function CartScreen({ navigation }: any) {
         <Text style={[styles.title, { color: colors.text }]}>My Cart</Text>
 
         {loading && !refreshing ? (
-          <View style={{ paddingVertical: 50, alignItems: 'center' }}>
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={{ marginTop: 12, color: colors.textMuted, fontFamily: fonts.regular }}>
-              Loading your cart...
-            </Text>
-          </View>
+          <CtiLoader
+            size="md"
+            text="Loading your cart..."
+            style={{ paddingVertical: 45 }}
+          />
         ) : items.length === 0 ? (
           <View style={{ paddingVertical: 40, alignItems: 'center', gap: 14 }}>
             <Icon source={shoppingCartExtra} size={48} color={colors.textMuted} />

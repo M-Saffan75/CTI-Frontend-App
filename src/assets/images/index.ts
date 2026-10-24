@@ -17,3 +17,7 @@ export const splashByTheme = {
   ocean: require('./splash/ocean.png'),
   forest: require('./splash/forest.png'),
 };
+
+// Reusable Lottie spinner/loader matching the Next.js webapp
+export const ctiLoaderAnimation = require('./cti-loader.json');
+

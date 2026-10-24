@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Image,
   RefreshControl,
   ScrollView,
@@ -13,6 +12,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import CtiLoader from '@/components/CtiLoader';
 import Icon from '@/components/Icon';
 import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
@@ -223,9 +223,11 @@ export default function ProductListScreen({ navigation }: any) {
 
         {/* Loading Indicator */}
         {loading && !refreshing && (
-          <View style={styles.loadingWrap}>
-            <ActivityIndicator size="small" color={colors.primary} />
-          </View>
+          <CtiLoader
+            size="sm"
+            text="Loading products..."
+            style={styles.loadingWrap}
+          />
         )}
 
         {/* Products List matching Figma Cards */}

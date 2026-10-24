@@ -27,7 +27,11 @@ export function useWishlist() {
   const value = useContext(WishlistContext);
 
   if (!value) {
-    throw new Error('useWishlist() was called outside <WishlistProvider>.');
+    return {
+      ids: [],
+      isSaved: () => false,
+      toggle: () => {},
+    };
   }
 
   return value;

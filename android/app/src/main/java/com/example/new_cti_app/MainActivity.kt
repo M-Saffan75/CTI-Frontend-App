@@ -1,4 +1,4 @@
-package com.cti
+package com.example.new_cti_app
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate

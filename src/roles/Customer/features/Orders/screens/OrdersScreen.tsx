@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Image,
   Pressable,
   RefreshControl,
@@ -12,6 +11,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import CtiLoader from '@/components/CtiLoader';
 import Icon from '@/components/Icon';
 import Button from '@/components/Button';
 import ConfirmModal from '@/components/ConfirmModal';
@@ -346,12 +346,11 @@ export default function OrdersScreen({ navigation }: any) {
         </View>
 
         {loading ? (
-          <View style={styles.loaderWrap}>
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={[styles.loaderText, { color: colors.textMuted }]}>
-              Loading your orders...
-            </Text>
-          </View>
+          <CtiLoader
+            size="md"
+            text="Loading your orders..."
+            style={styles.loaderWrap}
+          />
         ) : tab === 'orders' ? (
           filteredOrders.length === 0 ? (
             <View style={styles.emptyWrap}>
