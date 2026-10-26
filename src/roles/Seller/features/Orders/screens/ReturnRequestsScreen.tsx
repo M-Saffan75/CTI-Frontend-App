@@ -109,7 +109,7 @@ export default function ReturnRequestsScreen({ navigation }: any) {
         search: searchQuery.trim() || undefined,
       });
 
-      if (data && data.length > 0) {
+      if (Array.isArray(data)) {
         setReturnsList(
           data.map(r => ({
             id: r.id,
@@ -124,11 +124,9 @@ export default function ReturnRequestsScreen({ navigation }: any) {
             reason: r.reason,
           })),
         );
-      } else {
-        setReturnsList(MOCK_RETURN_ORDERS);
       }
     } catch {
-      setReturnsList(MOCK_RETURN_ORDERS);
+      // Keep existing
     } finally {
       setLoading(false);
       setRefreshing(false);

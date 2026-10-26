@@ -36,6 +36,8 @@ import DeviceConditionScreen from '@/features/Refurbished/screens/DeviceConditio
 import UploadDeviceMediaScreen from '@/features/Refurbished/screens/UploadDeviceMediaScreen';
 import QuoteApplicationScreen from '@/features/Refurbished/screens/QuoteApplicationScreen';
 import ApplicationSubmittedScreen from '@/features/Refurbished/screens/ApplicationSubmittedScreen';
+import ChatListScreen from '@/roles/Repairman/features/Chat/screens/ChatListScreen';
+import ChatDetailScreen from '@/roles/Repairman/features/Chat/screens/ChatDetailScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -58,6 +60,8 @@ export default function CustomerNavigator({ onLogout }) {
         <Stack.Screen name="Settings">
           {props => <SettingsScreen {...props} onLogout={onLogout} />}
         </Stack.Screen>
+        <Stack.Screen name="ChatList" component={ChatListScreen} />
+        <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
         <Stack.Screen name="RepairDetail" component={RepairDetailScreen} />
         <Stack.Screen name="DisputeDetail" component={DisputeDetailScreen} />
         <Stack.Screen name="Orders" component={OrdersScreen} />

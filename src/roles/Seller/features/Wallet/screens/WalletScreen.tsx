@@ -20,6 +20,7 @@ import { timesSquareBold } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import {
+  fetchSellerTransactionsApi,
   fetchSellerWalletApi,
   requestSellerWithdrawalApi,
   SellerWalletData,
@@ -124,8 +125,26 @@ export default function WalletScreen({ navigation }: any) {
   const loadWallet = async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
     try {
-      const data = await fetchSellerWalletApi();
-      setWalletStats(data);
+      const [data, txList] = await Promise.all([
+        fetchSellerWalletApi(),
+        fetchSellerTransactionsApi(),
+      ]);
+      if (data) setWalletStats(data);
+      if (Array.isArray(txList) && txList.length > 0) {
+        setPayments(
+          txList.map((t: any, idx: number) => ({
+            id: t._id || String(idx),
+            orderId: t.orderNo || `ORD-${t._id?.slice(-6) || idx}`,
+            status: t.status || 'Cleared',
+            statusColor: t.status === 'Pending' ? '#F59E0B' : '#10B981',
+            grossAmount: `$${(t.amount || 0).toFixed(2)}`,
+            platformFee: `$${(t.fee || 0).toFixed(2)}`,
+            netEarned: `$${(t.netAmount || t.amount || 0).toFixed(2)}`,
+            deliveredDate: t.createdAt ? new Date(t.createdAt).toLocaleDateString() : 'Today',
+            availableDate: t.clearedAt ? new Date(t.clearedAt).toLocaleDateString() : 'Available',
+          })),
+        );
+      }
     } catch {
       // Keep fallbacks
     } finally {

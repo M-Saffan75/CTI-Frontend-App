@@ -137,6 +137,7 @@ export default function EnquiriesScreen({ navigation }: any) {
 
   const openChat = (item: EnquiryCardItem) => {
     navigation?.navigate('ChatDetail', {
+      chatId: item.id,
       customerName: item.customerName,
       queryId: item.queryId,
       question: item.question,

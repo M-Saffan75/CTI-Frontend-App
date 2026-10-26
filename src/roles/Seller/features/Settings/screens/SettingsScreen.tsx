@@ -55,7 +55,7 @@ const MENU = [
   { label: 'Blogs', icon: blogExtra, screen: 'Blogs' },
   { label: 'Support', icon: headphonesBold, tab: 'Enquiries' },
   { label: 'My Order', icon: packageBold, tab: 'OrderManagement' },
-  { label: 'My Messages', icon: commentDotsBold, screen: 'ChatDetail' },
+  { label: 'My Messages', icon: commentDotsBold, screen: 'ChatList' },
   { label: 'My Sell Request', icon: tagBold, screen: 'ReturnRequests' },
   {
     label: 'Refurbished devices',

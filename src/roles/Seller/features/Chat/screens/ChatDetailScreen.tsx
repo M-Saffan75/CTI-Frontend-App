@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   FlatList,
   Image,
@@ -11,65 +11,231 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import CtiLoader from '@/components/CtiLoader';
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
 import { arrowLeftBold } from '@/assets/icons';
 import { dummyProfileExtra } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import {
+  ChatMessageItem,
+  fetchChatMessages,
+  markChatAsRead,
+  sendChatMessageHttp,
+} from '@/services/chatApi';
+import socketService from '@/services/socketService';
 
-interface Message {
-  id: string;
-  sender: 'customer' | 'seller';
-  text: string;
-  time: string;
+function formatMessageTime(dateStr?: string): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-const INITIAL_MESSAGES: Message[] = [
-  {
-    id: 'm-1',
-    sender: 'customer',
-    text: 'Is this available?',
-    time: '30/06/2026, 04:39 PM',
-  },
-  {
-    id: 'm-2',
-    sender: 'customer',
-    text: 'Is this available?',
-    time: '30/06/2026, 04:40 PM',
-  },
-];
+function formatMessageDate(dateStr?: string): string {
+  if (!dateStr) return 'Today';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return 'Today';
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) return 'Today';
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+  return d.toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' });
+}
 
 export default function ChatDetailScreen({ navigation, route }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const customerName = route?.params?.customerName || 'Customer';
-  const queryId = route?.params?.queryId || 'QRY-000004';
-  const question = route?.params?.question || 'Is this available?';
+  const chatId = route?.params?.chatId;
+  const customerName = route?.params?.customerName || route?.params?.participantName || 'Customer';
+  const queryId = route?.params?.queryId || '';
+  const question = route?.params?.question || '';
 
-  const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
+  const [currentUserId, setCurrentUserId] = useState<string>('');
+  const [currentUserRole, setCurrentUserRole] = useState<string>('seller');
+  const [isOnline, setIsOnline] = useState<boolean>(Boolean(route?.params?.isOnline));
+  const [messages, setMessages] = useState<ChatMessageItem[]>([]);
   const [inputText, setInputText] = useState('');
+  const [loading, setLoading] = useState(Boolean(chatId));
+  const [isTyping, setIsTyping] = useState(false);
+  const flatListRef = useRef<FlatList>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 1. Fetch current logged in user info
+  useEffect(() => {
+    async function loadUser() {
+      try {
+        const authData = await AsyncStorage.getItem('auth');
+        if (authData) {
+          const parsed = JSON.parse(authData);
+          if (parsed?.user) {
+            setCurrentUserId(parsed.user._id || parsed.user.id || '');
+            setCurrentUserRole(parsed.user.role || 'seller');
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+    loadUser();
+  }, []);
+
+  // 2. Load live messages & bind socket
+  useEffect(() => {
+    if (!chatId) return;
+
+    let isMounted = true;
+
+    async function initChat() {
+      setLoading(true);
+      try {
+        socketService.joinChat(chatId);
+        markChatAsRead(chatId);
+
+        const data = await fetchChatMessages(chatId);
+        if (isMounted) {
+          setMessages(data.messages);
+          if (data.user?.isOnline !== undefined) {
+            setIsOnline(Boolean(data.user.isOnline));
+          }
+        }
+      } catch (err) {
+        if (__DEV__) console.log('[SellerChatDetail] init error:', err);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    }
+
+    initChat();
+
+    // Live socket listeners
+    const unsubNewMsg = socketService.onNewMessage((msg: any) => {
+      if (msg.chatId === chatId) {
+        setMessages(prev => {
+          if (prev.some(m => m.messageId === msg.messageId || m._id === msg.messageId)) {
+            return prev;
+          }
+          const newMsg: ChatMessageItem = {
+            _id: msg.messageId || `msg-${Date.now()}`,
+            messageId: msg.messageId || `msg-${Date.now()}`,
+            content: msg.content || '',
+            messageType: msg.messageType || 'text',
+            senderType: msg.senderType,
+            senderId: msg.senderId,
+            timestamp: msg.timestamp || new Date().toISOString(),
+            mediaUrl: msg.mediaUrl,
+            fileName: msg.fileName,
+            isRead: true,
+          };
+          return [...prev, newMsg];
+        });
+
+        socketService.markMessagesRead(chatId, [msg.messageId]);
+        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+      }
+    });
+
+    const unsubTypingStart = socketService.onTypingStart(data => {
+      if (data.chatId === chatId && data.userId !== currentUserId) {
+        setIsTyping(true);
+      }
+    });
+
+    const unsubTypingStop = socketService.onTypingStop(data => {
+      if (data.chatId === chatId) {
+        setIsTyping(false);
+      }
+    });
+
+    const unsubOnline = socketService.onUserOnline(data => {
+      if (data.chatId === chatId) {
+        setIsOnline(true);
+      }
+    });
+
+    const unsubOffline = socketService.onUserOffline(data => {
+      if (data.chatId === chatId) {
+        setIsOnline(false);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      socketService.leaveChat(chatId);
+      unsubNewMsg();
+      unsubTypingStart();
+      unsubTypingStop();
+      unsubOnline();
+      unsubOffline();
+    };
+  }, [chatId, currentUserId]);
+
+  const handleTextChange = (text: string) => {
+    setInputText(text);
+    if (!chatId) return;
+
+    socketService.startTyping(chatId);
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      socketService.stopTyping(chatId);
+    }, 2000);
+  };
 
   const handleSend = () => {
-    if (!inputText.trim()) return;
+    const text = inputText.trim();
+    if (!text) return;
 
-    const newMsg: Message = {
-      id: `m-${Date.now()}`,
-      sender: 'seller',
-      text: inputText.trim(),
-      time: 'Just now',
+    if (chatId) {
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      socketService.stopTyping(chatId);
+    }
+
+    const tempId = `local-${Date.now()}`;
+    const nowIso = new Date().toISOString();
+
+    const localMsg: ChatMessageItem = {
+      _id: tempId,
+      messageId: tempId,
+      content: text,
+      messageType: 'text',
+      senderType: (currentUserRole as any) || 'seller',
+      senderId: currentUserId,
+      timestamp: nowIso,
+      isRead: false,
     };
 
-    setMessages(prev => [...prev, newMsg]);
+    setMessages(prev => [...prev, localMsg]);
     setInputText('');
+    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50);
+
+    if (chatId) {
+      socketService.sendChatMessage({
+        chatId,
+        content: text,
+        messageType: 'text',
+      });
+      sendChatMessageHttp(chatId, { content: text });
+    }
+  };
+
+  const isMessageFromMe = (msg: ChatMessageItem) => {
+    if (msg._id.startsWith('local-')) return true;
+    if (currentUserId && msg.senderId) {
+      const sId = typeof msg.senderId === 'object' ? msg.senderId._id : msg.senderId;
+      if (sId === currentUserId) return true;
+    }
+    return msg.senderType === 'seller' || msg.senderType === currentUserRole;
   };
 
   return (
     <KeyboardAvoidingView
       style={[styles.screen, { backgroundColor: colors.background }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      {/* Header matching Chat screen.png */}
+      {/* Header */}
       <View
         style={[
           styles.header,
@@ -89,66 +255,91 @@ export default function ChatDetailScreen({ navigation, route }: any) {
 
         <View style={styles.headerInfo}>
           <View style={styles.nameRow}>
-            <View style={styles.greenDot} />
+            <View
+              style={[
+                styles.statusDot,
+                { backgroundColor: isOnline ? '#10B981' : colors.textMuted },
+              ]}
+            />
             <Text style={[styles.headerName, { color: colors.text }]}>{customerName}</Text>
           </View>
           <Text style={[styles.querySubtitle, { color: colors.textMuted }]} numberOfLines={1}>
-            {question} - ID: {queryId}
+            {isTyping
+              ? 'Typing...'
+              : question
+              ? `${question}${queryId ? ` - ID: ${queryId}` : ''}`
+              : isOnline
+              ? 'Active now'
+              : 'Offline'}
           </Text>
         </View>
       </View>
 
-      {/* Date Pill matching Chat screen.png */}
+      {/* Date Pill */}
       <View style={styles.dateSeparatorWrap}>
         <View style={[styles.datePill, { backgroundColor: colors.surfaceAlt }]}>
-          <Text style={[styles.datePillText, { color: colors.textMuted }]}>30 June 2026</Text>
+          <Text style={[styles.datePillText, { color: colors.textMuted }]}>
+            {messages.length > 0 ? formatMessageDate(messages[0].timestamp) : 'Today'}
+          </Text>
         </View>
       </View>
 
       {/* Messages List */}
-      <FlatList
-        data={messages}
-        keyExtractor={item => item.id}
-        contentContainerStyle={[styles.messagesContainer, { paddingBottom: 16 }]}
-        renderItem={({ item }) => {
-          const isSeller = item.sender === 'seller';
-          return (
-            <View
-              style={[
-                styles.messageRow,
-                isSeller ? styles.messageRowRight : styles.messageRowLeft,
-              ]}>
+      {loading ? (
+        <CtiLoader size="md" text="Loading conversation..." style={{ flex: 1 }} />
+      ) : (
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          keyExtractor={(item, idx) => item._id || item.messageId || String(idx)}
+          contentContainerStyle={[styles.messagesContainer, { paddingBottom: 16 }]}
+          renderItem={({ item }) => {
+            const isMine = isMessageFromMe(item);
+            return (
               <View
                 style={[
-                  styles.bubble,
-                  isSeller
-                    ? [styles.bubbleSeller, { backgroundColor: colors.primary }]
-                    : [
-                        styles.bubbleCustomer,
-                        { backgroundColor: colors.surface, borderColor: colors.border },
-                      ],
+                  styles.messageRow,
+                  isMine ? styles.messageRowRight : styles.messageRowLeft,
                 ]}>
-                <Text
+                <View
                   style={[
-                    styles.messageText,
-                    { color: isSeller ? colors.onPrimary : colors.text },
+                    styles.bubble,
+                    isMine
+                      ? [styles.bubbleSeller, { backgroundColor: colors.primary }]
+                      : [
+                          styles.bubbleCustomer,
+                          { backgroundColor: colors.surface, borderColor: colors.border },
+                        ],
                   ]}>
-                  {item.text}
-                </Text>
-                <Text
-                  style={[
-                    styles.messageTime,
-                    { color: isSeller ? 'rgba(255,255,255,0.7)' : colors.textMuted },
-                  ]}>
-                  {item.time}
-                </Text>
+                  <Text
+                    style={[
+                      styles.messageText,
+                      { color: isMine ? colors.onPrimary : colors.text },
+                    ]}>
+                    {item.content}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.messageTime,
+                      { color: isMine ? 'rgba(255,255,255,0.7)' : colors.textMuted },
+                    ]}>
+                    {formatMessageTime(item.timestamp)}
+                  </Text>
+                </View>
               </View>
+            );
+          }}
+          ListEmptyComponent={
+            <View style={{ paddingVertical: 60, alignItems: 'center' }}>
+              <Text style={{ fontFamily: fonts.regular, fontSize: 13, color: colors.textMuted }}>
+                No messages yet. Send a message to start chatting.
+              </Text>
             </View>
-          );
-        }}
-      />
+          }
+        />
+      )}
 
-      {/* Bottom Input Pill matching Chat screen.png */}
+      {/* Bottom Input */}
       <View
         style={[
           styles.inputContainer,
@@ -164,10 +355,10 @@ export default function ChatDetailScreen({ navigation, route }: any) {
             { backgroundColor: colors.surfaceAlt, borderColor: colors.border },
           ]}>
           <TextInput
-            placeholder="Type Your reply here"
+            placeholder="Type your reply here..."
             placeholderTextColor={colors.textMuted}
             value={inputText}
-            onChangeText={setInputText}
+            onChangeText={handleTextChange}
             style={[styles.inputField, { color: colors.text }]}
           />
           <TouchableOpacity
@@ -201,7 +392,7 @@ const styles = StyleSheet.create({
   avatar: { width: 38, height: 38, borderRadius: 19 },
   headerInfo: { flex: 1 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  greenDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#10B981' },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
   headerName: { fontFamily: fonts.bold, fontSize: 15 },
   querySubtitle: { fontFamily: fonts.regular, fontSize: 12, marginTop: 2 },
 

@@ -28,6 +28,7 @@ import { fonts } from '@/theme/fonts';
 import { BLOG_SECTIONS } from '@/roles/Customer/features/Blogs/data/blogs';
 import { REPAIRMEN } from '@/roles/Customer/features/Repairmen/data/repairmen';
 import homeApi, { HomeData } from '@/services/homeApi';
+import { startChat } from '@/services/chatApi';
 import {
   FAQS,
   FAQ_CATEGORIES,
@@ -189,13 +190,39 @@ function OurServices({ liveServices }: { liveServices?: any[] }) {
   );
 }
 
-function SpecialistCard({ repairman }: { repairman: any }) {
+function SpecialistCard({ repairman, navigation }: { repairman: any; navigation?: any }) {
   const { colors } = useTheme();
   const name = repairman.name || repairman.repairmanProfile?.fullName || 'Verified Professional';
   const role = repairman.role || (repairman.repairmanProfile?.specializations?.[0] ?? 'Repair Specialist');
   const photo = repairman.photo || repairman.repairmanProfile?.profilePhoto || 'https://picsum.photos/seed/repairman/400/400';
   const location = repairman.shortLocation || repairman.city?.name || 'Lahore, Pakistan';
   const description = repairman.description || repairman.repairmanProfile?.description || 'Certified repair technician.';
+
+  const handleOpenChat = async () => {
+    const repairmanId = repairman._id || repairman.id;
+    if (!repairmanId) {
+      navigation?.navigate('ChatList');
+      return;
+    }
+    try {
+      const res = await startChat({ repairmanId });
+      if (res.success && res.chat) {
+        navigation?.navigate('ChatDetail', {
+          chatId: res.chat._id || res.chat.chatId,
+          participantName: name,
+          participantAvatar: photo,
+        });
+      } else {
+        navigation?.navigate('ChatDetail', {
+          participantName: name,
+          participantAvatar: photo,
+          participantId: repairmanId,
+        });
+      }
+    } catch {
+      navigation?.navigate('ChatList');
+    }
+  };
 
   return (
     <View style={[styles.specialistCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -232,7 +259,7 @@ function SpecialistCard({ repairman }: { repairman: any }) {
 
         <View style={styles.specialistActions}>
           <Button title="Book Appointement" style={styles.bookButton} />
-          <Squeeze style={[styles.chatButton, { borderColor: colors.border }]}>
+          <Squeeze onPress={handleOpenChat} style={[styles.chatButton, { borderColor: colors.border }]}>
             <Icon source={commentDotsBold} size={20} color={colors.text} />
           </Squeeze>
         </View>
@@ -241,7 +268,7 @@ function SpecialistCard({ repairman }: { repairman: any }) {
   );
 }
 
-function OurSpecialists({ liveRepairmen }: { liveRepairmen?: any[] }) {
+function OurSpecialists({ liveRepairmen, navigation }: { liveRepairmen?: any[]; navigation?: any }) {
   const { colors } = useTheme();
   const list = liveRepairmen && liveRepairmen.length > 0 ? liveRepairmen : REPAIRMEN.slice(0, 4);
 
@@ -260,7 +287,7 @@ function OurSpecialists({ liveRepairmen }: { liveRepairmen?: any[] }) {
         style={styles.bleed}
         contentContainerStyle={styles.specialistsRow}>
         {list.map((repairman, idx) => (
-          <SpecialistCard key={repairman._id || repairman.id || idx} repairman={repairman} />
+          <SpecialistCard key={repairman._id || repairman.id || idx} repairman={repairman} navigation={navigation} />
         ))}
       </ScrollView>
     </View>
@@ -616,7 +643,7 @@ export default function HomeScreen({ navigation }: any) {
           <OurServices liveServices={homeData?.services} />
         </FadeUp>
         <FadeUp duration={500} delay={140}>
-          <OurSpecialists liveRepairmen={homeData?.repairmen} />
+          <OurSpecialists liveRepairmen={homeData?.repairmen} navigation={navigation} />
         </FadeUp>
         <FadeUp duration={500} delay={180}>
           <TrustedStats />

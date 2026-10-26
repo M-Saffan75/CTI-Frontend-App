@@ -7,6 +7,7 @@ import CancelledOrdersScreen from '../features/Orders/screens/CancelledOrdersScr
 import ReturnRequestsScreen from '../features/Orders/screens/ReturnRequestsScreen';
 import CreateCampaignScreen from '../features/Ads/screens/CreateCampaignScreen';
 import ChatDetailScreen from '../features/Chat/screens/ChatDetailScreen';
+import ChatListScreen from '@/roles/Repairman/features/Chat/screens/ChatListScreen';
 import SettingsScreen from '../features/Settings/screens/SettingsScreen';
 
 // Screens shared across roles
@@ -59,6 +60,7 @@ export default function SellerNavigator({ onLogout }: any) {
         <Stack.Screen name="CancelledOrders" component={CancelledOrdersScreen} />
         <Stack.Screen name="ReturnRequests" component={ReturnRequestsScreen} />
         <Stack.Screen name="CreateCampaign" component={CreateCampaignScreen} />
+        <Stack.Screen name="ChatList" component={ChatListScreen} />
         <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
         <Stack.Screen name="Settings">
           {props => (

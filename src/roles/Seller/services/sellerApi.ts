@@ -503,3 +503,54 @@ export async function createSellerAdApi(payload: any): Promise<any> {
   return res.data;
 }
 
+/**
+ * Fetch Seller Product Reviews
+ * Endpoint: GET /seller/reviews
+ */
+export async function fetchSellerReviewsApi(params: {
+  search?: string;
+  rating?: string | number;
+  page?: number;
+  limit?: number;
+} = {}): Promise<{
+  reviews: any[];
+  total: number;
+  totalPages: number;
+  stats?: { avgRating: number; withRating: number };
+}> {
+  try {
+    const query = new URLSearchParams();
+    if (params.search) query.append('search', params.search);
+    if (params.rating && params.rating !== 'All') query.append('rating', String(params.rating));
+    if (params.page) query.append('page', String(params.page));
+    if (params.limit) query.append('limit', String(params.limit || 15));
+
+    const res = await apiClient.get(`/seller/reviews?${query.toString()}`);
+    if (res.data?.success) {
+      return {
+        reviews: res.data.reviews || res.data.data || [],
+        total: res.data.total || (res.data.reviews || []).length,
+        totalPages: res.data.totalPages || 1,
+        stats: res.data.stats,
+      };
+    }
+    return { reviews: [], total: 0, totalPages: 1 };
+  } catch (error) {
+    if (__DEV__) console.log('[sellerApi] fetchSellerReviewsApi error:', error);
+    return { reviews: [], total: 0, totalPages: 1 };
+  }
+}
+
+/**
+ * Delete a Product Review
+ * Endpoint: DELETE /seller/reviews/:id
+ */
+export async function deleteSellerReviewApi(reviewId: string): Promise<boolean> {
+  try {
+    const res = await apiClient.delete(`/seller/reviews/${reviewId}`);
+    return Boolean(res.data?.success);
+  } catch {
+    return false;
+  }
+}
+

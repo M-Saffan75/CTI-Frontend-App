@@ -127,6 +127,113 @@ class SocketService {
     }
   }
 
+  // --- Specialized Chat Socket Methods (Matching Next.js Web App) ---
+
+  /**
+   * Join a chat room to receive live messages
+   */
+  joinChat(chatId: string) {
+    this.emit('join_chat', { chatId });
+  }
+
+  /**
+   * Leave a chat room
+   */
+  leaveChat(chatId: string) {
+    this.emit('leave_chat', { chatId });
+  }
+
+  /**
+   * Send a real-time chat message
+   */
+  sendChatMessage(payload: {
+    chatId: string;
+    content: string;
+    messageType?: string;
+    mediaUrl?: string | null;
+    fileName?: string | null;
+    fileSize?: number | null;
+  }) {
+    this.emit('send_message', payload);
+  }
+
+  /**
+   * Listen for incoming real-time messages
+   */
+  onNewMessage(callback: (message: any) => void): () => void {
+    return this.on('new_message', callback);
+  }
+
+  /**
+   * Listen for chat list updates (new unread count, new message preview, etc.)
+   */
+  onChatListUpdated(callback: (data: any) => void): () => void {
+    return this.on('chat_list_updated', callback);
+  }
+
+  /**
+   * Listen for chat joined confirmation and info
+   */
+  onChatJoined(callback: (data: any) => void): () => void {
+    return this.on('chat_joined', callback);
+  }
+
+  /**
+   * Broadcast start typing
+   */
+  startTyping(chatId: string) {
+    this.emit('typing_start', { chatId });
+  }
+
+  /**
+   * Broadcast stop typing
+   */
+  stopTyping(chatId: string) {
+    this.emit('typing_stop', { chatId });
+  }
+
+  /**
+   * Listen for other user typing
+   */
+  onTypingStart(callback: (data: { userId: string; userName?: string; chatId: string }) => void): () => void {
+    return this.on('typing_start', callback);
+  }
+
+  /**
+   * Listen for other user stopped typing
+   */
+  onTypingStop(callback: (data: { userId: string; chatId: string }) => void): () => void {
+    return this.on('typing_stop', callback);
+  }
+
+  /**
+   * Mark messages as read over socket
+   */
+  markMessagesRead(chatId: string, messageIds?: string[]) {
+    this.emit('mark_messages_read', { chatId, messageIds: messageIds || [] });
+  }
+
+  /**
+   * Listen for read receipts
+   */
+  onMessagesRead(callback: (data: { chatId: string; messageIds: string[]; readBy: string }) => void): () => void {
+    return this.on('messages_read', callback);
+  }
+
+  /**
+   * Listen for user coming online
+   */
+  onUserOnline(callback: (data: any) => void): () => void {
+    return this.on('user_online', callback);
+  }
+
+  /**
+   * Listen for user going offline
+   */
+  onUserOffline(callback: (data: any) => void): () => void {
+    return this.on('user_offline', callback);
+  }
+
   // --- Specialized Helper Listeners matching Web App ---
 
   onNotification(callback: (notification: any) => void): () => void {
