@@ -18,6 +18,7 @@ import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import {
   chevronDownBold,
+  packageBold,
   searchBold,
   slidersHBold,
   tagBold,
@@ -71,18 +72,13 @@ export default function ProductListScreen({ navigation }: any) {
       if (res.products && res.products.length > 0) {
         setProducts(res.products);
         setTotalCount(res.pagination.total);
-      } else if (!searchQuery && statusFilter === 'All') {
-        // Fallback to local data if initial fetch is empty
-        setProducts(SELLER_PRODUCTS_DATA as any);
-        setTotalCount(SELLER_PRODUCTS_DATA.length);
       } else {
         setProducts([]);
         setTotalCount(0);
       }
     } catch {
-      // Keep resilient fallback
-      setProducts(SELLER_PRODUCTS_DATA as any);
-      setTotalCount(SELLER_PRODUCTS_DATA.length);
+      setProducts([]);
+      setTotalCount(0);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -228,6 +224,19 @@ export default function ProductListScreen({ navigation }: any) {
             text="Loading products..."
             style={styles.loadingWrap}
           />
+        )}
+
+        {/* Empty State */}
+        {!loading && products.length === 0 && (
+          <View style={{ paddingVertical: 50, alignItems: 'center' }}>
+            <Icon source={packageBold} size={42} color={colors.textMuted} />
+            <Text style={{ color: colors.text, fontFamily: fonts.bold, fontSize: 16, marginTop: 12 }}>
+              No Products Found
+            </Text>
+            <Text style={{ color: colors.textMuted, fontFamily: fonts.regular, fontSize: 13, marginTop: 6, textAlign: 'center' }}>
+              {searchQuery ? 'No products match your search query.' : 'You have not added any products yet.'}
+            </Text>
+          </View>
         )}
 
         {/* Products List matching Figma Cards */}

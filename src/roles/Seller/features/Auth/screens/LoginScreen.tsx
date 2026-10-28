@@ -119,22 +119,6 @@ export default function LoginScreen({ navigation, onLoggedIn }: any) {
 
       <FadeUp delay={450} duration={700}>
         <Button title="Login" size="lg" loading={loading} onPress={onSubmit} style={styles.button} />
-        <Button
-          title="⚡ Quick Demo Login"
-          variant="outline"
-          size="md"
-          loading={loading}
-          onPress={async () => {
-            setLoading(true);
-            try {
-              await login({ email: 'demo@cti.com', password: 'password123', rememberMe: true });
-              onLoggedIn?.();
-            } finally {
-              setLoading(false);
-            }
-          }}
-          style={{ marginTop: 12 }}
-        />
       </FadeUp>
 
       <View style={styles.footer}>

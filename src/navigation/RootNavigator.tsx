@@ -30,6 +30,7 @@ export default function RootNavigator() {
   const [showSplash, setShowSplash] = useState(true);
   const [role, setRole] = useState<string | null>(null);
   const [loggedIn, setLoggedIn] = useState(false);
+  const [sessionChecked, setSessionChecked] = useState(false);
 
   // Auto-login: Check if user already has an active session
   useEffect(() => {
@@ -47,6 +48,8 @@ export default function RootNavigator() {
         }
       } catch (err) {
         // Silently continue to login
+      } finally {
+        setSessionChecked(true);
       }
     })();
   }, []);
@@ -76,7 +79,9 @@ export default function RootNavigator() {
 
   const stacks = role ? ROLE_STACKS[role] : null;
 
-  if (showSplash) return <SplashScreen onFinish={() => setShowSplash(false)} />;
+  if (showSplash || !sessionChecked) {
+    return <SplashScreen onFinish={() => setShowSplash(false)} />;
+  }
 
   // Logged in: swap to that role's full app. No going back to auth from here.
   if (loggedIn && stacks) {

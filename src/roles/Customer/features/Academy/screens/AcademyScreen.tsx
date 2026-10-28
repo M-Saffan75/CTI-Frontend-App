@@ -1,31 +1,78 @@
-import { useState } from 'react';
-import { Image, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  Image,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 
 import Icon from '@/components/Icon';
 import Button from '@/components/Button';
 import Squeeze from '@/components/Squeeze';
+import CtiLoader from '@/components/CtiLoader';
 import { FadeUp } from '@/animations';
 import { arrowLeftBold, searchBold } from '@/assets/icons';
 import { ctiLogo } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
 import { gradients } from '@/theme/colors';
 import { fonts } from '@/theme/fonts';
-import { CATEGORIES, FEATURED_CATEGORIES } from '../data/courses';
-
-const HALF = Math.ceil(CATEGORIES.length / 2);
-const PILL_ROWS = [CATEGORIES.slice(0, HALF), CATEGORIES.slice(HALF)];
+import academyApi, { AcademicCategoryItem } from '@/services/academyApi';
 
 const PITCH =
-  'Hundreds of different types of training courses, enriched with AI-powered content, await you at Trendyol Academy! Easily access all the information you need, anytime and anywhere, and take your business to the next level with personalized experiences tailored to your needs.';
+  'Hundreds of comprehensive training courses, enriched with hands-on content, await you at CTI Academy! Easily access all the knowledge you need, anytime and anywhere, and take your skills to the next level with personalized learning tailored to your journey.';
 
-export default function AcademyScreen({ navigation }) {
+export default function AcademyScreen({ navigation }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
+  const [categories, setCategories] = useState<AcademicCategoryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const openCourses = category => navigation.navigate('Courses', { category });
+  const loadCategories = useCallback(async () => {
+    try {
+      const res = await academyApi.getCategories();
+      setCategories(res);
+    } catch (err) {
+      if (__DEV__) console.warn('Failed to load categories:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadCategories();
+  }, [loadCategories]);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadCategories();
+    setRefreshing(false);
+  };
+
+  const openCourses = (category?: string | null, categoryId?: string | null) => {
+    navigation.navigate('Courses', {
+      category: category ?? null,
+      categoryId: categoryId ?? null,
+      search: search.trim() || undefined,
+    });
+  };
+
+  const handleSearchSubmit = () => {
+    navigation.navigate('Courses', {
+      category: null,
+      search: search.trim(),
+    });
+  };
+
+  // Split categories into 2 scrollable rows
+  const half = Math.ceil(categories.length / 2);
+  const pillRows = [categories.slice(0, half), categories.slice(half)];
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -35,18 +82,27 @@ export default function AcademyScreen({ navigation }) {
 
       <ScrollView
         contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
-        showsVerticalScrollIndicator={false}>
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[colors.primary]}
+          />
+        }>
         <Squeeze onPress={() => navigation.goBack()} scale={0.9} style={styles.backWrap}>
           <View style={[styles.back, { backgroundColor: colors.primary }]}>
             <Icon source={arrowLeftBold} size={20} color={colors.onPrimary} />
           </View>
         </Squeeze>
 
-        <View style={[styles.search, { borderColor: colors.border }]}>
+        <View style={[styles.search, { borderColor: colors.border, backgroundColor: colors.surface }]}>
           <Icon source={searchBold} size={20} color={colors.textMuted} />
           <TextInput
             value={search}
             onChangeText={setSearch}
+            onSubmitEditing={handleSearchSubmit}
+            returnKeyType="search"
             placeholder="Search Courses"
             placeholderTextColor={colors.textMuted}
             style={[styles.searchInput, { color: colors.text }]}
@@ -55,12 +111,12 @@ export default function AcademyScreen({ navigation }) {
 
         <FadeUp delay={100} duration={600}>
           <Image
-            source={{ uri: 'https://picsum.photos/seed/cti-academy-hero/900/600' }}
+            source={{ uri: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=900&auto=format&fit=crop&q=80' }}
             style={[styles.hero, { backgroundColor: colors.primary }]}
           />
 
           <Text style={[styles.heading, { color: colors.text }]}>
-            <Text style={{ color: colors.primary }}>Integrate</Text> Academy is here for you!
+            <Text style={{ color: colors.primary }}>CTI</Text> Academy is here for you!
           </Text>
           <Text style={[styles.subheading, { color: colors.text }]}>
             Hundreds of training courses!
@@ -68,12 +124,11 @@ export default function AcademyScreen({ navigation }) {
           <Text style={[styles.text, { color: colors.textMuted }]}>{PITCH}</Text>
 
           <View style={styles.ctaRow}>
-            <Button title="Place Order Securely" size="md" fullWidth={false} style={styles.cta} />
             <Button
-              title="Place Order Securely"
+              title="Explore Courses"
               size="md"
               fullWidth={false}
-              color="#101828"
+              onPress={() => openCourses(null)}
               style={styles.cta}
             />
           </View>
@@ -87,48 +142,43 @@ export default function AcademyScreen({ navigation }) {
             Explore our comprehensive course catalog
           </Text>
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.featuredScroll}
-            contentContainerStyle={styles.featuredRow}>
-            {FEATURED_CATEGORIES.map(item => (
-              // These three have no courses in the demo data, so they open the
-              // full list until the API provides them.
-              <Squeeze key={item.id} onPress={() => openCourses(null)}>
-                <LinearGradient
-                  colors={gradients[item.gradient]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.featured}>
-                  <Text style={styles.featuredText}>{item.label}</Text>
-                </LinearGradient>
-              </Squeeze>
-            ))}
-          </ScrollView>
-
-          {/* Two rows that scroll sideways, as in the design — not a wrapping
-              grid. The pills run off the right edge on purpose. */}
-          {PILL_ROWS.map((row, index) => (
-            <ScrollView
-              key={index}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.pillRow}
-              contentContainerStyle={styles.pills}>
-              {row.map(category => (
-                <Squeeze key={category} onPress={() => openCourses(category)}>
-                  <View
-                    style={[
-                      styles.pill,
-                      { borderColor: colors.border, backgroundColor: colors.surface },
-                    ]}>
-                    <Text style={[styles.pillText, { color: colors.text }]}>{category}</Text>
-                  </View>
-                </Squeeze>
-              ))}
-            </ScrollView>
-          ))}
+          {loading ? (
+            <CtiLoader size="sm" text="Loading categories..." style={{ paddingVertical: 20 }} />
+          ) : categories.length > 0 ? (
+            <>
+              {/* Category pills split across two rows */}
+              {pillRows.map((row, index) =>
+                row.length > 0 ? (
+                  <ScrollView
+                    key={index}
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.pillRow}
+                    contentContainerStyle={styles.pills}>
+                    {row.map(cat => (
+                      <Squeeze
+                        key={cat.id}
+                        onPress={() => openCourses(cat.title, cat.id)}>
+                        <View
+                          style={[
+                            styles.pill,
+                            { borderColor: colors.border, backgroundColor: colors.surface },
+                          ]}>
+                          <Text style={[styles.pillText, { color: colors.text }]}>
+                            {cat.title}
+                          </Text>
+                        </View>
+                      </Squeeze>
+                    ))}
+                  </ScrollView>
+                ) : null,
+              )}
+            </>
+          ) : (
+            <Text style={[styles.emptyText, { color: colors.textMuted }]}>
+              No categories available at the moment.
+            </Text>
+          )}
 
           <Button
             title="View All Courses"
@@ -139,26 +189,26 @@ export default function AcademyScreen({ navigation }) {
           />
         </FadeUp>
 
-        {['cti-academy-2', 'cti-academy-3'].map((seed, index) => (
-          <FadeUp key={seed} delay={260 + index * 70} duration={600}>
-            <Image source={{ uri: `https://picsum.photos/seed/${seed}/900/600` }} style={styles.block} />
-            <Text style={[styles.heading, { color: colors.text }]}>
-              <Text style={{ color: colors.primary }}>Integrate</Text> Academy is here for you!
-            </Text>
-            <Text style={[styles.text, { color: colors.textMuted }]}>{PITCH}</Text>
-          </FadeUp>
-        ))}
+        <FadeUp delay={260} duration={600}>
+          <Image
+            source={{ uri: 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?w=900&auto=format&fit=crop&q=80' }}
+            style={styles.block}
+          />
+          <Text style={[styles.heading, { color: colors.text }]}>
+            <Text style={{ color: colors.primary }}>Learn &amp; Grow</Text> with Certified Experts
+          </Text>
+          <Text style={[styles.text, { color: colors.textMuted }]}>{PITCH}</Text>
+        </FadeUp>
 
-        <FadeUp delay={420} duration={600}>
+        <FadeUp delay={360} duration={600}>
           <View style={[styles.banner, { backgroundColor: colors.primary }]}>
             <Text style={styles.bannerText}>
-              To Access Academy Academy, You must be a Trendyol Seller. If you are not a seller, you
-              can become one by clicking the button.
+              CTI Academy courses provide industry-grade learning modules for repair, electronics, and technical certifications.
             </Text>
             <Squeeze onPress={() => openCourses(null)}>
               <View style={[styles.bannerButton, { backgroundColor: colors.background }]}>
                 <Text style={[styles.bannerButtonText, { color: colors.primary }]}>
-                  Go to Academy listing page
+                  Go to Academy Courses
                 </Text>
               </View>
             </Squeeze>
@@ -207,15 +257,9 @@ const styles = StyleSheet.create({
     marginTop: 36,
   },
   centerText: { fontFamily: fonts.regular, fontSize: 14, textAlign: 'center', marginTop: 8 },
+  emptyText: { fontFamily: fonts.regular, fontSize: 14, textAlign: 'center', marginVertical: 20 },
 
-  featuredScroll: { marginHorizontal: -20 },
-  featuredRow: { gap: 12, paddingVertical: 20, paddingHorizontal: 20 },
-  featured: { borderRadius: 22, paddingHorizontal: 20, paddingVertical: 13 },
-  featuredText: { fontFamily: fonts.bold, fontSize: 15, color: '#FFFFFF' },
-
-  // Negative margin lets the rows run to the screen edge while the page keeps
-  // its 20px padding; the matching paddingHorizontal starts them back in line.
-  pillRow: { marginHorizontal: -20, marginBottom: 10 },
+  pillRow: { marginHorizontal: -20, marginTop: 14, marginBottom: 4 },
   pills: { gap: 10, paddingHorizontal: 20 },
   pill: { borderRadius: 22, borderWidth: 1, paddingHorizontal: 18, paddingVertical: 11 },
   pillText: { fontFamily: fonts.regular, fontSize: 14 },

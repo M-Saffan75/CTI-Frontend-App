@@ -41,6 +41,7 @@ import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import AskPlatformModal from '../components/AskPlatformModal';
 import RefurbishedFilterModal from '../components/RefurbishedFilterModal';
+import CtiLoader from '@/components/CtiLoader';
 import {
   GRADE_EXPLANATIONS,
   REFURBISHED_PRODUCTS,
@@ -62,22 +63,41 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
   const insets = useSafeAreaInsets();
 
   const passedProduct: RefurbishedProduct | undefined = route?.params?.product;
-  const productId: string | undefined = route?.params?.productId;
+  const productId: string | undefined = route?.params?.productId || passedProduct?.id;
 
-  const [product, setProduct] = useState<RefurbishedProduct>(
-    passedProduct ||
-    REFURBISHED_PRODUCTS?.find(p => p.id === productId) ||
-    REFURBISHED_PRODUCTS?.[0] ||
-    ({} as RefurbishedProduct),
-  );
+  const [product, setProduct] = useState<RefurbishedProduct | null>(passedProduct || null);
+  const [loading, setLoading] = useState<boolean>(!passedProduct && !!productId);
+
+  // Sync state whenever route params change
+  useEffect(() => {
+    if (passedProduct) {
+      setProduct(passedProduct);
+      setQuantity(1);
+      if (passedProduct.grade) {
+        setSelectedGrade(passedProduct.grade as any);
+      }
+    }
+  }, [passedProduct, productId]);
 
   useEffect(() => {
     if (productId) {
-      getRefurbishedProductDetail(productId).then(live => {
-        if (live) {
-          setProduct(live);
-        }
-      }).catch(() => {});
+      if (!passedProduct && !product) setLoading(true);
+      getRefurbishedProductDetail(productId)
+        .then(live => {
+          if (live) {
+            setProduct(live);
+          } else if (!passedProduct && !product) {
+            setProduct(null);
+          }
+        })
+        .catch(() => {
+          if (!passedProduct && !product) {
+            setProduct(null);
+          }
+        })
+        .finally(() => {
+          setLoading(false);
+        });
     }
   }, [productId]);
 
@@ -240,9 +260,27 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
         </View>
       </View>
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 40 }]}>
+      {loading ? (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <CtiLoader size="lg" text="Loading refurbished product..." />
+        </View>
+      ) : !product ? (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+          <Icon source={packageBold} size={54} color={colors.textMuted} />
+          <Text style={{ fontFamily: fonts.bold, fontSize: 18, color: colors.text, marginTop: 16 }}>
+            Product Not Found
+          </Text>
+          <Text style={{ fontFamily: fonts.regular, fontSize: 14, color: colors.textMuted, marginTop: 8, textAlign: 'center' }}>
+            The requested refurbished device is not available.
+          </Text>
+          <Squeeze onPress={() => navigation.goBack()} style={{ marginTop: 24, paddingHorizontal: 24, paddingVertical: 12, backgroundColor: colors.primary, borderRadius: 12 }}>
+            <Text style={{ color: '#fff', fontFamily: fonts.bold }}>Go Back</Text>
+          </Squeeze>
+        </View>
+      ) : (
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 40 }]}>
         {/* Gallery Section */}
         <View
           style={[
@@ -881,6 +919,7 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
           </ScrollView>
         </View>
       </ScrollView>
+      )}
 
       {/* Ask Platform Modal */}
       <AskPlatformModal

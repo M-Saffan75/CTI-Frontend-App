@@ -31,7 +31,6 @@ import { ctiLogo } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
 import { badges } from '@/theme/colors';
 import { fonts } from '@/theme/fonts';
-import { RETURNS, SHIPPING_ADDRESS } from '../data/orders';
 import {
   getCustomerOrders,
   getCustomerReturnsApi,
@@ -125,26 +124,45 @@ function OrderCard({
       {open && (
         <>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>Order Items</Text>
-          {order.items.map(item => (
-            <View key={item.id} style={styles.item}>
-              <Image source={{ uri: item.image }} style={styles.itemImage} />
-              <View style={styles.itemText}>
-                <Text style={[styles.itemName, { color: colors.text }]}>{item.name}</Text>
-                <Text style={[styles.itemVariant, { color: colors.textMuted }]}>
-                  {item.variant}
-                </Text>
-                <Text style={[styles.itemQty, { color: colors.textMuted }]}>
-                  Qty: {item.qty} · {money(item.price)} each
-                </Text>
+          {(order.items || []).map((item, idx) => {
+            const variantStr =
+              typeof item.variant === 'string'
+                ? item.variant
+                : typeof item.variant === 'object' && item.variant !== null
+                ? Object.values(item.variant).filter(v => typeof v === 'string' || typeof v === 'number').join(' / ') || 'Standard'
+                : 'Standard';
+
+            return (
+              <View key={item.id || String(idx)} style={styles.item}>
+                <Image
+                  source={{
+                    uri:
+                      item.image && typeof item.image === 'string' && item.image.startsWith('http')
+                        ? item.image
+                        : 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400&q=80',
+                  }}
+                  style={styles.itemImage}
+                />
+                <View style={styles.itemText}>
+                  <Text style={[styles.itemName, { color: colors.text }]}>
+                    {String(item.name || 'Purchased Item')}
+                  </Text>
+                  <Text style={[styles.itemVariant, { color: colors.textMuted }]}>
+                    {variantStr}
+                  </Text>
+                  <Text style={[styles.itemQty, { color: colors.textMuted }]}>
+                    Qty: {item.qty || 1} · {money(item.price)} each
+                  </Text>
+                </View>
+                <View style={styles.itemPriceCol}>
+                  <Text style={[styles.itemPrice, { color: colors.text }]}>
+                    {money((item.price || 0) * (item.qty || 1))}
+                  </Text>
+                  <Text style={[styles.rowSub, { color: colors.textMuted }]}>Subtotal</Text>
+                </View>
               </View>
-              <View style={styles.itemPriceCol}>
-                <Text style={[styles.itemPrice, { color: colors.text }]}>
-                  {money(item.price * item.qty)}
-                </Text>
-                <Text style={[styles.rowSub, { color: colors.textMuted }]}>Subtotal</Text>
-              </View>
-            </View>
-          ))}
+            );
+          })}
         </>
       )}
 
@@ -161,16 +179,18 @@ function ReturnCard({ item, onViewAll }: { item: any; onViewAll: () => void }) {
   return (
     <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
       <View style={styles.cardHead}>
-        <Text style={[styles.orderId, { color: colors.text }]}>{item.returnId}</Text>
-        <StatusPill label={item.status} badge={badges.inProgress} />
+        <Text style={[styles.orderId, { color: colors.text }]}>{String(item.returnId || 'RET-000000')}</Text>
+        <StatusPill label={String(item.status || 'REQUESTED')} badge={badges.inProgress} />
       </View>
 
-      <Text style={[styles.itemName, { color: colors.text, marginTop: 6 }]}>{item.device}</Text>
+      <Text style={[styles.itemName, { color: colors.text, marginTop: 6 }]}>
+        {String(item.device || 'Returned Device')}
+      </Text>
 
       <Text style={[styles.returnNote, { color: colors.textMuted }]}>
-        Order: {item.orderNo} Amount: ${item.amount.toFixed(2)}
+        Order: {String(item.orderNo || '')} Amount: ${Number(item.amount || 0).toFixed(2)}
         {'\n'}
-        {item.date} {item.note}
+        {String(item.date || '')} {String(item.note || '')}
       </Text>
 
       <Pressable onPress={onViewAll} hitSlop={6}>
@@ -243,11 +263,12 @@ export default function OrdersScreen({ navigation }: any) {
   const filteredOrders = orders.filter(o => {
     if (!search.trim()) return true;
     const q = search.toLowerCase();
-    return (
-      o.orderId.toLowerCase().includes(q) ||
-      o.orderNo.toLowerCase().includes(q) ||
-      o.items.some(item => item.name.toLowerCase().includes(q))
+    const matchId = String(o.orderId || '').toLowerCase().includes(q);
+    const matchNo = String(o.orderNo || '').toLowerCase().includes(q);
+    const matchItems = (o.items || []).some(item =>
+      String(item.name || '').toLowerCase().includes(q),
     );
+    return matchId || matchNo || matchItems;
   });
 
   const goToDetail = (order: MobileOrder) => {
@@ -393,7 +414,7 @@ export default function OrdersScreen({ navigation }: any) {
                 </Text>
               </View>
               <Text style={[styles.text, { color: colors.textMuted }]}>
-                {latestOrder.shippingAddress || SHIPPING_ADDRESS}
+                {latestOrder.shippingAddress || 'No shipping address provided'}
               </Text>
 
               <View style={[styles.divider, { backgroundColor: colors.border }]} />

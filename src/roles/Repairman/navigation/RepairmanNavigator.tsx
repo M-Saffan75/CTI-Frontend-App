@@ -7,6 +7,7 @@ import MyJobDetailScreen from '../features/Jobs/screens/MyJobDetailScreen';
 import BankingInformationScreen from '../features/Earnings/screens/BankingInformationScreen';
 import ChatListScreen from '../features/Chat/screens/ChatListScreen';
 import ChatDetailScreen from '../features/Chat/screens/ChatDetailScreen';
+import NotificationsScreen from '@/features/Notifications/screens/NotificationsScreen';
 import SettingsScreen from '../features/Settings/screens/SettingsScreen';
 
 // Screens shared with the Customer side — the product flow, blogs, academy and
@@ -73,6 +74,7 @@ export default function RepairmanNavigator({ onLogout }) {
         <Stack.Screen name="BankingInformation" component={BankingInformationScreen} />
         <Stack.Screen name="ChatList" component={ChatListScreen} />
         <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
+        <Stack.Screen name="Notifications" component={NotificationsScreen} />
 
         <Stack.Screen name="Orders" component={OrdersScreen} />
         <Stack.Screen name="OrderDetail" component={OrderDetailScreen} />

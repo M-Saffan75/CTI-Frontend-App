@@ -1,17 +1,41 @@
-import { ImageBackground, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ImageBackground, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
+import CtiLoader from '@/components/CtiLoader';
 import { FadeUp } from '@/animations';
-import { arrowLeftBold, calendarBold, clockBold, heartExtra, shoppingCartExtra } from '@/assets/icons';
+import { arrowLeftBold, calendarBold, clockBold, packageBold, shoppingCartExtra } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import blogApi, { MobileBlog } from '@/services/blogApi';
 
-export default function BlogDetailScreen({ navigation, route }) {
+export default function BlogDetailScreen({ navigation, route }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const post = route.params.post;
+  const initialPost: MobileBlog | undefined = route?.params?.post;
+  const slug: string | undefined = route?.params?.slug || initialPost?.slug;
+
+  const [post, setPost] = useState<MobileBlog | null>(initialPost || null);
+  const [loading, setLoading] = useState<boolean>(!initialPost && !!slug);
+
+  useEffect(() => {
+    if (slug && (!initialPost || !initialPost.content)) {
+      setLoading(true);
+      blogApi.getBlogBySlug(slug)
+        .then(live => {
+          if (live) setPost(live);
+        })
+        .catch(() => {})
+        .finally(() => setLoading(false));
+    }
+  }, [slug]);
+
+  const paragraphs = (post?.content || post?.description || '')
+    .split(/\n+/)
+    .map(p => p.trim())
+    .filter(Boolean);
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -23,67 +47,69 @@ export default function BlogDetailScreen({ navigation, route }) {
         </Squeeze>
 
         <View style={styles.headerIcons}>
-          <View>
-            <Icon source={heartExtra} size={24} color={colors.text} />
-            <View style={[styles.badge, { backgroundColor: colors.error }]}>
-              <Text style={styles.badgeText}>2</Text>
-            </View>
-          </View>
-          <Icon source={shoppingCartExtra} size={24} color={colors.text} />
+          <Squeeze onPress={() => navigation.navigate('Cart')} scale={0.85}>
+            <Icon source={shoppingCartExtra} size={24} color={colors.text} />
+          </Squeeze>
         </View>
       </View>
 
-      <ScrollView
-        contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
-        showsVerticalScrollIndicator={false}>
-        <ImageBackground source={{ uri: post.image }} style={styles.hero} imageStyle={styles.heroImage}>
-          <View style={[styles.chip, { backgroundColor: colors.background, borderColor: colors.primary }]}>
-            <View style={[styles.chipDot, { backgroundColor: colors.primary }]} />
-            <Text style={[styles.chipText, { color: colors.text }]}>Trending Articles</Text>
-          </View>
-        </ImageBackground>
-
-        <FadeUp delay={100} duration={600}>
-          <Text style={[styles.title, { color: colors.text }]}>{post.title}</Text>
-
-          <View style={styles.meta}>
-            <View style={styles.metaItem}>
-              <Icon source={calendarBold} size={14} color={colors.textMuted} />
-              <Text style={[styles.metaText, { color: colors.textMuted }]}>{post.date}</Text>
+      {loading ? (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <CtiLoader size="md" text="Loading article..." />
+        </View>
+      ) : !post ? (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+          <Icon source={packageBold} size={48} color={colors.textMuted} />
+          <Text style={{ fontFamily: fonts.bold, fontSize: 18, color: colors.text, marginTop: 14 }}>
+            Article Not Found
+          </Text>
+          <Text style={{ fontFamily: fonts.regular, fontSize: 13, color: colors.textMuted, marginTop: 6, textAlign: 'center' }}>
+            This blog post is not available or has been removed.
+          </Text>
+          <Squeeze onPress={() => navigation.goBack()} style={{ marginTop: 20, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: colors.primary, borderRadius: 10 }}>
+            <Text style={{ color: '#fff', fontFamily: fonts.bold }}>Go Back</Text>
+          </Squeeze>
+        </View>
+      ) : (
+        <ScrollView
+          contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
+          showsVerticalScrollIndicator={false}>
+          <ImageBackground
+            source={{ uri: post.image || 'https://picsum.photos/seed/blog/800/500' }}
+            style={styles.hero}
+            imageStyle={styles.heroImage}>
+            <View style={[styles.chip, { backgroundColor: colors.background, borderColor: colors.primary }]}>
+              <View style={[styles.chipDot, { backgroundColor: colors.primary }]} />
+              <Text style={[styles.chipText, { color: colors.text }]}>
+                {post.tags?.[0] ? post.tags[0].toUpperCase() : 'CTI INSIGHTS'}
+              </Text>
             </View>
-            <View style={styles.metaItem}>
-              <Icon source={clockBold} size={14} color={colors.textMuted} />
-              <Text style={[styles.metaText, { color: colors.textMuted }]}>{post.readTime}</Text>
-            </View>
-          </View>
+          </ImageBackground>
 
-          <Text style={[styles.text, { color: colors.textMuted }]}>{post.intro}</Text>
-        </FadeUp>
+          <FadeUp delay={100} duration={600}>
+            <Text style={[styles.title, { color: colors.text }]}>{post.title}</Text>
 
-        {post.sections.map((section, index) => (
-          <FadeUp key={section.title} delay={180 + index * 70} duration={600}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              {index + 1}.  {section.title}
-            </Text>
-
-            <Text style={[styles.text, { color: colors.textMuted }]}>{section.text}</Text>
-
-            <View style={styles.bullets}>
-              {section.bullets.map(bullet => (
-                <View key={bullet} style={styles.bullet}>
-                  <View style={[styles.dot, { backgroundColor: colors.primary }]} />
-                  <Text style={[styles.text, { color: colors.textMuted }]}>{bullet}</Text>
+            <View style={styles.meta}>
+              <View style={styles.metaItem}>
+                <Icon source={calendarBold} size={14} color={colors.textMuted} />
+                <Text style={[styles.metaText, { color: colors.textMuted }]}>{post.date}</Text>
+              </View>
+              {post.readTime ? (
+                <View style={styles.metaItem}>
+                  <Icon source={clockBold} size={14} color={colors.textMuted} />
+                  <Text style={[styles.metaText, { color: colors.textMuted }]}>{post.readTime}</Text>
                 </View>
-              ))}
+              ) : null}
             </View>
-          </FadeUp>
-        ))}
 
-        <FadeUp delay={180 + post.sections.length * 70} duration={600}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Conclusion</Text>
-          <Text style={[styles.text, { color: colors.textMuted }]}>{post.conclusion}</Text>
-        </FadeUp>
-      </ScrollView>
+            {paragraphs.map((p, idx) => (
+              <Text key={idx} style={[styles.text, { color: colors.text }]}>
+                {p}
+              </Text>
+            ))}
+          </FadeUp>
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -106,18 +132,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   headerIcons: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  badge: {
-    position: 'absolute',
-    top: -5,
-    right: -6,
-    minWidth: 15,
-    height: 15,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 3,
-  },
-  badgeText: { fontFamily: fonts.bold, fontSize: 9, color: '#FFFFFF' },
 
   body: { paddingHorizontal: 20, paddingTop: 6 },
   hero: { height: 230, justifyContent: 'flex-start', padding: 14 },
@@ -140,9 +154,5 @@ const styles = StyleSheet.create({
   metaItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   metaText: { fontFamily: fonts.regular, fontSize: 13 },
 
-  text: { fontFamily: fonts.regular, fontSize: 14, lineHeight: 21, marginTop: 12 },
-  sectionTitle: { fontFamily: fonts.bold, fontSize: 17, lineHeight: 24, marginTop: 24 },
-  bullets: { gap: 10, marginTop: 14 },
-  bullet: { flexDirection: 'row', gap: 12 },
-  dot: { width: 7, height: 7, borderRadius: 4, marginTop: 19 },
+  text: { fontFamily: fonts.regular, fontSize: 14, lineHeight: 22, marginTop: 14 },
 });

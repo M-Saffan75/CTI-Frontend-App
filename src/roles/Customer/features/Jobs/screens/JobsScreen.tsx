@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
 import Button from '@/components/Button';
 import Squeeze from '@/components/Squeeze';
+import CtiLoader from '@/components/CtiLoader';
 import { FadeUp } from '@/animations';
 import {
   calendarBold,
@@ -14,7 +15,6 @@ import {
   exclamationCircleBold,
   inboxBold,
   menuBold,
-  plusSquareBold,
   searchBold,
   settingsBold,
   shoppingCartExtra,
@@ -27,7 +27,8 @@ import { ctiLogo } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
 import { badges, palette } from '@/theme/colors';
 import { fonts } from '@/theme/fonts';
-import { JOBS, REVIEWS } from '../data/jobs';
+import customerJobApi, { MobileCustomerJob } from '../services/customerJobApi';
+import { useCart } from '@/roles/Customer/context/CartContext';
 
 const PAGE_SIZE = 6;
 const DESCRIPTION_PREVIEW = 120;
@@ -37,7 +38,7 @@ const DESCRIPTION_PREVIEW = 120;
 const TABS = [
   { key: 'all', label: 'All Jobs', icon: menuBold },
   { key: 'open', label: 'Open', icon: clockBold },
-  { key: 'offer_received', label: 'Offer Recived', icon: inboxBold },
+  { key: 'offer_received', label: 'Offer Received', icon: inboxBold },
   { key: 'booked', label: 'Booked', icon: calendarBold },
   { key: 'in_progress', label: 'In Progress', icon: settingsBold },
   { key: 'completed', label: 'Completed', icon: checkCircleIcon },
@@ -45,9 +46,12 @@ const TABS = [
   { key: 'reviews', label: 'Reviews', icon: starBold },
 ];
 
-const formatPrice = (min, max) => {
-  const one = n => `TRY ${n.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
-  return min === max ? one(min) : `${one(min)} - ${one(max)}`;
+const formatPrice = (min?: number, max?: number) => {
+  const safeMin = Number(min || 0);
+  const safeMax = Number(max || 0);
+  if (safeMin === 0 && safeMax === 0) return 'Price on inquiry';
+  const one = (n: number) => `TRY ${n.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+  return safeMin === safeMax ? one(safeMin) : `${one(safeMin)} - ${one(safeMax)}`;
 };
 
 function StatusPill({ label, badge, style = null }) {
@@ -99,7 +103,7 @@ function JobCard({ job, onPress }) {
 
       <Text style={[styles.servicesLabel, { color: colors.text }]}>Required Services</Text>
       <View style={styles.services}>
-        {job.requiredServices.map(service => (
+        {(job.requiredServices || job.services || ['Diagnostics & Repair']).map(service => (
           <View key={service} style={[styles.servicePill, { borderColor: palette.rust }]}>
             <Text style={[styles.servicePillText, { color: palette.rust }]}>{service}</Text>
           </View>
@@ -228,21 +232,71 @@ function EmptyState({ label }) {
   );
 }
 
-export default function JobsScreen({ navigation }) {
+export default function JobsScreen({ navigation }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
   const [activeTab, setActiveTab] = useState('all');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [jobs, setJobs] = useState<MobileCustomerJob[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchJobs = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+
+    try {
+      const data = await customerJobApi.getMyJobs();
+      setJobs(data);
+    } catch (err) {
+      if (__DEV__) console.warn('Failed to fetch customer jobs:', err);
+      setJobs([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchJobs();
+  }, [fetchJobs]);
 
   useEffect(() => setPage(1), [activeTab, search]);
 
+  const onRefresh = () => {
+    fetchJobs(true);
+  };
+
   const query = search.trim().toLowerCase();
-  const matches = device => !query || device.toLowerCase().includes(query);
+  const matches = (job: MobileCustomerJob) => {
+    if (!query) return true;
+    const device = (job.device || '').toLowerCase();
+    const desc = (job.description || '').toLowerCase();
+    const assigned = (job.assignedTo || '').toLowerCase();
+    const services = (job.services || []).join(' ').toLowerCase();
+    return (
+      device.includes(query) ||
+      desc.includes(query) ||
+      assigned.includes(query) ||
+      services.includes(query)
+    );
+  };
+
+  const jobCounts: Record<string, number> = {
+    all: jobs.length,
+    open: jobs.filter(j => j.status === 'open').length,
+    offer_received: jobs.filter(j => j.status === 'offer_received').length,
+    booked: jobs.filter(j => j.status === 'booked').length,
+    in_progress: jobs.filter(j => j.status === 'in_progress').length,
+    completed: jobs.filter(j => j.status === 'completed').length,
+    disputed: jobs.filter(j => j.status === 'disputed').length,
+    reviews: jobs.filter(j => j.status === 'completed').length,
+  };
 
   if (activeTab === 'reviews') {
-    const reviews = REVIEWS.filter(item => matches(item.device));
+    const completedJobs = jobs.filter(j => j.status === 'completed' && matches(j));
 
     return (
       <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -251,9 +305,17 @@ export default function JobsScreen({ navigation }) {
         <ScrollView
           contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
           showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled">
+          keyboardShouldPersistTaps="handled"
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={[colors.primary]}
+              tintColor={colors.primary}
+            />
+          }>
           <Title />
-          <TabsRow activeTab={activeTab} onChange={setActiveTab} />
+          <TabsRow activeTab={activeTab} onChange={setActiveTab} counts={jobCounts} />
           <SearchBar value={search} onChangeText={setSearch} />
 
           <Text style={[styles.sectionTitle, { color: colors.text }]}>Review Completed Jobs</Text>
@@ -261,12 +323,21 @@ export default function JobsScreen({ navigation }) {
             Share your experience and help other customers
           </Text>
 
-          {reviews.length === 0 ? (
+          {loading && !refreshing ? (
+            <CtiLoader
+              size="md"
+              text="Loading completed jobs..."
+              style={{ paddingVertical: 45 }}
+            />
+          ) : completedJobs.length === 0 ? (
             <EmptyState label="review" />
           ) : (
-            reviews.map((item, index) => (
+            completedJobs.map((item, index) => (
               <FadeUp key={item.id} delay={80 + index * 60} duration={500} style={styles.cardWrap}>
-                <ReviewCard item={item} />
+                <JobCard
+                  job={item}
+                  onPress={() => navigation.navigate('RepairDetail', { jobId: item.id, job: item })}
+                />
               </FadeUp>
             ))
           )}
@@ -275,8 +346,8 @@ export default function JobsScreen({ navigation }) {
     );
   }
 
-  const filtered = JOBS.filter(
-    job => (activeTab === 'all' || job.status === activeTab) && matches(job.device),
+  const filtered = jobs.filter(
+    job => (activeTab === 'all' || job.status === activeTab) && matches(job),
   );
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageItems = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -290,48 +361,64 @@ export default function JobsScreen({ navigation }) {
       <ScrollView
         contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled">
+        keyboardShouldPersistTaps="handled"
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }>
         <Title />
-        <TabsRow activeTab={activeTab} onChange={setActiveTab} />
+        <TabsRow activeTab={activeTab} onChange={setActiveTab} counts={jobCounts} />
         <SearchBar value={search} onChangeText={setSearch} />
 
-        {!isEmpty && (
-          <View style={styles.metaRow}>
-            <Text style={[styles.metaText, { color: colors.textMuted }]}>
-              Showing {(page - 1) * PAGE_SIZE + 1} to{' '}
-              {Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length} jobs
-            </Text>
-            <View style={styles.perPage}>
-              <Text style={[styles.metaText, { color: colors.textMuted }]}>
-                Jobs per page: {PAGE_SIZE}
-              </Text>
-              <Icon source={chevronDownBold} size={12} color={colors.textMuted} />
-            </View>
-          </View>
-        )}
-
-        {isEmpty ? (
-          <>
-            <EmptyState label={activeTab === 'all' ? '' : tabLabel} />
-            <Text style={[styles.helperText, { color: colors.textMuted }]}>
-              If you want to upload a new request then you can do it from the website
-            </Text>
-          </>
+        {loading && !refreshing ? (
+          <CtiLoader
+            size="md"
+            text="Loading your repair jobs..."
+            style={{ paddingVertical: 45 }}
+          />
         ) : (
           <>
-            {pageItems.map((job, index) => (
-              <FadeUp key={job.id} delay={80 + index * 60} duration={500} style={styles.cardWrap}>
-                <JobCard
-                  job={job}
-                  onPress={() =>
-                    navigation.navigate(
-                      job.status === 'disputed' ? 'DisputeDetail' : 'RepairDetail',
-                      { jobId: job.id },
-                    )
-                  }
-                />
-              </FadeUp>
-            ))}
+            {!isEmpty && (
+              <View style={styles.metaRow}>
+                <Text style={[styles.metaText, { color: colors.textMuted }]}>
+                  Showing {(page - 1) * PAGE_SIZE + 1} to{' '}
+                  {Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length} jobs
+                </Text>
+                <View style={styles.perPage}>
+                  <Text style={[styles.metaText, { color: colors.textMuted }]}>
+                    Jobs per page: {PAGE_SIZE}
+                  </Text>
+                  <Icon source={chevronDownBold} size={12} color={colors.textMuted} />
+                </View>
+              </View>
+            )}
+
+            {isEmpty ? (
+              <>
+                <EmptyState label={activeTab === 'all' ? '' : tabLabel} />
+                <Text style={[styles.helperText, { color: colors.textMuted }]}>
+                  If you want to upload a new request then you can do it from the website
+                </Text>
+              </>
+            ) : (
+              <>
+                {pageItems.map((job, index) => (
+                  <FadeUp key={job.id} delay={80 + index * 60} duration={500} style={styles.cardWrap}>
+                    <JobCard
+                      job={job}
+                      onPress={() =>
+                        navigation.navigate(
+                          job.status === 'disputed' ? 'DisputeDetail' : 'RepairDetail',
+                          { jobId: job.id, job },
+                        )
+                      }
+                    />
+                  </FadeUp>
+                ))}
 
             {totalPages > 1 && (
               <View style={styles.pagination}>
@@ -382,29 +469,33 @@ export default function JobsScreen({ navigation }) {
             )}
           </>
         )}
-
-        <Button
-          title="New repair request"
-          icon={plusSquareBold}
-          iconPosition="left"
-          size="lg"
-          style={styles.newRequest}
-        />
-      </ScrollView>
-    </View>
-  );
+      </>
+    )}
+  </ScrollView>
+</View>
+);
 }
 
 function Header({ navigation }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const { cartCount } = useCart();
 
   return (
     <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
       <Image source={ctiLogo} resizeMode="contain" style={styles.logo} />
 
       <View style={styles.headerIcons}>
-        <Icon source={shoppingCartExtra} size={24} color={colors.text} />
+        <Squeeze onPress={() => navigation.navigate('Cart')} scale={0.85}>
+          <View>
+            <Icon source={shoppingCartExtra} size={24} color={colors.text} />
+            {cartCount > 0 && (
+              <View style={[styles.badge, { backgroundColor: colors.primary }]}>
+                <Text style={styles.badgeText}>{cartCount}</Text>
+              </View>
+            )}
+          </View>
+        </Squeeze>
         <Squeeze onPress={() => navigation.navigate('Settings')} scale={0.85}>
           <Icon source={menuBold} size={24} color={colors.text} />
         </Squeeze>
@@ -426,7 +517,7 @@ function Title() {
   );
 }
 
-function TabsRow({ activeTab, onChange }) {
+function TabsRow({ activeTab, onChange, counts }: any) {
   const { colors } = useTheme();
 
   return (
@@ -434,6 +525,7 @@ function TabsRow({ activeTab, onChange }) {
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsScroll}>
         {TABS.map(tab => {
           const active = tab.key === activeTab;
+          const count = counts ? counts[tab.key] : undefined;
 
           return (
             <Squeeze key={tab.key} onPress={() => onChange(tab.key)}>
@@ -448,6 +540,7 @@ function TabsRow({ activeTab, onChange }) {
                     },
                   ]}>
                   {tab.label}
+                  {count !== undefined && count > 0 ? ` (${count})` : ''}
                 </Text>
               </View>
             </Squeeze>
@@ -486,6 +579,18 @@ const styles = StyleSheet.create({
   },
   logo: { width: 110, height: 59 },
   headerIcons: { flexDirection: 'row', alignItems: 'center', gap: 18 },
+  badge: {
+    position: 'absolute',
+    top: -5,
+    right: -6,
+    minWidth: 15,
+    height: 15,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  badgeText: { fontFamily: fonts.bold, fontSize: 9, color: '#FFFFFF' },
 
   body: { paddingHorizontal: 20 },
   title: { fontFamily: fonts.bold, fontSize: 26, marginTop: 6 },
@@ -571,7 +676,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 16,
   },
-  newRequest: { marginTop: 18 },
 
   pagination: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 20 },
   pageNav: { fontFamily: fonts.regular, fontSize: 13 },

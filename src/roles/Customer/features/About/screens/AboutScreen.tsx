@@ -17,6 +17,7 @@ import {
 import { ctiLogo } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import { useWishlist } from '@/roles/Customer/context/WishlistContext';
 import { PRINCIPLES, PROMISES, STATS, TEAM, TIMELINE } from '../data/about';
 
 const PROMISE_ICONS = [starExtra, shieldBold, checkCircleIcon, stopwatchBold];
@@ -24,6 +25,7 @@ const PROMISE_ICONS = [starExtra, shieldBold, checkCircleIcon, stopwatchBold];
 export default function AboutScreen({ navigation }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const { ids: wishlistIds } = useWishlist();
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -31,13 +33,19 @@ export default function AboutScreen({ navigation }) {
         <Image source={ctiLogo} resizeMode="contain" style={styles.logo} />
 
         <View style={styles.headerIcons}>
-          <View>
-            <Icon source={heartExtra} size={24} color={colors.text} />
-            <View style={[styles.badge, { backgroundColor: colors.error }]}>
-              <Text style={styles.badgeText}>2</Text>
+          <Squeeze onPress={() => navigation.navigate('Wishlist')} scale={0.85}>
+            <View>
+              <Icon source={heartExtra} size={24} color={colors.text} />
+              {wishlistIds.length > 0 && (
+                <View style={[styles.badge, { backgroundColor: colors.error }]}>
+                  <Text style={styles.badgeText}>{wishlistIds.length}</Text>
+                </View>
+              )}
             </View>
-          </View>
-          <Icon source={shoppingCartExtra} size={24} color={colors.text} />
+          </Squeeze>
+          <Squeeze onPress={() => navigation.navigate('Cart')} scale={0.85}>
+            <Icon source={shoppingCartExtra} size={24} color={colors.text} />
+          </Squeeze>
         </View>
       </View>
 

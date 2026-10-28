@@ -16,20 +16,75 @@ import {
   heartExtra,
   mapPinBold,
   menuBold,
+  packageBold,
   shoppingCartExtra,
 } from '@/assets/icons';
 import { ctiLogo } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { useWishlist } from '../../../context/WishlistContext';
+import { useCart } from '../../../context/CartContext';
 import { createCustomerOrderApi } from '../../Orders/services/orderApi';
+
+// Luhn algorithm validator for card numbers (Standard credit card checksum)
+function validateLuhn(numberStr: string): boolean {
+  const cleaned = numberStr.replace(/\D/g, '');
+  if (cleaned.length < 13 || cleaned.length > 19) return false;
+  let sum = 0;
+  let isEven = false;
+  for (let i = cleaned.length - 1; i >= 0; i--) {
+    let digit = parseInt(cleaned[i], 10);
+    if (isEven) {
+      digit *= 2;
+      if (digit > 9) digit -= 9;
+    }
+    sum += digit;
+    isEven = !isEven;
+  }
+  return sum % 10 === 0;
+}
+
+// Detect card brand for visual feedback
+function getCardBrand(numberStr: string): string {
+  const cleaned = numberStr.replace(/\D/g, '');
+  if (/^4/.test(cleaned)) return 'Visa';
+  if (/^5[1-5]/.test(cleaned)) return 'Mastercard';
+  if (/^3[47]/.test(cleaned)) return 'Amex';
+  if (/^6(?:011|5)/.test(cleaned)) return 'Discover';
+  return '';
+}
+
+// Format Card Number into 4-digit blocks (max 16 digits, 19 chars with spaces)
+function formatCardNumber(text: string): string {
+  const digits = text.replace(/\D/g, '').slice(0, 16);
+  const parts = digits.match(/.{1,4}/g);
+  return parts ? parts.join(' ') : digits;
+}
+
+// Format Expiry MM/YY (max 4 digits, 5 chars with slash)
+function formatExpiry(text: string): string {
+  const digits = text.replace(/\D/g, '').slice(0, 4);
+  if (digits.length >= 3) {
+    return `${digits.slice(0, 2)}/${digits.slice(2, 4)}`;
+  }
+  return digits;
+}
+
+// Format CVV (digits only, max 4)
+function formatCvv(text: string): string {
+  return text.replace(/\D/g, '').slice(0, 4);
+}
 
 export default function CheckoutScreen({ navigation, route }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { ids: wishlistIds } = useWishlist();
+  const { cartItems: contextCartItems, cartCount, refreshCart } = useCart();
 
-  const cartItems = route?.params?.cartItems || [];
+  const routeItems = route?.params?.cartItems;
+  const cartItems = routeItems && routeItems.length > 0 ? routeItems : contextCartItems;
+  const effectiveCartCount =
+    cartCount > 0 ? cartCount : (cartItems?.length || 0);
 
   const [firstName, setFirstName] = useState('Customer');
   const [lastName, setLastName] = useState('User');
@@ -39,13 +94,16 @@ export default function CheckoutScreen({ navigation, route }: any) {
   const [city, setCity] = useState('Lahore');
   const [postalCode, setPostalCode] = useState('54000');
 
-  const [cardSelected, setCardSelected] = useState(true);
+  const [paymentMethod, setPaymentMethod] = useState<'card' | 'cod'>('card');
+  const [cardHolder, setCardHolder] = useState('Customer User');
   const [cardNumber, setCardNumber] = useState('');
   const [cardExpiry, setCardExpiry] = useState('');
   const [cardCvv, setCardCvv] = useState('');
   const [placed, setPlaced] = useState(false);
   const [placing, setPlacing] = useState(false);
   const scrollRef = useRef<any>(null);
+
+  const cardBrand = getCardBrand(cardNumber);
 
   // AlertModal State
   const [modal, setModal] = useState<{
@@ -60,21 +118,119 @@ export default function CheckoutScreen({ navigation, route }: any) {
     message: '',
   });
 
+  const rawCardDigits = cardNumber.replace(/\D/g, '');
   const canPlaceOrder =
     phone.trim() &&
     address.trim() &&
     city.trim() &&
-    (!cardSelected || (cardNumber.trim() && cardExpiry.trim() && cardCvv.trim()));
+    (paymentMethod === 'cod' ||
+      (rawCardDigits.length === 16 && cardExpiry.length === 5 && cardCvv.length >= 3));
+
+  const fillSandboxTestCard = () => {
+    setCardNumber(formatCardNumber('5528790000000008'));
+    setCardHolder(`${firstName} ${lastName}`.trim() || 'Customer User');
+    setCardExpiry('12/28');
+    setCardCvv('123');
+  };
 
   const handlePlaceOrder = async () => {
-    if (!address.trim() || !phone.trim() || !city.trim()) {
+    if (!firstName.trim() || !address.trim() || !phone.trim() || !city.trim()) {
       setModal({
         visible: true,
         type: 'warning',
         title: 'Missing Details',
-        message: 'Please fill in your shipping address, city and phone number.',
+        message: 'Please fill in your full name, shipping address, city and phone number.',
       });
       return;
+    }
+
+    if (!cartItems || cartItems.length === 0) {
+      setModal({
+        visible: true,
+        type: 'warning',
+        title: 'Cart is Empty',
+        message: 'Please add items to your cart before proceeding to checkout.',
+      });
+      return;
+    }
+
+    if (paymentMethod === 'card') {
+      const cleanDigits = cardNumber.replace(/\D/g, '');
+      if (cleanDigits.length !== 16) {
+        setModal({
+          visible: true,
+          type: 'warning',
+          title: 'Invalid Card Number',
+          message: 'Card number must be exactly 16 digits.',
+        });
+        return;
+      }
+
+      if (!validateLuhn(cleanDigits)) {
+        setModal({
+          visible: true,
+          type: 'warning',
+          title: 'Invalid Card Number',
+          message:
+            'Card number failed checksum verification. Please verify the digits or tap "Autofill Sandbox Test Card" below.',
+        });
+        return;
+      }
+
+      const holder = cardHolder.trim() || `${firstName} ${lastName}`.trim();
+      if (holder.length < 3) {
+        setModal({
+          visible: true,
+          type: 'warning',
+          title: 'Card Holder Required',
+          message: 'Please enter the card holder name (at least 3 characters).',
+        });
+        return;
+      }
+
+      if (cardExpiry.length !== 5 || !cardExpiry.includes('/')) {
+        setModal({
+          visible: true,
+          type: 'warning',
+          title: 'Invalid Expiry Date',
+          message: 'Please enter expiry date in MM/YY format (e.g. 12/28).',
+        });
+        return;
+      }
+
+      const expMonth = parseInt(cardExpiry.slice(0, 2), 10);
+      const expYear = 2000 + parseInt(cardExpiry.slice(3, 5), 10);
+      if (isNaN(expMonth) || expMonth < 1 || expMonth > 12) {
+        setModal({
+          visible: true,
+          type: 'warning',
+          title: 'Invalid Expiry Month',
+          message: 'Expiry month must be between 01 and 12.',
+        });
+        return;
+      }
+
+      const now = new Date();
+      if (expYear < now.getFullYear() || (expYear === now.getFullYear() && expMonth < (now.getMonth() + 1))) {
+        setModal({
+          visible: true,
+          type: 'warning',
+          title: 'Card Expired',
+          message: 'This card has already expired. Please enter a valid future expiry date.',
+        });
+        return;
+      }
+
+      const cleanCvv = cardCvv.replace(/\D/g, '');
+      if (cleanCvv.length < 3 || cleanCvv.length > 4) {
+        setModal({
+          visible: true,
+          type: 'warning',
+          title: 'Invalid CVV',
+          message: 'CVV must be 3 or 4 digits.',
+        });
+        return;
+      }
     }
 
     try {
@@ -91,18 +247,23 @@ export default function CheckoutScreen({ navigation, route }: any) {
           addressLine: address.trim(),
           postalCode: postalCode.trim(),
         },
-        paymentMethod: cardSelected ? 'card' : 'cod',
-        cardHolder: `${firstName} ${lastName}`.trim(),
+        paymentMethod: paymentMethod === 'card' ? 'card' : 'cod',
+        cardHolder: cardHolder.trim() || `${firstName} ${lastName}`.trim(),
         cardNumber: cardNumber.replace(/\s/g, ''),
         expireMonth: expireMonth?.trim(),
         expireYear: expireYear?.trim(),
         cvc: cardCvv.trim(),
         items: cartItems.map((i: any) => ({
-          productId: i.productId,
+          productId: i.productId || i.id,
           variantId: i.variantId,
-          quantity: i.quantity,
+          quantity: i.quantity || 1,
         })),
+        isRefurbished: route?.params?.isRefurbished,
       });
+
+      try {
+        await refreshCart();
+      } catch {}
 
       setPlaced(true);
     } catch (err: any) {
@@ -116,8 +277,8 @@ export default function CheckoutScreen({ navigation, route }: any) {
       setPlacing(false);
     }
   };
-  // Card fields sit right above the keyboard once it opens — scroll them
-  // into view instead of letting the keyboard cover them.
+
+  // Card fields sit right above the keyboard once it opens — scroll them into view
   const scrollToCardFields = () => scrollRef.current?.scrollToEnd({ animated: true });
 
   return (
@@ -136,7 +297,14 @@ export default function CheckoutScreen({ navigation, route }: any) {
             </View>
           </Squeeze>
           <Squeeze onPress={() => navigation.navigate('Cart')} scale={0.85}>
-            <Icon source={shoppingCartExtra} size={22} color={colors.text} />
+            <View>
+              <Icon source={shoppingCartExtra} size={22} color={colors.text} />
+              {effectiveCartCount > 0 && (
+                <View style={[styles.badge, { backgroundColor: colors.primary }]}>
+                  <Text style={styles.badgeText}>{effectiveCartCount}</Text>
+                </View>
+              )}
+            </View>
           </Squeeze>
           <Squeeze onPress={() => navigation.navigate('Settings')} scale={0.85}>
             <Icon source={menuBold} size={22} color={colors.text} />
@@ -179,40 +347,90 @@ export default function CheckoutScreen({ navigation, route }: any) {
               <Text style={[styles.cardTitle, { color: colors.text }]}>Select Payment Method</Text>
             </View>
 
-            <Squeeze
-              onPress={() => setCardSelected(!cardSelected)}
-              style={[
-                styles.paymentRow,
-                {
-                  backgroundColor: colors.surfaceAlt,
-                  borderColor: cardSelected ? colors.primary : 'transparent',
-                },
-              ]}>
-              <View style={styles.paymentRowInner}>
-                <Icon source={creditCardBold} size={16} color={colors.text} />
-                <Text style={[styles.paymentLabel, { color: colors.text }]} numberOfLines={1}>
-                  Credit / Debit Card
-                </Text>
-                {cardSelected && <Icon source={checkCircleIcon} size={16} color={colors.primary} />}
-              </View>
-            </Squeeze>
+            {/* Payment Method Choices */}
+            <View style={styles.paymentOptions}>
+              <Squeeze
+                onPress={() => setPaymentMethod('card')}
+                style={[
+                  styles.paymentRow,
+                  {
+                    backgroundColor: colors.surfaceAlt,
+                    borderColor: paymentMethod === 'card' ? colors.primary : 'transparent',
+                  },
+                ]}>
+                <View style={styles.paymentRowInner}>
+                  <Icon source={creditCardBold} size={18} color={paymentMethod === 'card' ? colors.primary : colors.text} />
+                  <View style={styles.paymentTextWrap}>
+                    <Text style={[styles.paymentLabel, { color: colors.text }]}>Credit / Debit Card</Text>
+                    <Text style={[styles.paymentSub, { color: colors.textMuted }]}>
+                      Instant & secure online payment via Iyzico
+                    </Text>
+                  </View>
+                  {paymentMethod === 'card' && <Icon source={checkCircleIcon} size={18} color={colors.primary} />}
+                </View>
+              </Squeeze>
 
-            {cardSelected && (
+              <Squeeze
+                onPress={() => setPaymentMethod('cod')}
+                style={[
+                  styles.paymentRow,
+                  {
+                    backgroundColor: colors.surfaceAlt,
+                    borderColor: paymentMethod === 'cod' ? colors.primary : 'transparent',
+                  },
+                ]}>
+                <View style={styles.paymentRowInner}>
+                  <Icon source={packageBold} size={18} color={paymentMethod === 'cod' ? colors.primary : colors.text} />
+                  <View style={styles.paymentTextWrap}>
+                    <Text style={[styles.paymentLabel, { color: colors.text }]}>Cash on Delivery (COD)</Text>
+                    <Text style={[styles.paymentSub, { color: colors.textMuted }]}>
+                      Pay in cash when your order is delivered
+                    </Text>
+                  </View>
+                  {paymentMethod === 'cod' && <Icon source={checkCircleIcon} size={18} color={colors.primary} />}
+                </View>
+              </Squeeze>
+            </View>
+
+            {paymentMethod === 'card' && (
               <FadeUp duration={350} style={styles.cardFields}>
+                <View style={styles.cardHeaderRow}>
+                  <Text style={[styles.cardSubTitle, { color: colors.textMuted }]}>Card Information</Text>
+                  {cardBrand ? (
+                    <View style={[styles.brandPill, { backgroundColor: colors.primary + '20' }]}>
+                      <Text style={[styles.brandText, { color: colors.primary }]}>{cardBrand}</Text>
+                    </View>
+                  ) : null}
+                </View>
+
                 <Input
                   label="Card Number"
                   value={cardNumber}
-                  onChangeText={setCardNumber}
+                  onChangeText={(val: string) => setCardNumber(formatCardNumber(val))}
                   keyboardType="numeric"
+                  maxLength={19}
                   placeholder="1234 5678 9012 3456"
                   onFocus={scrollToCardFields}
                   style={styles.field}
                 />
+
+                <Input
+                  label="Name on Card"
+                  value={cardHolder}
+                  onChangeText={setCardHolder}
+                  maxLength={50}
+                  placeholder="e.g. Customer User"
+                  onFocus={scrollToCardFields}
+                  style={styles.field}
+                />
+
                 <View style={styles.row}>
                   <Input
                     label="Expiry"
                     value={cardExpiry}
-                    onChangeText={setCardExpiry}
+                    onChangeText={(val: string) => setCardExpiry(formatExpiry(val))}
+                    keyboardType="numeric"
+                    maxLength={5}
                     placeholder="MM/YY"
                     onFocus={scrollToCardFields}
                     style={[styles.field, styles.rowField]}
@@ -220,20 +438,27 @@ export default function CheckoutScreen({ navigation, route }: any) {
                   <Input
                     label="CVV"
                     value={cardCvv}
-                    onChangeText={setCardCvv}
+                    onChangeText={(val: string) => setCardCvv(formatCvv(val))}
                     keyboardType="numeric"
+                    maxLength={4}
                     placeholder="123"
                     onFocus={scrollToCardFields}
                     style={[styles.field, styles.rowField]}
                   />
                 </View>
+
+                <Squeeze onPress={fillSandboxTestCard} style={[styles.testCardBtn, { borderColor: colors.primary + '40' }]}>
+                  <Text style={[styles.testCardText, { color: colors.primary }]}>
+                    ⚡ Autofill Sandbox Test Card (5528...0008)
+                  </Text>
+                </Squeeze>
               </FadeUp>
             )}
           </View>
         </FadeUp>
 
         <Button
-          title={placing ? "Placing Order..." : "Place Order Securely"}
+          title={placing ? 'Placing Order...' : 'Place Order Securely'}
           icon={checkCircleIcon}
           iconPosition="left"
           disabled={!canPlaceOrder || placing}
@@ -251,11 +476,17 @@ export default function CheckoutScreen({ navigation, route }: any) {
         confirmText="View Orders"
         onCancel={() => {
           setPlaced(false);
-          navigation.navigate('Home');
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'Home' }],
+          });
         }}
         onConfirm={() => {
           setPlaced(false);
-          navigation.navigate('Orders');
+          navigation.reset({
+            index: 1,
+            routes: [{ name: 'Home' }, { name: 'Orders' }],
+          });
         }}
       />
 
@@ -305,6 +536,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: 12 },
   rowField: { flex: 1 },
 
+  paymentOptions: { gap: 10 },
   paymentRow: {
     borderRadius: 12,
     borderWidth: 1.5,
@@ -312,8 +544,44 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   paymentRowInner: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  paymentLabel: { flex: 1, fontFamily: fonts.bold, fontSize: 13 },
+  paymentTextWrap: { flex: 1 },
+  paymentLabel: { fontFamily: fonts.bold, fontSize: 13 },
+  paymentSub: { fontFamily: fonts.regular, fontSize: 11, marginTop: 2 },
   cardFields: { marginTop: 14 },
+  cardHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  cardSubTitle: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  brandPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  brandText: {
+    fontFamily: fonts.bold,
+    fontSize: 11,
+  },
+  testCardBtn: {
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  testCardText: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+  },
 
   placeOrder: { marginTop: 20 },
 });

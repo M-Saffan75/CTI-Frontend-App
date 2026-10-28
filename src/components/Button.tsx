@@ -62,7 +62,9 @@ export default function Button({
           {icon && iconPosition === 'left' && (
             <Icon source={icon} size={sizing.icon} color={tintIcon ? textColor : null} />
           )}
-          <Text style={[styles.title, { color: textColor, fontSize: sizing.fontSize }]}>
+          <Text
+            numberOfLines={1}
+            style={[styles.title, { color: textColor, fontSize: sizing.fontSize }]}>
             {title}
           </Text>
           {icon && iconPosition === 'right' && (

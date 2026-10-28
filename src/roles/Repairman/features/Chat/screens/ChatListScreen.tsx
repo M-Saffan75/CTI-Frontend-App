@@ -49,6 +49,9 @@ function ChatRow({ chat, navigation }: { chat: ChatItem; navigation: any }) {
       onPress={() =>
         navigation.navigate('ChatDetail', {
           chatId: chat.chatId,
+          queryId: chat.queryId,
+          chatType: chat.chatType,
+          participantId: chat.participant?.id || (chat.participant as any)?._id || '',
           participantName: chat.participant?.name || 'User',
           participantAvatar: chat.participant?.avatar,
           isOnline: chat.participant?.isOnline,

@@ -16,12 +16,15 @@ export async function fetchUserProfileApi(): Promise<ProfileData> {
     let savedUser: any = null;
 
     try {
-      const authStr = await AsyncStorage.getItem('auth');
-      if (authStr) {
-        const parsed = JSON.parse(authStr);
-        role = parsed?.role || parsed?.user?.role || 'Customer';
-        savedUser = parsed?.user;
-      }
+      const [authStr, roleStr, userStr] = await Promise.all([
+        AsyncStorage.getItem('auth'),
+        AsyncStorage.getItem('role'),
+        AsyncStorage.getItem('user'),
+      ]);
+      const authParsed = authStr ? JSON.parse(authStr) : null;
+      const userParsed = userStr ? JSON.parse(userStr) : null;
+      role = roleStr || authParsed?.role || authParsed?.user?.role || userParsed?.role || 'Customer';
+      savedUser = userParsed || authParsed?.user;
     } catch {
       // ignore
     }
@@ -79,11 +82,12 @@ export async function fetchUserProfileApi(): Promise<ProfileData> {
 export async function updateUserProfileApi(payload: any): Promise<any> {
   let role = 'Customer';
   try {
-    const authStr = await AsyncStorage.getItem('auth');
-    if (authStr) {
-      const parsed = JSON.parse(authStr);
-      role = parsed?.role || parsed?.user?.role || 'Customer';
-    }
+    const [authStr, roleStr] = await Promise.all([
+      AsyncStorage.getItem('auth'),
+      AsyncStorage.getItem('role'),
+    ]);
+    const authParsed = authStr ? JSON.parse(authStr) : null;
+    role = roleStr || authParsed?.role || authParsed?.user?.role || 'Customer';
   } catch {
     // ignore
   }

@@ -49,6 +49,16 @@ export interface ChangePasswordParams {
 }
 
 function extractErrorMessage(error: any, fallback: string): string {
+  const status = error?.response?.status;
+  if (status === 502 || status === 503) {
+    return 'The server is currently waking up or busy. Please wait a moment and try again.';
+  }
+  if (status === 504 || error?.code === 'ECONNABORTED' || error?.message?.includes('timeout')) {
+    return 'Server request timed out. Please try again.';
+  }
+  if (error?.message === 'Network Error' || !error?.response) {
+    return 'Unable to reach the server. Please check your network connection.';
+  }
   const data = error?.response?.data;
   if (typeof data === 'string' && data.trim()) return data.trim();
   if (data?.message && typeof data.message === 'string') return data.message;
@@ -63,7 +73,32 @@ function extractErrorMessage(error: any, fallback: string): string {
   return fallback;
 }
 
+let memoryUser: AuthUser | null = null;
+let memoryRole: string | null = null;
+
 export class AuthService {
+  /**
+   * Get synchronously cached user from memory
+   */
+  static getCachedUser(): AuthUser | null {
+    return memoryUser;
+  }
+
+  /**
+   * Get synchronously cached role from memory
+   */
+  static getCachedRole(): string | null {
+    return memoryRole;
+  }
+
+  /**
+   * Set cached session in memory
+   */
+  static setCachedSession(user: AuthUser | null, role: string | null) {
+    memoryUser = user;
+    memoryRole = role;
+  }
+
   /**
    * Login with email and password
    */
@@ -87,6 +122,9 @@ export class AuthService {
         await AsyncStorage.setItem('token', demoToken);
         await AsyncStorage.setItem('user', JSON.stringify(demoUser));
         await AsyncStorage.setItem('role', userRole);
+        await AsyncStorage.setItem('auth', JSON.stringify({ token: demoToken, user: demoUser, role: userRole }));
+        memoryUser = demoUser;
+        memoryRole = userRole;
         return {
           ok: true,
           token: demoToken,
@@ -117,12 +155,21 @@ export class AuthService {
         };
       }
 
-      const token = dataPayload?.token;
+      const token =
+        dataPayload?.tokens?.accessToken ||
+        dataPayload?.token ||
+        dataPayload?.accessToken;
+      const refreshToken =
+        dataPayload?.tokens?.refreshToken ||
+        dataPayload?.refreshToken;
       const user = dataPayload?.user || dataPayload;
       const userRole = user?.role || role;
 
       if (token) {
         await AsyncStorage.setItem('token', token);
+      }
+      if (refreshToken) {
+        await AsyncStorage.setItem('refreshToken', refreshToken);
       }
       if (user) {
         await AsyncStorage.setItem('user', JSON.stringify(user));
@@ -130,10 +177,20 @@ export class AuthService {
       if (userRole) {
         await AsyncStorage.setItem('role', userRole);
       }
+      if (token || user) {
+        await AsyncStorage.setItem(
+          'auth',
+          JSON.stringify({ token, refreshToken, user, role: userRole }),
+        );
+      }
+
+      memoryUser = user || null;
+      memoryRole = userRole || null;
 
       return {
         ok: true,
         token,
+        refreshToken,
         user,
         role: userRole,
         message: resData?.message || 'Login successful',
@@ -237,19 +294,43 @@ export class AuthService {
       const resData = response.data;
       const dataPayload = resData?.data || resData;
 
-      if (dataPayload?.token) {
-        await AsyncStorage.setItem('token', dataPayload.token);
+      const token =
+        dataPayload?.tokens?.accessToken ||
+        dataPayload?.token ||
+        dataPayload?.accessToken;
+      const refreshToken =
+        dataPayload?.tokens?.refreshToken ||
+        dataPayload?.refreshToken;
+
+      if (token) {
+        await AsyncStorage.setItem('token', token);
+      }
+      if (refreshToken) {
+        await AsyncStorage.setItem('refreshToken', refreshToken);
       }
       if (dataPayload?.user) {
         await AsyncStorage.setItem('user', JSON.stringify(dataPayload.user));
       }
-      if (role || dataPayload?.user?.role) {
-        await AsyncStorage.setItem('role', role || dataPayload.user.role);
+      const verifiedRole = role || dataPayload?.user?.role;
+      if (verifiedRole) {
+        await AsyncStorage.setItem('role', verifiedRole);
+      }
+      if (token || dataPayload?.user) {
+        await AsyncStorage.setItem(
+          'auth',
+          JSON.stringify({
+            token,
+            refreshToken,
+            user: dataPayload?.user,
+            role: verifiedRole,
+          }),
+        );
       }
 
       return {
         ok: true,
-        token: dataPayload?.token,
+        token,
+        refreshToken,
         user: dataPayload?.user,
         message: resData?.message || 'OTP verified successfully',
       };
@@ -373,15 +454,23 @@ export class AuthService {
    */
   static async getStoredSession() {
     try {
-      const [token, userStr, role] = await Promise.all([
+      const [token, userStr, role, authStr] = await Promise.all([
         AsyncStorage.getItem('token'),
         AsyncStorage.getItem('user'),
         AsyncStorage.getItem('role'),
+        AsyncStorage.getItem('auth'),
       ]);
 
-      if (token && role) {
-        const user = userStr ? JSON.parse(userStr) : null;
-        return { token, user, role };
+      const authObj = authStr ? JSON.parse(authStr) : null;
+      const finalToken =
+        token || authObj?.token || authObj?.tokens?.accessToken;
+      const finalRole = role || authObj?.role || authObj?.user?.role;
+      const user = userStr ? JSON.parse(userStr) : authObj?.user || null;
+
+      if (finalToken && finalRole) {
+        memoryUser = user || null;
+        memoryRole = finalRole;
+        return { token: finalToken, user, role: finalRole };
       }
       return null;
     } catch {
@@ -394,6 +483,8 @@ export class AuthService {
    */
   static async logout() {
     try {
+      memoryUser = null;
+      memoryRole = null;
       await Promise.all([
         AsyncStorage.removeItem('token'),
         AsyncStorage.removeItem('user'),

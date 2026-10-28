@@ -3,7 +3,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
-import { commentDotsBold, menuBold } from '@/assets/icons';
+import { bellBold, commentDotsBold, menuBold } from '@/assets/icons';
 import { ctiLogo } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
 
@@ -15,6 +15,9 @@ export default function RepairmanHeader({ navigation }) {
     <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
       <Image source={ctiLogo} resizeMode="contain" style={styles.logo} />
       <View style={styles.icons}>
+        <Squeeze onPress={() => navigation?.navigate('Notifications')} scale={0.85}>
+          <Icon source={bellBold} size={22} color={colors.text} />
+        </Squeeze>
         <Squeeze onPress={() => navigation?.navigate('ChatList')} scale={0.85}>
           <Icon source={commentDotsBold} size={22} color={colors.text} />
         </Squeeze>

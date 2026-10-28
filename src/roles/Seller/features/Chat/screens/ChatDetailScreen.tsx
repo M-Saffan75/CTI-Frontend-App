@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   FlatList,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -23,9 +24,12 @@ import { fonts } from '@/theme/fonts';
 import {
   ChatMessageItem,
   fetchChatMessages,
+  getCachedMessages,
   markChatAsRead,
   sendChatMessageHttp,
+  setCachedMessages,
 } from '@/services/chatApi';
+import AuthService from '@/services/authService';
 import socketService from '@/services/socketService';
 
 function formatMessageTime(dateStr?: string): string {
@@ -55,26 +59,77 @@ export default function ChatDetailScreen({ navigation, route }: any) {
   const queryId = route?.params?.queryId || '';
   const question = route?.params?.question || '';
 
-  const [currentUserId, setCurrentUserId] = useState<string>('');
-  const [currentUserRole, setCurrentUserRole] = useState<string>('seller');
+  const initialCached = chatId ? getCachedMessages(chatId) : undefined;
+  const cachedUser = AuthService.getCachedUser();
+  const cachedRole = AuthService.getCachedRole();
+
+  const [currentUserId, setCurrentUserId] = useState<string>(
+    cachedUser?._id || cachedUser?.id || '',
+  );
+  const [currentUserRole, setCurrentUserRole] = useState<string>(
+    cachedRole || route?.params?.role || 'seller',
+  );
   const [isOnline, setIsOnline] = useState<boolean>(Boolean(route?.params?.isOnline));
-  const [messages, setMessages] = useState<ChatMessageItem[]>([]);
+  const [messages, setMessages] = useState<ChatMessageItem[]>(() => {
+    if (initialCached && initialCached.length > 0) return initialCached;
+    return [];
+  });
   const [inputText, setInputText] = useState('');
-  const [loading, setLoading] = useState(Boolean(chatId));
+  const [loading, setLoading] = useState<boolean>(() => {
+    if (!chatId) return false;
+    return !initialCached || initialCached.length === 0;
+  });
   const [isTyping, setIsTyping] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const currentUserIdRef = useRef(currentUserId);
+  const currentUserRoleRef = useRef(currentUserRole);
+  const hasInitialScrolledRef = useRef(false);
+
+  useEffect(() => {
+    currentUserIdRef.current = currentUserId;
+  }, [currentUserId]);
+
+  useEffect(() => {
+    currentUserRoleRef.current = currentUserRole;
+  }, [currentUserRole]);
+
+  // Keyboard show/hide listener to manage smooth scrolling and bottom padding
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvent, () => {
+      setIsKeyboardVisible(true);
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 80);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setIsKeyboardVisible(false);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   // 1. Fetch current logged in user info
   useEffect(() => {
     async function loadUser() {
       try {
-        const authData = await AsyncStorage.getItem('auth');
-        if (authData) {
-          const parsed = JSON.parse(authData);
-          if (parsed?.user) {
-            setCurrentUserId(parsed.user._id || parsed.user.id || '');
-            setCurrentUserRole(parsed.user.role || 'seller');
+        const session = await AuthService.getStoredSession();
+        if (session?.user) {
+          const u = session.user;
+          const uid = u._id || u.id || '';
+          const r = session.role || u.role || 'seller';
+          if (uid && uid !== currentUserIdRef.current) {
+            setCurrentUserId(uid);
+          }
+          if (r && r !== currentUserRoleRef.current) {
+            setCurrentUserRole(r);
           }
         }
       } catch {
@@ -91,7 +146,11 @@ export default function ChatDetailScreen({ navigation, route }: any) {
     let isMounted = true;
 
     async function initChat() {
-      setLoading(true);
+      const cached = getCachedMessages(chatId);
+      if (!cached || cached.length === 0) {
+        setLoading(true);
+      }
+
       try {
         socketService.joinChat(chatId);
         markChatAsRead(chatId);
@@ -99,6 +158,7 @@ export default function ChatDetailScreen({ navigation, route }: any) {
         const data = await fetchChatMessages(chatId);
         if (isMounted) {
           setMessages(data.messages);
+          setCachedMessages(chatId, data.messages);
           if (data.user?.isOnline !== undefined) {
             setIsOnline(Boolean(data.user.isOnline));
           }
@@ -115,32 +175,88 @@ export default function ChatDetailScreen({ navigation, route }: any) {
     // Live socket listeners
     const unsubNewMsg = socketService.onNewMessage((msg: any) => {
       if (msg.chatId === chatId) {
+        const incomingId = msg.messageId || msg._id || `msg-${Date.now()}`;
+
         setMessages(prev => {
-          if (prev.some(m => m.messageId === msg.messageId || m._id === msg.messageId)) {
+          // 1. Prevent duplicate by exact ID
+          if (prev.some(m => m.messageId === incomingId || m._id === incomingId)) {
             return prev;
           }
-          const newMsg: ChatMessageItem = {
-            _id: msg.messageId || `msg-${Date.now()}`,
-            messageId: msg.messageId || `msg-${Date.now()}`,
-            content: msg.content || '',
-            messageType: msg.messageType || 'text',
-            senderType: msg.senderType,
-            senderId: msg.senderId,
-            timestamp: msg.timestamp || new Date().toISOString(),
-            mediaUrl: msg.mediaUrl,
-            fileName: msg.fileName,
-            isRead: true,
-          };
-          return [...prev, newMsg];
+
+          // 2. If message was sent by me, reconcile with existing pending local optimistic message
+          const myId = currentUserIdRef.current;
+          const myRole = currentUserRoleRef.current;
+          const sId = typeof msg.senderId === 'object' ? msg.senderId?._id || msg.senderId.id : msg.senderId;
+          const isFromMe = (myId && sId === myId) || msg.senderType === myRole;
+
+          let updated: ChatMessageItem[];
+          if (isFromMe) {
+            const pendingIndex = prev.findIndex(
+              m =>
+                (m._id.startsWith('local-') || m.messageId.startsWith('local-')) &&
+                m.content === msg.content,
+            );
+            if (pendingIndex !== -1) {
+              const copy = [...prev];
+              copy[pendingIndex] = {
+                _id: incomingId,
+                messageId: incomingId,
+                content: msg.content || '',
+                messageType: msg.messageType || 'text',
+                senderType: msg.senderType,
+                senderId: msg.senderId,
+                timestamp: msg.timestamp || new Date().toISOString(),
+                mediaUrl: msg.mediaUrl,
+                fileName: msg.fileName,
+                isRead: true,
+              };
+              updated = copy;
+            } else {
+              updated = [
+                ...prev,
+                {
+                  _id: incomingId,
+                  messageId: incomingId,
+                  content: msg.content || '',
+                  messageType: msg.messageType || 'text',
+                  senderType: msg.senderType,
+                  senderId: msg.senderId,
+                  timestamp: msg.timestamp || new Date().toISOString(),
+                  mediaUrl: msg.mediaUrl,
+                  fileName: msg.fileName,
+                  isRead: true,
+                },
+              ];
+            }
+          } else {
+            updated = [
+              ...prev,
+              {
+                _id: incomingId,
+                messageId: incomingId,
+                content: msg.content || '',
+                messageType: msg.messageType || 'text',
+                senderType: msg.senderType,
+                senderId: msg.senderId,
+                timestamp: msg.timestamp || new Date().toISOString(),
+                mediaUrl: msg.mediaUrl,
+                fileName: msg.fileName,
+                isRead: true,
+              },
+            ];
+          }
+
+          setCachedMessages(chatId, updated);
+          return updated;
         });
 
-        socketService.markMessagesRead(chatId, [msg.messageId]);
-        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+        socketService.markMessagesRead(chatId, [incomingId]);
+        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 80);
       }
     });
 
     const unsubTypingStart = socketService.onTypingStart(data => {
-      if (data.chatId === chatId && data.userId !== currentUserId) {
+      if (data.chatId === chatId && data.userId !== currentUserIdRef.current) {
         setIsTyping(true);
       }
     });
@@ -172,7 +288,17 @@ export default function ChatDetailScreen({ navigation, route }: any) {
       unsubOnline();
       unsubOffline();
     };
-  }, [chatId, currentUserId]);
+  }, [chatId]);
+
+  // Initial scroll to bottom once messages are rendered
+  useEffect(() => {
+    if (messages.length > 0 && !hasInitialScrolledRef.current) {
+      hasInitialScrolledRef.current = true;
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: false });
+      }, 50);
+    }
+  }, [messages.length]);
 
   const handleTextChange = (text: string) => {
     setInputText(text);
@@ -185,9 +311,11 @@ export default function ChatDetailScreen({ navigation, route }: any) {
     }, 2000);
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const text = inputText.trim();
-    if (!text) return;
+    if (!text || isSending) return;
+
+    setIsSending(true);
 
     if (chatId) {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
@@ -202,39 +330,69 @@ export default function ChatDetailScreen({ navigation, route }: any) {
       messageId: tempId,
       content: text,
       messageType: 'text',
-      senderType: (currentUserRole as any) || 'seller',
-      senderId: currentUserId,
+      senderType: (currentUserRoleRef.current as any) || 'seller',
+      senderId: currentUserIdRef.current,
       timestamp: nowIso,
       isRead: false,
     };
 
-    setMessages(prev => [...prev, localMsg]);
+    setMessages(prev => {
+      const next = [...prev, localMsg];
+      if (chatId) setCachedMessages(chatId, next);
+      return next;
+    });
     setInputText('');
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50);
 
-    if (chatId) {
-      socketService.sendChatMessage({
-        chatId,
-        content: text,
-        messageType: 'text',
-      });
-      sendChatMessageHttp(chatId, { content: text });
+    try {
+      if (chatId) {
+        if (socketService.isConnected()) {
+          // Strictly send via socket when connected
+          socketService.sendChatMessage({
+            chatId,
+            content: text,
+            messageType: 'text',
+          });
+        } else {
+          // Fallback to HTTP only when socket is not connected
+          const res = await sendChatMessageHttp(chatId, { content: text });
+          if (res.success && res.message) {
+            const serverId = res.message._id || res.message.messageId;
+            if (serverId) {
+              setMessages(prev => {
+                const updated = prev.map(m =>
+                  m._id === tempId ? { ...m, _id: serverId, messageId: serverId } : m,
+                );
+                setCachedMessages(chatId, updated);
+                return updated;
+              });
+            }
+          }
+        }
+      }
+    } catch (err) {
+      if (__DEV__) console.log('[SellerChatDetail] send error:', err);
+    } finally {
+      setIsSending(false);
     }
   };
 
   const isMessageFromMe = (msg: ChatMessageItem) => {
-    if (msg._id.startsWith('local-')) return true;
-    if (currentUserId && msg.senderId) {
-      const sId = typeof msg.senderId === 'object' ? msg.senderId._id : msg.senderId;
-      if (sId === currentUserId) return true;
+    if (msg._id?.startsWith('local-') || msg.messageId?.startsWith('local-')) return true;
+    const uid = currentUserId || currentUserIdRef.current;
+    if (uid && msg.senderId) {
+      const sId = typeof msg.senderId === 'object' ? msg.senderId._id || msg.senderId.id : msg.senderId;
+      if (sId === uid) return true;
     }
-    return msg.senderType === 'seller' || msg.senderType === currentUserRole;
+    const myRole = currentUserRole || currentUserRoleRef.current;
+    return msg.senderType === 'seller' || msg.senderType === myRole;
   };
 
   return (
     <KeyboardAvoidingView
       style={[styles.screen, { backgroundColor: colors.background }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}>
       {/* Header */}
       <View
         style={[
@@ -285,14 +443,22 @@ export default function ChatDetailScreen({ navigation, route }: any) {
       </View>
 
       {/* Messages List */}
-      {loading ? (
+      {loading && messages.length === 0 ? (
         <CtiLoader size="md" text="Loading conversation..." style={{ flex: 1 }} />
       ) : (
         <FlatList
           ref={flatListRef}
           data={messages}
+          style={styles.messagesList}
+          keyboardShouldPersistTaps="handled"
           keyExtractor={(item, idx) => item._id || item.messageId || String(idx)}
           contentContainerStyle={[styles.messagesContainer, { paddingBottom: 16 }]}
+          onContentSizeChange={() => {
+            if (!hasInitialScrolledRef.current && messages.length > 0) {
+              hasInitialScrolledRef.current = true;
+              flatListRef.current?.scrollToEnd({ animated: false });
+            }
+          }}
           renderItem={({ item }) => {
             const isMine = isMessageFromMe(item);
             return (
@@ -344,7 +510,7 @@ export default function ChatDetailScreen({ navigation, route }: any) {
         style={[
           styles.inputContainer,
           {
-            paddingBottom: insets.bottom + 12,
+            paddingBottom: isKeyboardVisible ? 10 : insets.bottom + 10,
             backgroundColor: colors.surface,
             borderTopColor: colors.border,
           },
@@ -363,7 +529,11 @@ export default function ChatDetailScreen({ navigation, route }: any) {
           />
           <TouchableOpacity
             onPress={handleSend}
-            style={[styles.sendCircleBtn, { backgroundColor: colors.primary }]}>
+            disabled={isSending}
+            style={[
+              styles.sendCircleBtn,
+              { backgroundColor: colors.primary, opacity: isSending ? 0.6 : 1 },
+            ]}>
             <Text style={styles.sendArrow}>➤</Text>
           </TouchableOpacity>
         </View>
@@ -374,6 +544,7 @@ export default function ChatDetailScreen({ navigation, route }: any) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
+  messagesList: { flex: 1 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

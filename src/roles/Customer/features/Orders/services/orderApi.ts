@@ -1,7 +1,5 @@
 import apiClient from '@/services/apiClient';
 import dayjs from 'dayjs';
-import { ORDERS, PROGRESS_STEPS } from '../data/orders';
-import { ORDER_DETAIL } from '../data/orderDetail';
 
 export interface MobileOrderItem {
   id: string;
@@ -11,6 +9,7 @@ export interface MobileOrderItem {
   price: number;
   image: string;
   status?: string;
+  sellerId?: string;
 }
 
 export interface MobileOrder {
@@ -50,24 +49,143 @@ const STEP_KEYS = ['pending', 'processing', 'shipping', 'shipped', 'delivered'];
  * Adapter: Map Backend MongoDB Order to Mobile Order Shape
  */
 export function mapBackendToOrder(raw: any): MobileOrder {
-  if (!raw) return ORDERS[0] as any;
+  if (!raw) {
+    return {
+      id: '',
+      orderId: '',
+      orderNo: '',
+      statusTag: 'PENDING',
+      paymentTag: 'PENDING',
+      tags: [],
+      date: '',
+      time: '',
+      itemCount: 0,
+      total: 0,
+      paymentStatus: 'Pending',
+      items: [],
+      progressStep: 0,
+      shippingAddress: '',
+      customer: { name: '', phone: '', city: '', address: '' },
+      subtotal: 0,
+      shipping: 0,
+      raw: null,
+    };
+  }
 
-  const rawItems = Array.isArray(raw.items) ? raw.items : [];
+  // Unpack single order if wrapped in response object
+  if (raw && typeof raw === 'object') {
+    if (raw.orders && typeof raw.orders === 'object' && !Array.isArray(raw.orders)) {
+      raw = raw.orders;
+    } else if (raw.order && typeof raw.order === 'object' && !Array.isArray(raw.order)) {
+      raw = raw.order;
+    } else if (raw.data && typeof raw.data === 'object' && !Array.isArray(raw.data)) {
+      raw = raw.data;
+    }
+  }
+
+  const rawItems = Array.isArray(raw.items)
+    ? raw.items
+    : Array.isArray(raw.orderItems)
+    ? raw.orderItems
+    : [];
+
   const mappedItems: MobileOrderItem[] = rawItems.map((item: any, idx: number) => {
     const prod = item.productId || item.product || {};
-    const title = prod.title || prod.name || item.name || `Item ${idx + 1}`;
-    const variantTitle = item.variantId?.title || item.variantTitle || item.variant || 'Standard';
-    const rawImg = prod.images?.[0]?.url || prod.images?.[0] || prod.image || item.image;
-    const imgUrl = typeof rawImg === 'string' ? rawImg : 'https://picsum.photos/seed/order/300/300';
+    const variantObj = item.variantId || item.variant || {};
+
+    let title = 'Purchased Item';
+    if (typeof prod === 'object' && prod.title && typeof prod.title === 'string') {
+      title = prod.title.trim();
+    } else if (typeof prod === 'object' && prod.name && typeof prod.name === 'string') {
+      title = prod.name.trim();
+    } else if (typeof item.name === 'string' && item.name.trim()) {
+      title = item.name.trim();
+    } else if (typeof item.title === 'string' && item.title.trim()) {
+      title = item.title.trim();
+    } else if (typeof variantObj === 'object' && variantObj.title && typeof variantObj.title === 'string') {
+      title = variantObj.title.trim();
+    } else {
+      title = `Item ${idx + 1}`;
+    }
+
+    let variantTitle = 'Standard';
+    if (typeof item.variant === 'string' && item.variant.trim()) {
+      variantTitle = item.variant.trim();
+    } else if (item.variant && typeof item.variant === 'object') {
+      const parts = [
+        item.variant.title,
+        item.variant.name,
+        item.variant.color,
+        item.variant.size,
+        item.variant.storage,
+        item.variant.ram,
+      ].filter(Boolean);
+
+      if (parts.length > 0) {
+        variantTitle = parts.join(' / ');
+      } else {
+        const vals = Object.values(item.variant).filter(
+          v => typeof v === 'string' || typeof v === 'number',
+        );
+        variantTitle = vals.length > 0 ? vals.join(' / ') : 'Standard';
+      }
+    } else if (typeof item.variantId === 'object' && item.variantId !== null) {
+      variantTitle = item.variantId.title || item.variantId.name || 'Standard';
+    } else if (item.variantTitle && typeof item.variantTitle === 'string') {
+      variantTitle = item.variantTitle;
+    }
+
+    // Resolve Image from product or variant
+    const prodImages = Array.isArray(prod?.images) ? prod.images : [];
+    const variantImages = Array.isArray(item.variantId?.images)
+      ? item.variantId.images
+      : Array.isArray(item.variant?.images)
+      ? item.variant.images
+      : [];
+
+    const firstProdImg = prodImages[0];
+    const firstVariantImg = variantImages[0];
+
+    const rawImg =
+      (typeof firstProdImg === 'object' && firstProdImg !== null ? firstProdImg.url : firstProdImg) ||
+      (typeof firstVariantImg === 'object' && firstVariantImg !== null ? firstVariantImg.url : firstVariantImg) ||
+      prod?.image ||
+      prod?.thumbnail ||
+      (typeof prod?.images === 'string' ? prod.images : null) ||
+      item.image ||
+      item.imageUrl ||
+      item.photo;
+
+    let imgUrl = 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400&q=80';
+    if (typeof rawImg === 'string' && rawImg.trim()) {
+      const cleanImg = rawImg.trim();
+      if (cleanImg.startsWith('http://') || cleanImg.startsWith('https://')) {
+        imgUrl = cleanImg;
+      } else if (cleanImg.startsWith('/')) {
+        imgUrl = `https://tbt-backend-hwu3.onrender.com${cleanImg}`;
+      }
+    }
+
+    const price = Number(
+      item.price ??
+      item.unitPrice ??
+      item.productPrice ??
+      (typeof variantObj === 'object' ? variantObj.price : null) ??
+      (typeof prod === 'object' ? prod.price : null) ??
+      0,
+    );
+
+    const qty = Number(item.quantity ?? item.qty ?? item.count ?? 1);
 
     return {
       id: String(item._id || item.id || `item-${idx}`),
-      name: title,
-      variant: variantTitle,
-      qty: Number(item.quantity || item.qty || 1),
-      price: Number(item.price || item.unitPrice || 0),
+      name: String(title),
+      variant: String(variantTitle),
+      qty,
+      price,
       image: imgUrl,
-      status: item.status || raw.orderStatus || 'Pending',
+      status: String(item.status || item.itemStatus || raw.orderStatus || 'Pending'),
+      sellerId: item.sellerId ? String(item.sellerId) : undefined,
     };
   });
 
@@ -88,34 +206,37 @@ export function mapBackendToOrder(raw: any): MobileOrder {
 
   if (typeof rawAddress === 'string') {
     addressStr = rawAddress;
+    customerInfo.address = rawAddress;
   } else if (rawAddress && typeof rawAddress === 'object') {
     addressStr = [
-      rawAddress.address || rawAddress.street,
+      rawAddress.addressLine || rawAddress.address || rawAddress.street,
+      rawAddress.area,
       rawAddress.city,
       rawAddress.state,
       rawAddress.country,
+      rawAddress.postalCode,
     ]
       .filter(Boolean)
       .join(', ');
 
     customerInfo = {
-      name: rawAddress.fullName || raw.customer?.name || raw.user?.name || 'Customer',
-      phone: rawAddress.phone || raw.customer?.phone || '',
-      city: rawAddress.city || '',
-      address: rawAddress.address || rawAddress.street || addressStr,
+      name: String(rawAddress.fullName || raw.customer?.name || raw.user?.name || raw.userId?.name || 'Customer'),
+      phone: String(rawAddress.phone || raw.customer?.phone || raw.userId?.phone || ''),
+      city: String(rawAddress.city || ''),
+      address: String(rawAddress.addressLine || rawAddress.address || rawAddress.street || addressStr),
     };
   }
 
-  const total = Number(raw.totalAmount || raw.total || raw.grandTotal || 0);
-  const shipping = Number(raw.shippingFee || raw.shippingPrice || 10);
-  const subtotal = Number(raw.subtotal || (total > shipping ? total - shipping : total));
+  const total = Number(raw.totalAmount ?? raw.total ?? raw.grandTotal ?? raw.amount ?? 0);
+  const shipping = Number(raw.shippingFee ?? raw.shippingPrice ?? raw.shipping ?? (total > 0 ? 10 : 0));
+  const subtotal = Number(raw.subTotal ?? raw.subtotal ?? (total > shipping ? total - shipping : total));
   const statusTag = String(raw.orderStatus || 'Pending').toUpperCase();
   const paymentTag = String(raw.paymentStatus || 'Pending').toUpperCase();
 
   return {
-    id: String(raw._id || raw.id),
-    orderId: String(raw.orderId || raw.orderNumber || raw._id),
-    orderNo: String(raw.orderNo || raw.orderId || raw._id),
+    id: String(raw._id || raw.id || ''),
+    orderId: String(raw.orderId || raw.orderNo || raw.orderNumber || raw._id || ''),
+    orderNo: String(raw.orderNo || raw.orderId || raw._id || ''),
     statusTag,
     paymentTag,
     tags: [statusTag, paymentTag],
@@ -123,8 +244,8 @@ export function mapBackendToOrder(raw: any): MobileOrder {
     time: createdAt.format('hh:mm A'),
     itemCount: mappedItems.length,
     total,
-    paymentStatus: raw.paymentStatus || 'Pending',
-    payment: raw.paymentMethod || raw.paymentStatus || 'CARD',
+    paymentStatus: String(raw.paymentStatus || 'Pending'),
+    payment: String(raw.paymentMethod || raw.paymentStatus || 'CARD'),
     items: mappedItems,
     progressStep,
     shippingAddress: addressStr,
@@ -158,14 +279,14 @@ export async function getCustomerOrders(params?: {
       },
     });
 
-    const data = res.data?.data || res.data?.orders || res.data;
+    const data = res.data?.orders || res.data?.data || res.data?.order || res.data;
     if (Array.isArray(data)) {
       return data.map(mapBackendToOrder);
     }
-    return ORDERS as any;
+    return [];
   } catch (err: any) {
-    console.warn('getCustomerOrders fallback to mock:', err?.message);
-    return ORDERS as any;
+    if (__DEV__) console.warn('getCustomerOrders error:', err?.message);
+    return [];
   }
 }
 
@@ -175,19 +296,50 @@ export async function getCustomerOrders(params?: {
 export async function getCustomerOrderDetail(
   orderId: string,
   isRefurbished = false,
-): Promise<MobileOrder> {
+): Promise<MobileOrder | null> {
+  if (!orderId) return null;
+
   try {
-    const endpoint = isRefurbished ? `/refurbished/orders/${orderId}` : `/e-commerce/orders/${orderId}`;
-    const res = await apiClient.get(endpoint);
-    const data = res.data?.data || res.data?.order || res.data;
-    if (data) {
-      return mapBackendToOrder(data);
+    const primaryEndpoint = isRefurbished
+      ? `/refurbished/orders/${orderId}`
+      : `/e-commerce/orders/${orderId}`;
+    const fallbackEndpoint = isRefurbished
+      ? `/e-commerce/orders/${orderId}`
+      : `/refurbished/orders/${orderId}`;
+
+    let res: any = null;
+
+    try {
+      res = await apiClient.get(primaryEndpoint);
+    } catch {
+      try {
+        res = await apiClient.get(fallbackEndpoint);
+      } catch (err: any) {
+        if (__DEV__) console.warn(`getCustomerOrderDetail(${orderId}) error:`, err?.message);
+        return null;
+      }
     }
-    return ORDER_DETAIL as any;
+
+    if (!res || !res.data) return null;
+
+    let rawOrder =
+      res.data.orders ||
+      res.data.order ||
+      res.data.data ||
+      res.data;
+
+    if (Array.isArray(rawOrder) && rawOrder.length > 0) {
+      rawOrder = rawOrder[0];
+    }
+
+    if (rawOrder && typeof rawOrder === 'object') {
+      return mapBackendToOrder(rawOrder);
+    }
+
+    return null;
   } catch (err: any) {
-    console.warn(`getCustomerOrderDetail(${orderId}) fallback to mock:`, err?.message);
-    const found = ORDERS.find(o => o.id === orderId || (o as any).orderId === orderId);
-    return (found as any) || (ORDER_DETAIL as any);
+    if (__DEV__) console.warn(`getCustomerOrderDetail(${orderId}) error:`, err?.message);
+    return null;
   }
 }
 

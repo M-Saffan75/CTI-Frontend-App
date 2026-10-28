@@ -3,7 +3,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
-import { menuBold, shoppingCartExtra } from '@/assets/icons';
+import { bellBold, commentDotsBold, menuBold, shoppingCartExtra } from '@/assets/icons';
 import { ctiLogo } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
 
@@ -15,6 +15,12 @@ export default function SellerHeader({ navigation }) {
     <View style={[styles.header, { paddingTop: insets.top + 8, backgroundColor: colors.background }]}>
       <Image source={ctiLogo} resizeMode="contain" style={styles.logo} />
       <View style={styles.icons}>
+        <Squeeze onPress={() => navigation?.navigate('Notifications')} scale={0.85}>
+          <Icon source={bellBold} size={22} color={colors.text} />
+        </Squeeze>
+        <Squeeze onPress={() => navigation?.navigate('ChatList')} scale={0.85}>
+          <Icon source={commentDotsBold} size={22} color={colors.text} />
+        </Squeeze>
         <Squeeze onPress={() => navigation?.navigate('Cart')} scale={0.85}>
           <Icon source={shoppingCartExtra} size={22} color={colors.text} />
         </Squeeze>

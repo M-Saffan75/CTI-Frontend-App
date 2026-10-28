@@ -22,7 +22,7 @@ apiClient.interceptors.request.use(
         const authData = await AsyncStorage.getItem('auth');
         if (authData) {
           const parsed = JSON.parse(authData);
-          token = parsed?.token;
+          token = parsed?.token || parsed?.tokens?.accessToken;
         }
       }
       if (token) {
@@ -41,8 +41,14 @@ apiClient.interceptors.response.use(
   response => response,
   error => {
     if (error?.response?.status === 401) {
-      // Token expired or invalid
-      AsyncStorage.removeItem('token').catch(() => {});
+      // Token expired or invalid - clear all session keys
+      Promise.all([
+        AsyncStorage.removeItem('token'),
+        AsyncStorage.removeItem('refreshToken'),
+        AsyncStorage.removeItem('auth'),
+        AsyncStorage.removeItem('user'),
+        AsyncStorage.removeItem('role'),
+      ]).catch(() => {});
     }
     return Promise.reject(error);
   },

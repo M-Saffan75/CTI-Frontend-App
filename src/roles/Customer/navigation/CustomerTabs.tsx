@@ -11,7 +11,6 @@ import ProfileScreen from '../features/Profile/screens/ProfileScreen';
 import { homeBold, packageBold, toolExtra, userBold } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
-import { WishlistProvider } from '../context/WishlistContext';
 
 const Tab = createBottomTabNavigator();
 
@@ -69,16 +68,14 @@ function FloatingTabBar({ state, navigation }) {
 // pushed on top of this from CustomerNavigator, which hides the tab bar for them.
 export default function CustomerTabs() {
   return (
-    <WishlistProvider>
-      <Tab.Navigator
-        id="CustomerTabs"
-        screenOptions={{ headerShown: false }}
-        tabBar={props => <FloatingTabBar {...props} />}>
-        {TABS.map(tab => (
-          <Tab.Screen key={tab.name} name={tab.name} component={tab.component} />
-        ))}
-      </Tab.Navigator>
-    </WishlistProvider>
+    <Tab.Navigator
+      id="CustomerTabs"
+      screenOptions={{ headerShown: false }}
+      tabBar={props => <FloatingTabBar {...props} />}>
+      {TABS.map(tab => (
+        <Tab.Screen key={tab.name} name={tab.name} component={tab.component} />
+      ))}
+    </Tab.Navigator>
   );
 }
 

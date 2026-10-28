@@ -28,8 +28,19 @@ export default function ConfirmModal({
   confirmText = 'Confirm',
   cancelText = 'Cancel',
   danger = false,
+  direction = 'auto',
   onConfirm,
   onCancel,
+}: {
+  visible: boolean;
+  title: string;
+  message?: string;
+  confirmText?: string;
+  cancelText?: string;
+  danger?: boolean;
+  direction?: 'row' | 'column' | 'auto';
+  onConfirm: () => void;
+  onCancel: () => void;
 }) {
   const { colors } = useTheme();
   const [mounted, setMounted] = useState(false);
@@ -53,6 +64,10 @@ export default function ConfirmModal({
     transform: [{ scale: 0.9 + progress.value * 0.1 }],
   }));
 
+  const isStacked =
+    direction === 'column' ||
+    (direction === 'auto' && ((cancelText?.length || 0) > 9 || (confirmText?.length || 0) > 9));
+
   return (
     <Modal visible={mounted} transparent animationType="none" onRequestClose={onCancel}>
       <View style={styles.center}>
@@ -65,22 +80,41 @@ export default function ConfirmModal({
           <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
           {message && <Text style={[styles.message, { color: colors.textMuted }]}>{message}</Text>}
 
-          <View style={styles.actions}>
-            <Button
-              title={cancelText}
-              variant="soft"
-              size="sm"
-              onPress={onCancel}
-              style={styles.action}
-            />
-            <Button
-              title={confirmText}
-              size="sm"
-              onPress={onConfirm}
-              color={danger ? colors.error : null}
-              style={styles.action}
-            />
-          </View>
+          {isStacked ? (
+            <View style={styles.actionsStacked}>
+              <Button
+                title={confirmText}
+                size="md"
+                onPress={onConfirm}
+                color={danger ? colors.error : null}
+                style={styles.stackedAction}
+              />
+              <Button
+                title={cancelText}
+                variant="soft"
+                size="md"
+                onPress={onCancel}
+                style={styles.stackedAction}
+              />
+            </View>
+          ) : (
+            <View style={styles.actions}>
+              <Button
+                title={cancelText}
+                variant="soft"
+                size="sm"
+                onPress={onCancel}
+                style={styles.action}
+              />
+              <Button
+                title={confirmText}
+                size="sm"
+                onPress={onConfirm}
+                color={danger ? colors.error : null}
+                style={styles.action}
+              />
+            </View>
+          )}
         </Animated.View>
       </View>
     </Modal>
@@ -92,11 +126,13 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 28,
+    paddingHorizontal: 20,
+    paddingVertical: 28,
   },
   card: {
     width: '100%',
-    borderRadius: 16,
+    maxWidth: 380,
+    borderRadius: 18,
     padding: 22,
   },
   title: {
@@ -118,5 +154,13 @@ const styles = StyleSheet.create({
   },
   action: {
     flex: 1,
+  },
+  actionsStacked: {
+    flexDirection: 'column',
+    gap: 10,
+    marginTop: 22,
+  },
+  stackedAction: {
+    width: '100%',
   },
 });

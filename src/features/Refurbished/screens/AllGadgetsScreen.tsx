@@ -18,6 +18,7 @@ import { FadeUp } from '@/animations';
 import {
   chevronDownBold,
   chevronRightBold,
+  packageBold,
   starFilled,
 } from '@/assets/icons';
 import { demoProductPhoto } from '@/assets/images';
@@ -25,6 +26,7 @@ import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import RefurbishedHeader from '../components/RefurbishedHeader';
 import RefurbishedFilterModal from '../components/RefurbishedFilterModal';
+import CtiLoader from '@/components/CtiLoader';
 import {
   REFURBISHED_PRODUCTS,
   RefurbishedProduct,
@@ -49,17 +51,18 @@ export default function AllGadgetsScreen({ navigation, route }: any) {
   const [activeFilters, setActiveFilters] = useState<any>(initialFilters || null);
   const [sortOption, setSortOption] = useState('Default Sorting');
   const [sortMenuVisible, setSortMenuVisible] = useState(false);
-  const [rawProducts, setRawProducts] = useState<RefurbishedProduct[]>(REFURBISHED_PRODUCTS);
+  const [rawProducts, setRawProducts] = useState<RefurbishedProduct[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchLiveProducts = async () => {
     try {
       const live = await getRefurbishedProducts();
-      if (Array.isArray(live) && live.length > 0) {
-        setRawProducts(live);
-      }
+      setRawProducts(Array.isArray(live) ? live : []);
     } catch (e) {
-      // Fallback
+      setRawProducts([]);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -118,7 +121,11 @@ export default function AllGadgetsScreen({ navigation, route }: any) {
   }
 
   const handleProductPress = (product: RefurbishedProduct) => {
-    navigation.navigate('RefurbishedProductDetail', { productId: product?.id, product });
+    if (typeof navigation.push === 'function') {
+      navigation.push('RefurbishedProductDetail', { productId: product?.id, product });
+    } else {
+      navigation.navigate('RefurbishedProductDetail', { productId: product?.id, product });
+    }
   };
 
   return (
@@ -179,9 +186,26 @@ export default function AllGadgetsScreen({ navigation, route }: any) {
           </TouchableOpacity>
         </View>
 
-        {/* Horizontal Products List matching Figma */}
-        <View style={styles.listContainer}>
-          {(filtered || []).map((item, index) => (
+        {/* Loading & Empty States */}
+        {loading && !refreshing ? (
+          <CtiLoader
+            size="md"
+            text="Loading gadgets..."
+            style={{ paddingVertical: 45 }}
+          />
+        ) : filtered.length === 0 ? (
+          <View style={{ paddingVertical: 60, alignItems: 'center' }}>
+            <Icon source={packageBold} size={48} color={colors.textMuted} />
+            <Text style={{ color: colors.text, fontFamily: fonts.bold, fontSize: 16, marginTop: 14 }}>
+              No Products Found
+            </Text>
+            <Text style={{ color: colors.textMuted, fontFamily: fonts.regular, fontSize: 13, marginTop: 6, textAlign: 'center', maxWidth: 260 }}>
+              No refurbished devices match your current selection or category.
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.listContainer}>
+            {(filtered || []).map((item, index) => (
             <FadeUp key={item?.id || index} delay={index * 50}>
               <View
                 style={[
@@ -271,6 +295,7 @@ export default function AllGadgetsScreen({ navigation, route }: any) {
             </FadeUp>
           ))}
         </View>
+        )}
       </ScrollView>
 
       {/* Sort Menu Modal */}

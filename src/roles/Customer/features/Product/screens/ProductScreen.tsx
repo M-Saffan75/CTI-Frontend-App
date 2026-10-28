@@ -5,22 +5,31 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import CtiLoader from '@/components/CtiLoader';
 import Icon from '@/components/Icon';
+import Button from '@/components/Button';
 import Squeeze from '@/components/Squeeze';
 import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
-import { heartExtra, heartFilled, menuBold, shoppingCartExtra } from '@/assets/icons';
+import {
+  closeIcon,
+  filterBold,
+  heartExtra,
+  heartFilled,
+  menuBold,
+  shoppingCartExtra,
+} from '@/assets/icons';
 import { ctiLogo } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { useWishlist } from '../../../context/WishlistContext';
-import { PRODUCTS } from '../data/products';
-import { getCartApi, getEcomProducts, MobileEcomProduct } from '../services/ecomApi';
+import { useCart } from '../../../context/CartContext';
+import { getEcomProducts, MobileEcomProduct } from '../services/ecomApi';
 
 function ProductCard({ product, navigation }: { product: MobileEcomProduct; navigation: any }) {
   const { colors } = useTheme();
@@ -36,14 +45,20 @@ function ProductCard({ product, navigation }: { product: MobileEcomProduct; navi
 
   return (
     <Squeeze
-      onPress={() => navigation.navigate('ProductDetail', { productId: product.id, product })}
+      onPress={() => {
+        if (typeof navigation.push === 'function') {
+          navigation.push('ProductDetail', { productId: product.id, slug: product.slug, product });
+        } else {
+          navigation.navigate('ProductDetail', { productId: product.id, slug: product.slug, product });
+        }
+      }}
       style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
       <View style={styles.photoWrap}>
         <Image source={imageSource} style={styles.photo} resizeMode="cover" />
         <Image source={ctiLogo} resizeMode="contain" style={styles.cardLogo} />
 
         <Squeeze
-          onPress={() => toggle(product.id)}
+          onPress={() => toggle(product)}
           scale={0.85}
           style={[styles.saveWrap, { backgroundColor: colors.surface }]}>
           <Icon source={saved ? heartFilled : heartExtra} size={16} color={saved ? colors.error : colors.text} />
@@ -85,15 +100,34 @@ function ProductCard({ product, navigation }: { product: MobileEcomProduct; navi
   );
 }
 
+interface ProductFilters {
+  categories: string[];
+  color: string | null;
+  storage: string | null;
+  minPrice: number;
+  maxPrice: number;
+  minRating: number;
+}
+
+const DEFAULT_FILTERS: ProductFilters = {
+  categories: [],
+  color: null,
+  storage: null,
+  minPrice: 0,
+  maxPrice: 2000,
+  minRating: 0,
+};
+
 export default function ProductScreen({ navigation }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { ids } = useWishlist();
 
-  const [products, setProducts] = useState<MobileEcomProduct[]>(PRODUCTS as any);
+  const [filters, setFilters] = useState<ProductFilters>(DEFAULT_FILTERS);
+  const [allProducts, setAllProducts] = useState<MobileEcomProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [cartCount, setCartCount] = useState(0);
+  const { cartCount, refreshCart } = useCart();
 
   // AlertModal state
   const [modal, setModal] = useState<{
@@ -108,29 +142,29 @@ export default function ProductScreen({ navigation }: any) {
     message: '',
   });
 
-  const loadData = async (isRefresh = false) => {
+  const loadData = async (isRefresh = false, currentFilters = filters) => {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
 
     try {
-      const [fetchedProducts, cartData] = await Promise.all([
-        getEcomProducts(),
-        getCartApi().catch(() => ({ items: [] })),
-      ]);
+      const queryParams: Record<string, any> = {};
+      if (currentFilters.minPrice > 0) queryParams.minPrice = currentFilters.minPrice;
+      if (currentFilters.maxPrice < 2000) queryParams.maxPrice = currentFilters.maxPrice;
+      if (currentFilters.minRating > 0) queryParams.rating = currentFilters.minRating;
+      if (currentFilters.categories.length > 0) queryParams.category = currentFilters.categories[0];
 
-      if (fetchedProducts && fetchedProducts.length > 0) {
-        setProducts(fetchedProducts);
-      }
-      if (cartData?.items) {
-        const totalQty = (cartData.items as any[]).reduce((sum: number, it: any) => sum + (it.quantity || 1), 0);
-        setCartCount(totalQty);
-      }
+      const [fetchedProducts] = await Promise.all([
+        getEcomProducts(queryParams),
+        refreshCart(),
+      ]);
+      setAllProducts(fetchedProducts || []);
     } catch (err: any) {
+      setAllProducts([]);
       setModal({
         visible: true,
         type: 'error',
         title: 'Error Loading Store',
-        message: err?.message || 'Could not load products. Showing cached products.',
+        message: err?.message || 'Could not load products.',
       });
     } finally {
       setLoading(false);
@@ -141,21 +175,86 @@ export default function ProductScreen({ navigation }: any) {
   useEffect(() => {
     loadData();
     const unsubscribe = navigation.addListener?.('focus', () => {
-      // Refresh cart count on screen focus
-      getCartApi()
-        .then(c => {
-          if (c?.items) {
-            const count = (c.items as any[]).reduce((sum: number, it: any) => sum + (it.quantity || 1), 0);
-            setCartCount(count);
-          }
-        })
-        .catch(() => {});
+      refreshCart();
     });
     return unsubscribe;
-  }, [navigation]);
+  }, [navigation, refreshCart]);
 
   const onRefresh = () => {
     loadData(true);
+  };
+
+  const filteredProducts = allProducts.filter(p => {
+    const price = Number(p.price || 0);
+    if (filters.minPrice > 0 && price < filters.minPrice) return false;
+    if (filters.maxPrice < 2000 && price > filters.maxPrice) return false;
+    if (filters.minRating > 0 && Number(p.rating || 0) < filters.minRating) return false;
+    if (filters.categories.length > 0) {
+      const catLower = (p.category || '').toLowerCase();
+      const matchCat = filters.categories.some(c => catLower.includes(c.toLowerCase()));
+      if (!matchCat) return false;
+    }
+    if (filters.storage) {
+      const titleLower = (p.title || '').toLowerCase();
+      const storageLower = (p.storage || '').toLowerCase();
+      const target = filters.storage.toLowerCase();
+      if (!titleLower.includes(target) && !storageLower.includes(target)) return false;
+    }
+    return true;
+  });
+
+  const hasActiveFilters =
+    filters.categories.length > 0 ||
+    filters.color !== null ||
+    filters.storage !== null ||
+    filters.minPrice > 0 ||
+    filters.maxPrice < 2000 ||
+    filters.minRating > 0;
+
+  let activeFilterCount = 0;
+  if (filters.categories.length > 0) activeFilterCount += filters.categories.length;
+  if (filters.color) activeFilterCount += 1;
+  if (filters.storage) activeFilterCount += 1;
+  if (filters.minPrice > 0 || filters.maxPrice < 2000) activeFilterCount += 1;
+  if (filters.minRating > 0) activeFilterCount += 1;
+
+  const openFilterScreen = () => {
+    navigation.navigate('ProductFilter', {
+      currentFilters: filters,
+      onApply: (appliedFilters: ProductFilters) => {
+        setFilters(appliedFilters);
+        loadData(false, appliedFilters);
+      },
+    });
+  };
+
+  const removeCategory = (cat: string) => {
+    const next = { ...filters, categories: filters.categories.filter(c => c !== cat) };
+    setFilters(next);
+    loadData(false, next);
+  };
+
+  const resetPrice = () => {
+    const next = { ...filters, minPrice: 0, maxPrice: 2000 };
+    setFilters(next);
+    loadData(false, next);
+  };
+
+  const resetRating = () => {
+    const next = { ...filters, minRating: 0 };
+    setFilters(next);
+    loadData(false, next);
+  };
+
+  const resetStorage = () => {
+    const next = { ...filters, storage: null };
+    setFilters(next);
+    loadData(false, next);
+  };
+
+  const clearAllFilters = () => {
+    setFilters(DEFAULT_FILTERS);
+    loadData(false, DEFAULT_FILTERS);
   };
 
   return (
@@ -174,6 +273,18 @@ export default function ProductScreen({ navigation }: any) {
               )}
             </View>
           </Squeeze>
+
+          <Squeeze onPress={openFilterScreen} scale={0.85}>
+            <View>
+              <Icon source={filterBold} size={22} color={hasActiveFilters ? colors.primary : colors.text} />
+              {activeFilterCount > 0 && (
+                <View style={[styles.badge, { backgroundColor: colors.primary }]}>
+                  <Text style={styles.badgeText}>{activeFilterCount}</Text>
+                </View>
+              )}
+            </View>
+          </Squeeze>
+
           <Squeeze onPress={() => navigation.navigate('Cart')} scale={0.85}>
             <View>
               <Icon source={shoppingCartExtra} size={22} color={colors.text} />
@@ -189,6 +300,48 @@ export default function ProductScreen({ navigation }: any) {
           </Squeeze>
         </View>
       </View>
+
+      {hasActiveFilters && (
+        <View style={styles.activeFiltersBar}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.activeFiltersScroll}>
+            {filters.categories.map(cat => (
+              <View key={cat} style={[styles.filterChip, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <Text style={[styles.filterChipText, { color: colors.text }]}>{cat}</Text>
+                <TouchableOpacity onPress={() => removeCategory(cat)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Icon source={closeIcon} size={11} color={colors.textMuted} />
+                </TouchableOpacity>
+              </View>
+            ))}
+            {(filters.minPrice > 0 || filters.maxPrice < 2000) && (
+              <View style={[styles.filterChip, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <Text style={[styles.filterChipText, { color: colors.text }]}>${filters.minPrice} - ${filters.maxPrice}</Text>
+                <TouchableOpacity onPress={resetPrice} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Icon source={closeIcon} size={11} color={colors.textMuted} />
+                </TouchableOpacity>
+              </View>
+            )}
+            {filters.minRating > 0 && (
+              <View style={[styles.filterChip, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <Text style={[styles.filterChipText, { color: colors.text }]}>{filters.minRating}+ Stars</Text>
+                <TouchableOpacity onPress={resetRating} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Icon source={closeIcon} size={11} color={colors.textMuted} />
+                </TouchableOpacity>
+              </View>
+            )}
+            {filters.storage && (
+              <View style={[styles.filterChip, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <Text style={[styles.filterChipText, { color: colors.text }]}>{filters.storage}</Text>
+                <TouchableOpacity onPress={resetStorage} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Icon source={closeIcon} size={11} color={colors.textMuted} />
+                </TouchableOpacity>
+              </View>
+            )}
+            <TouchableOpacity onPress={clearAllFilters} style={styles.clearAllBtn}>
+              <Text style={[styles.clearAllText, { color: colors.error }]}>Clear All</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      )}
 
       <ScrollView
         contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
@@ -207,15 +360,18 @@ export default function ProductScreen({ navigation }: any) {
             text="Loading marketplace products..."
             style={{ paddingVertical: 45 }}
           />
-        ) : products.length === 0 ? (
-          <View style={{ paddingVertical: 50, alignItems: 'center' }}>
+        ) : filteredProducts.length === 0 ? (
+          <View style={{ paddingVertical: 50, alignItems: 'center', gap: 12 }}>
             <Text style={{ color: colors.textMuted, fontFamily: fonts.regular, fontSize: 14 }}>
-              No products available right now.
+              {hasActiveFilters ? 'No products match the selected filters.' : 'No products available right now.'}
             </Text>
+            {hasActiveFilters && (
+              <Button title="Reset Filters" variant="soft" size="sm" onPress={clearAllFilters} />
+            )}
           </View>
         ) : (
           <View style={styles.grid}>
-            {products.map((product, index) => (
+            {filteredProducts.map((product, index) => (
               <FadeUp
                 key={product.id}
                 delay={Math.min(300, 40 + index * 30)}
@@ -264,6 +420,38 @@ const styles = StyleSheet.create({
   badgeText: { fontFamily: fonts.bold, fontSize: 9, color: '#FFFFFF' },
 
   body: { paddingHorizontal: 20, paddingTop: 10 },
+  activeFiltersBar: {
+    paddingBottom: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: '#00000015',
+  },
+  activeFiltersScroll: {
+    paddingHorizontal: 20,
+    gap: 8,
+    alignItems: 'center',
+  },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  filterChipText: {
+    fontFamily: fonts.bold,
+    fontSize: 11,
+  },
+  clearAllBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    justifyContent: 'center',
+  },
+  clearAllText: {
+    fontFamily: fonts.bold,
+    fontSize: 11,
+  },
   grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
   gridItem: { width: '48%', marginBottom: 14 },
 

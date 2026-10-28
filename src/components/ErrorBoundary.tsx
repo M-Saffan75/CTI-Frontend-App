@@ -1,5 +1,17 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  useColorScheme,
+} from 'react-native';
+
+import Icon from '@/components/Icon';
+import { exclamationCircleBold } from '@/assets/icons';
+import { useTheme } from '@/theme/ThemeContext';
+import { themes } from '@/theme/colors';
+import { fonts } from '@/theme/fonts';
 
 interface Props {
   children: ReactNode;
@@ -8,6 +20,72 @@ interface Props {
 interface State {
   hasError: boolean;
   error: Error | null;
+}
+
+function ErrorFallback({
+  onRestart,
+  error,
+}: {
+  onRestart: () => void;
+  error: Error | null;
+}) {
+  const systemScheme = useColorScheme();
+  let colors = systemScheme === 'dark' ? themes.black : themes.white;
+
+  try {
+    const theme = useTheme();
+    if (theme?.colors) {
+      colors = theme.colors;
+    }
+  } catch {
+    // If mounted outside ThemeProvider, use system scheme fallback
+  }
+
+  return (
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View
+        style={[
+          styles.card,
+          {
+            backgroundColor: colors.surface,
+            borderColor: colors.border,
+            shadowColor: colors.text,
+          },
+        ]}>
+        <View
+          style={[
+            styles.iconWrap,
+            { backgroundColor: colors.error + '18' },
+          ]}>
+          <Icon source={exclamationCircleBold} size={36} color={colors.error} />
+        </View>
+
+        <Text style={[styles.title, { color: colors.text }]}>Something went wrong</Text>
+        <Text style={[styles.subtitle, { color: colors.textMuted }]}>
+          An unexpected error occurred. Please try reloading this screen.
+        </Text>
+
+        {__DEV__ && error?.message ? (
+          <View
+            style={[
+              styles.devBox,
+              { backgroundColor: colors.surfaceAlt, borderColor: colors.border },
+            ]}>
+            <Text style={[styles.devText, { color: colors.textMuted }]} numberOfLines={3}>
+              {error.message}
+            </Text>
+          </View>
+        ) : null}
+
+        <TouchableOpacity
+          style={[styles.button, { backgroundColor: colors.primary }]}
+          onPress={onRestart}
+          activeOpacity={0.85}>
+          <Text style={[styles.buttonText, { color: colors.onPrimary }]}>Try Again</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
 }
 
 export default class ErrorBoundary extends Component<Props, State> {
@@ -31,18 +109,10 @@ export default class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <View style={styles.container}>
-          <View style={styles.card}>
-            <Text style={styles.title}>Something went wrong</Text>
-            <Text style={styles.subtitle}>
-              An unexpected error occurred. Please try reloading this screen.
-            </Text>
-
-            <TouchableOpacity style={styles.button} onPress={this.handleRestart} activeOpacity={0.8}>
-              <Text style={styles.buttonText}>Try Again</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+        <ErrorFallback
+          onRestart={this.handleRestart}
+          error={this.state.error}
+        />
       );
     }
 
@@ -53,7 +123,6 @@ export default class ErrorBoundary extends Component<Props, State> {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
@@ -61,41 +130,57 @@ const styles = StyleSheet.create({
   card: {
     width: '100%',
     maxWidth: 380,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 24,
+    borderRadius: 24,
+    padding: 28,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 12,
-    elevation: 4,
+    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 16,
+    elevation: 6,
+  },
+  iconWrap: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 18,
   },
   title: {
+    fontFamily: fonts.bold,
     fontSize: 20,
-    fontWeight: '700',
-    color: '#111827',
     marginBottom: 8,
     textAlign: 'center',
   },
   subtitle: {
+    fontFamily: fonts.regular,
     fontSize: 14,
-    color: '#6B7280',
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 21,
     marginBottom: 20,
   },
+  devBox: {
+    width: '100%',
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginBottom: 16,
+  },
+  devText: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    lineHeight: 16,
+  },
   button: {
-    backgroundColor: '#0F766E',
-    paddingVertical: 12,
-    paddingHorizontal: 28,
-    borderRadius: 12,
+    width: '100%',
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   buttonText: {
-    color: '#FFFFFF',
+    fontFamily: fonts.bold,
     fontSize: 15,
-    fontWeight: '600',
   },
 });

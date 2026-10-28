@@ -1,26 +1,42 @@
-import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Image, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
 import Button from '@/components/Button';
 import Squeeze from '@/components/Squeeze';
+import CtiLoader from '@/components/CtiLoader';
 import { FadeUp } from '@/animations';
 import { arrowLeftBold, heartExtra, heartFilled, menuBold, shoppingCartExtra } from '@/assets/icons';
-import { ctiLogo } from '@/assets/images';
+import { ctiLogo, demoProductPhoto } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { useWishlist } from '../../../context/WishlistContext';
-import { PRODUCTS } from '../data/products';
+import { useCart } from '../../../context/CartContext';
+import { resolveImageSource } from '../services/ecomApi';
 
-function WishlistCard({ product, navigation, onRemove }) {
+function WishlistCard({ product, navigation, onRemove }: any) {
   const { colors } = useTheme();
+
+  const productId = String(product.id || product._id || '');
+  const imageSource = resolveImageSource(product.image || product.images?.[0], demoProductPhoto);
+
+  const price = Number(product.price || product.sellingPrice || 0);
+  const originalPrice = Number(product.originalPrice || product.mrp || price);
+  const discountPercent = product.discountPercent || (originalPrice > price ? Math.round(((originalPrice - price) / originalPrice) * 100) : 0);
 
   return (
     <Squeeze
-      onPress={() => navigation.navigate('ProductDetail', { productId: product.id })}
+      onPress={() => {
+        if (typeof navigation.push === 'function') {
+          navigation.push('ProductDetail', { productId, product });
+        } else {
+          navigation.navigate('ProductDetail', { productId, product });
+        }
+      }}
       style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
       <View style={styles.photoWrap}>
-        <Image source={product.image} style={styles.photo} />
+        <Image source={imageSource} style={styles.photo} resizeMode="cover" />
         <Image source={ctiLogo} resizeMode="contain" style={styles.cardLogo} />
 
         <Squeeze
@@ -46,25 +62,40 @@ function WishlistCard({ product, navigation, onRemove }) {
         </Text>
 
         <View style={styles.priceRow}>
-          <View style={[styles.discountPill, { backgroundColor: colors.primary }]}>
-            <Text style={styles.discountText}>-{product.discountPercent}%</Text>
-          </View>
-          <Text style={[styles.price, { color: colors.text }]}>${product.price.toFixed(2)}</Text>
-          <Text style={[styles.originalPrice, { color: colors.textMuted }]}>
-            ${product.originalPrice.toFixed(2)}
-          </Text>
+          {discountPercent > 0 && (
+            <View style={[styles.discountPill, { backgroundColor: colors.primary }]}>
+              <Text style={styles.discountText}>-{discountPercent}%</Text>
+            </View>
+          )}
+          <Text style={[styles.price, { color: colors.text }]}>${price.toFixed(2)}</Text>
+          {originalPrice > price && (
+            <Text style={[styles.originalPrice, { color: colors.textMuted }]}>
+              ${originalPrice.toFixed(2)}
+            </Text>
+          )}
         </View>
       </View>
     </Squeeze>
   );
 }
 
-export default function WishlistScreen({ navigation }) {
+export default function WishlistScreen({ navigation }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const { ids, toggle } = useWishlist();
+  const { ids, items: contextItems, loading: wishlistLoading, toggle, refreshWishlist } = useWishlist();
+  const { cartCount } = useCart();
+  const [refreshing, setRefreshing] = useState(false);
 
-  const items = PRODUCTS.filter(product => ids.includes(product.id));
+  // Live items only from backend context - strictly no mock PRODUCTS
+  const items = (contextItems || []).filter((product: any) =>
+    ids.includes(String(product.id || product._id))
+  );
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await refreshWishlist();
+    setRefreshing(false);
+  };
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -73,14 +104,21 @@ export default function WishlistScreen({ navigation }) {
         <View style={styles.headerIcons}>
           <View>
             <Icon source={heartExtra} size={22} color={colors.text} />
-            {items.length > 0 && (
+            {ids.length > 0 && (
               <View style={[styles.badge, { backgroundColor: colors.error }]}>
-                <Text style={styles.badgeText}>{items.length}</Text>
+                <Text style={styles.badgeText}>{ids.length}</Text>
               </View>
             )}
           </View>
           <Squeeze onPress={() => navigation.navigate('Cart')} scale={0.85}>
-            <Icon source={shoppingCartExtra} size={22} color={colors.text} />
+            <View>
+              <Icon source={shoppingCartExtra} size={22} color={colors.text} />
+              {cartCount > 0 && (
+                <View style={[styles.badge, { backgroundColor: colors.primary }]}>
+                  <Text style={styles.badgeText}>{cartCount}</Text>
+                </View>
+              )}
+            </View>
           </Squeeze>
           <Squeeze onPress={() => navigation.navigate('Settings')} scale={0.85}>
             <Icon source={menuBold} size={22} color={colors.text} />
@@ -90,7 +128,15 @@ export default function WishlistScreen({ navigation }) {
 
       <ScrollView
         contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
-        showsVerticalScrollIndicator={false}>
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }>
         <Squeeze onPress={() => navigation.goBack()} scale={0.9} style={styles.backWrap}>
           <View style={[styles.back, { backgroundColor: colors.primary }]}>
             <Icon source={arrowLeftBold} size={20} color={colors.onPrimary} />
@@ -107,22 +153,43 @@ export default function WishlistScreen({ navigation }) {
           Items you love, saved for later
         </Text>
 
-        {items.length === 0 ? (
-          <Text style={[styles.empty, { color: colors.textMuted }]}>
-            Nothing here yet — tap the heart on a product to save it.
-          </Text>
+        {wishlistLoading && !refreshing && items.length === 0 ? (
+          <CtiLoader
+            size="md"
+            text="Loading your wishlist..."
+            style={{ paddingVertical: 50 }}
+          />
+        ) : items.length === 0 ? (
+          <View style={{ alignItems: 'center', paddingVertical: 45, gap: 14 }}>
+            <Icon source={heartExtra} size={48} color={colors.textMuted} />
+            <Text style={[styles.empty, { color: colors.textMuted, marginTop: 0 }]}>
+              Nothing here yet — tap the heart on a product to save it.
+            </Text>
+            <Button
+              title="Explore Products"
+              size="sm"
+              onPress={() => {
+                try {
+                  navigation.navigate('Home', { screen: 'ProductTab' });
+                } catch {
+                  navigation.navigate('ProductTab');
+                }
+              }}
+              style={{ marginTop: 6 }}
+            />
+          </View>
         ) : (
           <View style={styles.grid}>
             {items.map((product, index) => (
               <FadeUp
-                key={product.id}
+                key={`wishlist-${product.id || product._id || index}-${index}`}
                 delay={60 + index * 40}
                 duration={500}
                 style={styles.gridItem}>
                 <WishlistCard
                   product={product}
                   navigation={navigation}
-                  onRemove={() => toggle(product.id)}
+                  onRemove={() => toggle(product)}
                 />
               </FadeUp>
             ))}

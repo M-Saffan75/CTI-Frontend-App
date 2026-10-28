@@ -28,7 +28,7 @@ class SocketService {
         const authData = await AsyncStorage.getItem('auth');
         if (authData) {
           const parsed = JSON.parse(authData);
-          token = parsed?.token;
+          token = parsed?.token || parsed?.tokens?.accessToken;
         }
       }
 
@@ -95,6 +95,13 @@ class SocketService {
    */
   getSocket(): Socket | null {
     return this.socket;
+  }
+
+  /**
+   * Check if socket is currently connected
+   */
+  isConnected(): boolean {
+    return Boolean(this.socket && this.socket.connected);
   }
 
   /**

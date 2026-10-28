@@ -16,10 +16,12 @@ import PrivacyPolicyScreen from '@/features/Legal/screens/PrivacyPolicyScreen';
 import TermsScreen from '@/features/Legal/screens/TermsScreen';
 import FilterScreen from '../features/Product/screens/FilterScreen';
 import ProductDetailScreen from '../features/Product/screens/ProductDetailScreen';
+import SellerStoreScreen from '../features/Product/screens/SellerStoreScreen';
 import CartScreen from '../features/Product/screens/CartScreen';
 import CheckoutScreen from '../features/Product/screens/CheckoutScreen';
 import WishlistScreen from '../features/Product/screens/WishlistScreen';
 import { WishlistProvider } from '../context/WishlistContext';
+import { CartProvider } from '../context/CartContext';
 import ProfileScreen from '@/features/Profile/screens/ProfileScreen';
 import EditProfileScreen from '@/features/Profile/screens/EditProfileScreen';
 import ServiceCatalogScreen from '@/features/Profile/screens/ServiceCatalogScreen';
@@ -36,6 +38,7 @@ import DeviceConditionScreen from '@/features/Refurbished/screens/DeviceConditio
 import UploadDeviceMediaScreen from '@/features/Refurbished/screens/UploadDeviceMediaScreen';
 import QuoteApplicationScreen from '@/features/Refurbished/screens/QuoteApplicationScreen';
 import ApplicationSubmittedScreen from '@/features/Refurbished/screens/ApplicationSubmittedScreen';
+import NotificationsScreen from '@/features/Notifications/screens/NotificationsScreen';
 import ChatListScreen from '@/roles/Repairman/features/Chat/screens/ChatListScreen';
 import ChatDetailScreen from '@/roles/Repairman/features/Chat/screens/ChatDetailScreen';
 
@@ -45,7 +48,8 @@ const Stack = createNativeStackNavigator();
 export default function CustomerNavigator({ onLogout }) {
   return (
     <WishlistProvider>
-      <Stack.Navigator
+      <CartProvider>
+        <Stack.Navigator
         id="Customer"
         screenOptions={{
           headerShown: false,
@@ -62,6 +66,7 @@ export default function CustomerNavigator({ onLogout }) {
         </Stack.Screen>
         <Stack.Screen name="ChatList" component={ChatListScreen} />
         <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
+        <Stack.Screen name="Notifications" component={NotificationsScreen} />
         <Stack.Screen name="RepairDetail" component={RepairDetailScreen} />
         <Stack.Screen name="DisputeDetail" component={DisputeDetailScreen} />
         <Stack.Screen name="Orders" component={OrdersScreen} />
@@ -75,6 +80,7 @@ export default function CustomerNavigator({ onLogout }) {
         <Stack.Screen name="CourseDetail" component={CourseDetailScreen} />
         <Stack.Screen name="ProductFilter" component={FilterScreen} />
         <Stack.Screen name="ProductDetail" component={ProductDetailScreen} />
+        <Stack.Screen name="SellerStore" component={SellerStoreScreen} />
         <Stack.Screen name="Cart" component={CartScreen} />
         <Stack.Screen name="Checkout" component={CheckoutScreen} />
         <Stack.Screen name="Wishlist" component={WishlistScreen} />
@@ -106,6 +112,7 @@ export default function CustomerNavigator({ onLogout }) {
           options={{ animation: 'fade_from_bottom', animationDuration: 600 }}
         />
       </Stack.Navigator>
+      </CartProvider>
     </WishlistProvider>
   );
 }

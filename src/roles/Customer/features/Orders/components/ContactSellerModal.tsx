@@ -35,12 +35,14 @@ import { sendOrderQueryApi } from '../services/orderApi';
 export default function ContactSellerModal({
   visible,
   orderId,
+  orderNo,
   sellerId,
   onClose,
   onSuccess,
 }: {
   visible: boolean;
   orderId: string;
+  orderNo?: string;
   sellerId?: string;
   onClose: () => void;
   onSuccess?: () => void;
@@ -120,7 +122,7 @@ export default function ContactSellerModal({
               <Icon source={closeIcon} size={18} color={colors.text} />
             </Squeeze>
           </View>
-          <Text style={[styles.orderId, { color: colors.textMuted }]}>Order: {orderId}</Text>
+          <Text style={[styles.orderId, { color: colors.textMuted }]}>Order: {orderNo || orderId}</Text>
 
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
 

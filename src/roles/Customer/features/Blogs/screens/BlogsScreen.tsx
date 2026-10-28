@@ -1,47 +1,87 @@
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import {
+  Image,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
+import CtiLoader from '@/components/CtiLoader';
 import { FadeUp } from '@/animations';
-import { arrowLeftBold, calendarBold, heartExtra, shoppingCartExtra } from '@/assets/icons';
+import { arrowLeftBold, calendarBold, heartExtra, packageBold, shoppingCartExtra } from '@/assets/icons';
 import { ctiLogo } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
-import { BLOG_SECTIONS } from '../data/blogs';
+import blogApi, { MobileBlog } from '@/services/blogApi';
 
-function BlogCard({ post, onPress }) {
+function BlogCard({ post, onPress }: { post: MobileBlog; onPress: () => void }) {
   const { colors } = useTheme();
 
   return (
     <Pressable
       onPress={onPress}
       style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-      <Image source={{ uri: post.image }} style={styles.cardImage} />
+      <Image
+        source={{ uri: post.image || 'https://picsum.photos/seed/blog/800/500' }}
+        style={styles.cardImage}
+      />
 
       <View style={styles.cardBody}>
         <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>
           {post.title}
         </Text>
 
-        {post.description && (
+        {post.description ? (
           <Text style={[styles.cardText, { color: colors.textMuted }]} numberOfLines={2}>
             {post.description}
           </Text>
-        )}
+        ) : null}
 
         <View style={styles.cardDate}>
           <Icon source={calendarBold} size={12} color={colors.textMuted} />
           <Text style={[styles.dateText, { color: colors.textMuted }]}>{post.date}</Text>
+          {post.readTime ? (
+            <Text style={[styles.dateText, { color: colors.primary, marginLeft: 8 }]}>
+              • {post.readTime}
+            </Text>
+          ) : null}
         </View>
       </View>
     </Pressable>
   );
 }
 
-export default function BlogsScreen({ navigation }) {
+export default function BlogsScreen({ navigation }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const [blogs, setBlogs] = useState<MobileBlog[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchBlogs = async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+
+    try {
+      const data = await blogApi.getBlogs();
+      setBlogs(data || []);
+    } catch {
+      setBlogs([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchBlogs();
+  }, []);
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -49,46 +89,60 @@ export default function BlogsScreen({ navigation }) {
         <Image source={ctiLogo} resizeMode="contain" style={styles.logo} />
 
         <View style={styles.headerIcons}>
-          <View>
-            <Icon source={heartExtra} size={24} color={colors.text} />
-            <View style={[styles.badge, { backgroundColor: colors.error }]}>
-              <Text style={styles.badgeText}>2</Text>
-            </View>
-          </View>
-          <Icon source={shoppingCartExtra} size={24} color={colors.text} />
+          <Squeeze onPress={() => navigation.navigate('Cart')} scale={0.85}>
+            <Icon source={shoppingCartExtra} size={24} color={colors.text} />
+          </Squeeze>
         </View>
       </View>
 
       <ScrollView
         contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
-        showsVerticalScrollIndicator={false}>
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => fetchBlogs(true)}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }>
         <Squeeze onPress={() => navigation.goBack()} scale={0.9} style={styles.backWrap}>
           <View style={[styles.back, { backgroundColor: colors.primary }]}>
             <Icon source={arrowLeftBold} size={20} color={colors.onPrimary} />
           </View>
         </Squeeze>
 
-        <Text style={[styles.title, { color: colors.text }]}>Blogs</Text>
+        <Text style={[styles.title, { color: colors.text }]}>Blogs & Insights</Text>
+        <Text style={[styles.subtitle, { color: colors.textMuted }]}>
+          Discover the latest stories, tips and updates from CTI
+        </Text>
 
-        {BLOG_SECTIONS.map(section => (
-          <View key={section.label} style={styles.section}>
-            <View style={[styles.chip, { backgroundColor: colors.primary + '1A' }]}>
-              <View style={[styles.chipDot, { backgroundColor: colors.primary }]} />
-              <Text style={[styles.chipText, { color: colors.text }]}>{section.label}</Text>
-            </View>
-
-            <View style={styles.grid}>
-              {section.posts.map((post, index) => (
-                <FadeUp key={post.id} delay={80 + index * 50} duration={550} style={styles.gridItem}>
-                  <BlogCard
-                    post={post}
-                    onPress={() => navigation.navigate('BlogDetail', { post })}
-                  />
-                </FadeUp>
-              ))}
-            </View>
+        {loading && !refreshing ? (
+          <CtiLoader
+            size="md"
+            text="Loading latest blogs..."
+            style={{ paddingVertical: 50 }}
+          />
+        ) : blogs.length === 0 ? (
+          <View style={styles.emptyWrap}>
+            <Icon source={packageBold} size={44} color={colors.textMuted} />
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>No Blogs Found</Text>
+            <Text style={[styles.emptyText, { color: colors.textMuted }]}>
+              There are no published blog posts right now. Check back later!
+            </Text>
           </View>
-        ))}
+        ) : (
+          <View style={styles.grid}>
+            {blogs.map((post, index) => (
+              <FadeUp key={post.id || post.slug} delay={60 + index * 40} duration={450} style={styles.gridItem}>
+                <BlogCard
+                  post={post}
+                  onPress={() => navigation.navigate('BlogDetail', { post, slug: post.slug })}
+                />
+              </FadeUp>
+            ))}
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -103,59 +157,42 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 10,
   },
-  // 110 / 1.876 — the logo's own ratio (968x516). If the box is wider than that,
-  // resizeMode="contain" centres the image inside it and it looks shifted right.
   logo: { width: 110, height: 59 },
   headerIcons: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  badge: {
-    position: 'absolute',
-    top: -5,
-    right: -6,
-    minWidth: 15,
-    height: 15,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 3,
-  },
-  badgeText: { fontFamily: fonts.bold, fontSize: 9, color: '#FFFFFF' },
 
-  body: { paddingHorizontal: 20, paddingTop: 10 },
+  body: { paddingHorizontal: 20, paddingTop: 6 },
   backWrap: { alignSelf: 'flex-start' },
-  back: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  back: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+
+  title: { fontFamily: fonts.bold, fontSize: 24, marginTop: 14 },
+  subtitle: { fontFamily: fonts.regular, fontSize: 13, marginTop: 4, marginBottom: 16 },
+
+  grid: { gap: 16 },
+  gridItem: { width: '100%' },
+
+  card: { borderRadius: 16, borderWidth: 1, overflow: 'hidden' },
+  cardImage: { width: '100%', height: 165 },
+  cardBody: { padding: 16, gap: 8 },
+  cardTitle: { fontFamily: fonts.bold, fontSize: 16, lineHeight: 22 },
+  cardText: { fontFamily: fonts.regular, fontSize: 13, lineHeight: 18 },
+  cardDate: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+  dateText: { fontFamily: fonts.regular, fontSize: 12 },
+
+  emptyWrap: {
+    paddingVertical: 60,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  title: { fontFamily: fonts.bold, fontSize: 28, marginTop: 14 },
-
-  section: { marginTop: 20 },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: 8,
-    alignSelf: 'flex-start',
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
   },
-  chipDot: { width: 8, height: 8, borderRadius: 4 },
-  chipText: { fontFamily: fonts.bold, fontSize: 13 },
-
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    marginTop: 14,
+  emptyTitle: {
+    fontFamily: fonts.bold,
+    fontSize: 16,
+    marginTop: 8,
   },
-  gridItem: { width: '48%', marginBottom: 14 },
-  card: { borderRadius: 12, borderWidth: 1, overflow: 'hidden' },
-  cardImage: { width: '100%', height: 110 },
-  cardBody: { padding: 10, gap: 5 },
-  cardTitle: { fontFamily: fonts.bold, fontSize: 13, lineHeight: 18 },
-  cardText: { fontFamily: fonts.regular, fontSize: 11, lineHeight: 15 },
-  cardDate: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
-  dateText: { fontFamily: fonts.regular, fontSize: 10 },
+  emptyText: {
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    textAlign: 'center',
+    maxWidth: 260,
+  },
 });

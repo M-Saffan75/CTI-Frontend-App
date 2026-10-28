@@ -113,18 +113,19 @@ function PriceRangeSlider({ minValue, maxValue, onChange }) {
   );
 }
 
-export default function FilterScreen({ navigation }) {
+export default function FilterScreen({ navigation, route }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const initialFilters = route?.params?.currentFilters;
 
-  const [categories, setCategories] = useState([]);
-  const [color, setColor] = useState(null);
-  const [storage, setStorage] = useState(null);
-  const [minPrice, setMinPrice] = useState(PRICE_MIN);
-  const [maxPrice, setMaxPrice] = useState(PRICE_MAX);
-  const [minRating, setMinRating] = useState(0);
+  const [categories, setCategories] = useState<string[]>(initialFilters?.categories || []);
+  const [color, setColor] = useState<string | null>(initialFilters?.color || null);
+  const [storage, setStorage] = useState<string | null>(initialFilters?.storage || null);
+  const [minPrice, setMinPrice] = useState<number>(initialFilters?.minPrice ?? PRICE_MIN);
+  const [maxPrice, setMaxPrice] = useState<number>(initialFilters?.maxPrice ?? PRICE_MAX);
+  const [minRating, setMinRating] = useState<number>(initialFilters?.minRating || 0);
 
-  const toggleCategory = name =>
+  const toggleCategory = (name: string) =>
     setCategories(current =>
       current.includes(name) ? current.filter(item => item !== name) : [...current, name],
     );
@@ -136,6 +137,31 @@ export default function FilterScreen({ navigation }) {
     setMinPrice(PRICE_MIN);
     setMaxPrice(PRICE_MAX);
     setMinRating(0);
+    if (typeof route?.params?.onApply === 'function') {
+      route.params.onApply({
+        categories: [],
+        color: null,
+        storage: null,
+        minPrice: PRICE_MIN,
+        maxPrice: PRICE_MAX,
+        minRating: 0,
+      });
+    }
+  };
+
+  const handleApply = () => {
+    const filters = {
+      categories,
+      color,
+      storage,
+      minPrice,
+      maxPrice,
+      minRating,
+    };
+    if (typeof route?.params?.onApply === 'function') {
+      route.params.onApply(filters);
+    }
+    navigation.goBack();
   };
 
   const changePrice = (nextMin, nextMax) => {
@@ -272,7 +298,7 @@ export default function FilterScreen({ navigation }) {
           <Button
             title="Apply Filters"
             size="sm"
-            onPress={() => navigation.goBack()}
+            onPress={handleApply}
             style={styles.actionButton}
           />
         </View>

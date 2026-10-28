@@ -31,6 +31,7 @@ import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import RefurbishedHeader from '../components/RefurbishedHeader';
 import RefurbishedFilterModal from '../components/RefurbishedFilterModal';
+import CtiLoader from '@/components/CtiLoader';
 import {
   REFURBISHED_PRODUCTS,
   REFURBISHED_TESTIMONIALS,
@@ -48,17 +49,18 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [wishlist, setWishlist] = useState<string[]>([]);
-  const [productsList, setProductsList] = useState<RefurbishedProduct[]>(REFURBISHED_PRODUCTS);
+  const [productsList, setProductsList] = useState<RefurbishedProduct[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const loadLiveData = async () => {
     try {
       const live = await getTopSellingProducts();
-      if (Array.isArray(live) && live.length > 0) {
-        setProductsList(live);
-      }
+      setProductsList(Array.isArray(live) ? live : []);
     } catch (e) {
-      // Retain fallback data seamlessly
+      setProductsList([]);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -81,7 +83,11 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
   };
 
   const handleProductPress = (product: RefurbishedProduct) => {
-    navigation.navigate('RefurbishedProductDetail', { productId: product.id, product });
+    if (typeof navigation.push === 'function') {
+      navigation.push('RefurbishedProductDetail', { productId: product.id, product });
+    } else {
+      navigation.navigate('RefurbishedProductDetail', { productId: product.id, product });
+    }
   };
 
   const renderProductCard = (product: RefurbishedProduct, index: number) => {
@@ -312,91 +318,112 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
           </Squeeze>
         </ScrollView>
 
-        {/* Section: Top Selling Devices */}
-        <View style={styles.sectionHeaderRow}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Top Selling Devices</Text>
-          <TouchableOpacity onPress={() => navigation.navigate('AllGadgets')}>
-            <Text style={[styles.seeAllText, { color: colors.primary }]}>See All</Text>
-          </TouchableOpacity>
-        </View>
-        <View style={styles.productsGrid}>
-          {(productsList || []).slice(0, 4).map((item, idx) => renderProductCard(item, idx))}
-        </View>
+        {/* Real-time Products with Loading and Empty State */}
+        {loading && !refreshing ? (
+          <CtiLoader
+            size="md"
+            text="Loading refurbished devices..."
+            style={{ paddingVertical: 40 }}
+          />
+        ) : productsList.length === 0 ? (
+          <View style={{ paddingVertical: 50, alignItems: 'center' }}>
+            <Icon source={packageBold} size={42} color={colors.textMuted} />
+            <Text style={{ color: colors.text, fontFamily: fonts.bold, fontSize: 16, marginTop: 12 }}>
+              No Devices Found
+            </Text>
+            <Text style={{ color: colors.textMuted, fontFamily: fonts.regular, fontSize: 13, marginTop: 6, textAlign: 'center' }}>
+              Currently there are no refurbished devices available.
+            </Text>
+          </View>
+        ) : (
+          <>
+            {/* Section: Top Selling Devices */}
+            <View style={styles.sectionHeaderRow}>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>Top Selling Devices</Text>
+              <TouchableOpacity onPress={() => navigation.navigate('AllGadgets')}>
+                <Text style={[styles.seeAllText, { color: colors.primary }]}>See All</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.productsGrid}>
+              {(productsList || []).slice(0, 4).map((item, idx) => renderProductCard(item, idx))}
+            </View>
 
-        {/* Section: Top Selling Phone */}
-        <View style={styles.sectionHeaderRow}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Top Selling Phone</Text>
-          <TouchableOpacity
-            onPress={() =>
-              navigation.navigate('AllGadgets', { initialCategory: 'Sell Phone' })
-            }>
-            <Text style={[styles.seeAllText, { color: colors.primary }]}>See All</Text>
-          </TouchableOpacity>
-        </View>
-        <View style={styles.productsGrid}>
-          {(productsList || [])
-            .filter(p => p?.category === 'Sell Phone' || p?.category === 'Earbuds')
-            .slice(0, 2)
-            .map((item, idx) => renderProductCard(item, idx + 4))}
-        </View>
+            {/* Section: Top Selling Phone */}
+            <View style={styles.sectionHeaderRow}>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>Top Selling Phone</Text>
+              <TouchableOpacity
+                onPress={() =>
+                  navigation.navigate('AllGadgets', { initialCategory: 'Sell Phone' })
+                }>
+                <Text style={[styles.seeAllText, { color: colors.primary }]}>See All</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.productsGrid}>
+              {(productsList || [])
+                .filter(p => p?.category === 'Sell Phone' || p?.category === 'Earbuds')
+                .slice(0, 2)
+                .map((item, idx) => renderProductCard(item, idx + 4))}
+            </View>
 
-        {/* Section: Top Selling Laptop */}
-        <View style={styles.sectionHeaderRow}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Top Selling Laptop</Text>
-          <TouchableOpacity
-            onPress={() =>
-              navigation.navigate('AllGadgets', { initialCategory: 'Laptop' })
-            }>
-            <Text style={[styles.seeAllText, { color: colors.primary }]}>See All</Text>
-          </TouchableOpacity>
-        </View>
-        <View style={styles.productsGrid}>
-          {(productsList || [])
-            .filter(p => p?.category === 'Laptop' || p?.brand === 'Hp')
-            .concat((productsList || []).slice(0, 1))
-            .slice(0, 2)
-            .map((item, idx) => renderProductCard(item, idx + 6))}
-        </View>
+            {/* Section: Top Selling Laptop */}
+            <View style={styles.sectionHeaderRow}>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>Top Selling Laptop</Text>
+              <TouchableOpacity
+                onPress={() =>
+                  navigation.navigate('AllGadgets', { initialCategory: 'Laptop' })
+                }>
+                <Text style={[styles.seeAllText, { color: colors.primary }]}>See All</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.productsGrid}>
+              {(productsList || [])
+                .filter(p => p?.category === 'Laptop' || p?.brand === 'Hp')
+                .concat((productsList || []).slice(0, 1))
+                .slice(0, 2)
+                .map((item, idx) => renderProductCard(item, idx + 6))}
+            </View>
 
-        {/* Section: In-Demand Smartwatches */}
-        <View style={styles.sectionHeaderRow}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>
-            In-Demand Smartwatches
-          </Text>
-          <TouchableOpacity
-            onPress={() =>
-              navigation.navigate('AllGadgets', { initialCategory: 'Smart watches' })
-            }>
-            <Text style={[styles.seeAllText, { color: colors.primary }]}>See All</Text>
-          </TouchableOpacity>
-        </View>
-        <View style={styles.productsGrid}>
-          {(productsList || [])
-            .filter(p => p?.category === 'Smart watches')
-            .concat((productsList || []).slice(1, 2))
-            .slice(0, 2)
-            .map((item, idx) => renderProductCard(item, idx + 8))}
-        </View>
+            {/* Section: In-Demand Smartwatches */}
+            <View style={styles.sectionHeaderRow}>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>
+                In-Demand Smartwatches
+              </Text>
+              <TouchableOpacity
+                onPress={() =>
+                  navigation.navigate('AllGadgets', { initialCategory: 'Smart watches' })
+                }>
+                <Text style={[styles.seeAllText, { color: colors.primary }]}>See All</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.productsGrid}>
+              {(productsList || [])
+                .filter(p => p?.category === 'Smart watches')
+                .concat((productsList || []).slice(1, 2))
+                .slice(0, 2)
+                .map((item, idx) => renderProductCard(item, idx + 8))}
+            </View>
 
-        {/* Section: Trending Gamer Essentials */}
-        <View style={styles.sectionHeaderRow}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>
-            Trending Gamer Essentials
-          </Text>
-          <TouchableOpacity
-            onPress={() =>
-              navigation.navigate('AllGadgets', { initialCategory: 'Gaming Console' })
-            }>
-            <Text style={[styles.seeAllText, { color: colors.primary }]}>See All</Text>
-          </TouchableOpacity>
-        </View>
-        <View style={styles.productsGrid}>
-          {(productsList || [])
-            .filter(p => p?.category === 'Gaming Console')
-            .concat((productsList || []).slice(0, 1))
-            .slice(0, 2)
-            .map((item, idx) => renderProductCard(item, idx + 10))}
-        </View>
+            {/* Section: Trending Gamer Essentials */}
+            <View style={styles.sectionHeaderRow}>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>
+                Trending Gamer Essentials
+              </Text>
+              <TouchableOpacity
+                onPress={() =>
+                  navigation.navigate('AllGadgets', { initialCategory: 'Gaming Console' })
+                }>
+                <Text style={[styles.seeAllText, { color: colors.primary }]}>See All</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.productsGrid}>
+              {(productsList || [])
+                .filter(p => p?.category === 'Gaming Console')
+                .concat((productsList || []).slice(0, 1))
+                .slice(0, 2)
+                .map((item, idx) => renderProductCard(item, idx + 10))}
+            </View>
+          </>
+        )}
 
         {/* Testimonials Section matching Figma */}
         <View style={styles.testimonialsSection}>

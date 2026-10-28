@@ -20,10 +20,10 @@ import { ctiLogo } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
 import { badges, palette } from '@/theme/colors';
 import { fonts } from '@/theme/fonts';
-import { ORDER_DETAIL } from '../data/orderDetail';
-import { PROGRESS_STEPS } from '../data/orders';
 import ContactSellerModal from '../components/ContactSellerModal';
 import { getCustomerOrderDetail, MobileOrder } from '../services/orderApi';
+
+const PROGRESS_STEPS = ['Pending', 'Processing', 'Shipping', 'Shipped', 'Delivered'];
 
 const money = (n: number = 0) => `$${Number(n || 0).toFixed(2)}`;
 
@@ -33,11 +33,11 @@ export default function OrderDetailScreen({ navigation, route }: any) {
   const [contactOpen, setContactOpen] = useState(false);
 
   const passedOrder: MobileOrder | undefined = route?.params?.order;
-  const orderId: string = route?.params?.orderId || passedOrder?.id || '';
+  const orderId: string = passedOrder?.id || route?.params?.orderId || '';
   const isRefurbished: boolean =
     route?.params?.isRefurbished ?? passedOrder?.orderNo?.startsWith('REF-') ?? false;
 
-  const [order, setOrder] = useState<MobileOrder>(passedOrder || (ORDER_DETAIL as any));
+  const [order, setOrder] = useState<MobileOrder | null>(passedOrder || null);
   const [loading, setLoading] = useState<boolean>(!passedOrder && !!orderId);
   const [refreshing, setRefreshing] = useState<boolean>(false);
 
@@ -85,16 +85,17 @@ export default function OrderDetailScreen({ navigation, route }: any) {
     loadOrderDetail(true);
   };
 
-  const tags = order.tags || [order.statusTag, order.paymentTag].filter(Boolean);
-  const customer = order.customer || {
+  const rawTags = order?.tags || [order?.statusTag, order?.paymentTag].filter(Boolean);
+  const tags = Array.from(new Set((rawTags || []).map(t => String(t || '').trim()).filter(Boolean)));
+  const customer = order?.customer || {
     name: 'Customer',
     phone: '',
     city: '',
-    address: order.shippingAddress || '',
+    address: order?.shippingAddress || '',
   };
-  const warranty = order.warranty || {
-    returnId: `RET-${(order.id || '396191').slice(-6).toUpperCase()}`,
-    date: order.date || 'Today',
+  const warranty = order?.warranty || {
+    returnId: `RET-${(order?.id || '396191').slice(-6).toUpperCase()}`,
+    date: order?.date || 'Today',
   };
 
   return (
@@ -121,17 +122,21 @@ export default function OrderDetailScreen({ navigation, route }: any) {
         </Squeeze>
 
         <Text style={[styles.title, { color: colors.text }]}>Orders detail</Text>
-        <Text style={[styles.orderId, { color: colors.textMuted }]}>{order.orderId || order.orderNo}</Text>
+        {order && (
+          <>
+            <Text style={[styles.orderId, { color: colors.textMuted }]}>{order.orderId || order.orderNo}</Text>
 
-        <View style={styles.tags}>
-          {tags.map(tag => (
-            <View key={tag} style={[styles.pill, { backgroundColor: badges.accepted.bg }]}>
-              <Text style={[styles.pillText, { color: badges.accepted.text }]}>{tag}</Text>
+            <View style={styles.tags}>
+              {tags.map((tag, idx) => (
+                <View key={`tag-${tag}-${idx}`} style={[styles.pill, { backgroundColor: badges.accepted.bg }]}>
+                  <Text style={[styles.pillText, { color: badges.accepted.text }]}>{tag}</Text>
+                </View>
+              ))}
             </View>
-          ))}
-        </View>
 
-        <ProgressBar step={order.progressStep ?? 0} />
+            <ProgressBar step={order.progressStep ?? 0} />
+          </>
+        )}
 
         {loading && !refreshing ? (
           <CtiLoader
@@ -139,6 +144,16 @@ export default function OrderDetailScreen({ navigation, route }: any) {
             text="Loading order details..."
             style={{ paddingVertical: 40 }}
           />
+        ) : !order ? (
+          <View style={{ paddingVertical: 60, alignItems: 'center' }}>
+            <Icon source={packageBold} size={48} color={colors.textMuted} />
+            <Text style={[styles.title, { color: colors.text, fontSize: 18, marginTop: 12 }]}>
+              Order Not Found
+            </Text>
+            <Text style={{ color: colors.textMuted, fontFamily: fonts.regular, fontSize: 13, marginTop: 6, textAlign: 'center' }}>
+              The requested order details could not be found or loaded.
+            </Text>
+          </View>
         ) : (
           <>
             <FadeUp delay={100} duration={500}>
@@ -151,30 +166,49 @@ export default function OrderDetailScreen({ navigation, route }: any) {
                 </View>
                 <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
-                {(order.items || []).map(item => (
-                  <View key={item.id} style={styles.item}>
-                    <Image source={{ uri: item.image }} style={styles.itemImage} />
-                    <View style={styles.itemText}>
-                      <Text style={[styles.itemName, { color: colors.text }]}>{item.name}</Text>
-                      <Text style={[styles.itemVariant, { color: colors.textMuted }]}>
-                        {item.variant}
-                      </Text>
-                      <Text style={[styles.itemQty, { color: colors.textMuted }]}>
-                        QTY.{item.qty}  {money(item.price)} each
-                      </Text>
-                    </View>
-                    <View style={styles.itemEnd}>
-                      <Text style={[styles.itemPrice, { color: colors.text }]}>
-                        {money(item.price)}
-                      </Text>
-                      <View style={[styles.pill, { backgroundColor: badges.accepted.bg, marginTop: 6 }]}>
-                        <Text style={[styles.pillText, { color: badges.accepted.text }]}>
-                          {item.status || order.statusTag || 'Pending'}
+                {(order.items || []).map((item, idx) => {
+                  const variantStr =
+                    typeof item.variant === 'string'
+                      ? item.variant
+                      : typeof item.variant === 'object' && item.variant !== null
+                      ? Object.values(item.variant).filter(v => typeof v === 'string' || typeof v === 'number').join(' / ') || 'Standard'
+                      : 'Standard';
+
+                  return (
+                    <View key={`item-${item.id || idx}-${idx}`} style={styles.item}>
+                      <Image
+                        source={{
+                          uri:
+                            item.image && typeof item.image === 'string' && item.image.startsWith('http')
+                              ? item.image
+                              : 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400&q=80',
+                        }}
+                        style={styles.itemImage}
+                      />
+                      <View style={styles.itemText}>
+                        <Text style={[styles.itemName, { color: colors.text }]}>
+                          {String(item.name || 'Purchased Item')}
+                        </Text>
+                        <Text style={[styles.itemVariant, { color: colors.textMuted }]}>
+                          {variantStr}
+                        </Text>
+                        <Text style={[styles.itemQty, { color: colors.textMuted }]}>
+                          QTY.{item.qty || 1}  {money(item.price)} each
                         </Text>
                       </View>
+                      <View style={styles.itemEnd}>
+                        <Text style={[styles.itemPrice, { color: colors.text }]}>
+                          {money(item.price)}
+                        </Text>
+                        <View style={[styles.pill, { backgroundColor: badges.accepted.bg, marginTop: 6 }]}>
+                          <Text style={[styles.pillText, { color: badges.accepted.text }]}>
+                            {String(item.status || order.statusTag || 'Pending')}
+                          </Text>
+                        </View>
+                      </View>
                     </View>
-                  </View>
-                ))}
+                  );
+                })}
               </View>
             </FadeUp>
 
@@ -237,7 +271,7 @@ export default function OrderDetailScreen({ navigation, route }: any) {
                 variant="outline"
                 icon={commentDotsBold}
                 iconPosition="left"
-                onPress={() => navigation.navigate('Messages')}
+                onPress={() => navigation.navigate('ChatList')}
                 style={styles.button}
               />
 
@@ -256,8 +290,18 @@ export default function OrderDetailScreen({ navigation, route }: any) {
 
       <ContactSellerModal
         visible={contactOpen}
-        orderId={order.orderId || order.orderNo}
+        orderId={order?.id || orderId}
+        orderNo={order?.orderId || order?.orderNo || orderId}
+        sellerId={order?.items?.[0]?.sellerId}
         onClose={() => setContactOpen(false)}
+        onSuccess={() => {
+          setModal({
+            visible: true,
+            type: 'success',
+            title: 'Message Sent',
+            message: 'Your query has been sent to the seller successfully.',
+          });
+        }}
       />
 
       <AlertModal
@@ -279,7 +323,7 @@ function ProgressBar({ step }) {
       <View style={styles.progressBars}>
         {PROGRESS_STEPS.map((label, index) => (
           <View
-            key={label}
+            key={`step-bar-${label}-${index}`}
             style={[
               styles.progressBar,
               { backgroundColor: index <= step ? colors.primary : colors.border },
@@ -290,7 +334,7 @@ function ProgressBar({ step }) {
       <View style={styles.progressLabels}>
         {PROGRESS_STEPS.map((label, index) => (
           <Text
-            key={label}
+            key={`step-label-${label}-${index}`}
             style={[
               styles.progressLabel,
               { color: index <= step ? colors.primary : colors.textMuted },
@@ -317,7 +361,7 @@ function Row({ label, value, bold = false }) {
         {label}
       </Text>
       <Text style={[styles.rowValue, { color: colors.text, fontFamily: bold ? fonts.bold : fonts.regular }]}>
-        {value}
+        {String(value ?? '-')}
       </Text>
     </View>
   );

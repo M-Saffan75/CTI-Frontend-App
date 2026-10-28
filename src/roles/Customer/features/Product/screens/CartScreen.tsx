@@ -29,11 +29,9 @@ import { ctiLogo } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { useWishlist } from '../../../context/WishlistContext';
+import { useCart } from '../../../context/CartContext';
 import {
-  getCartApi,
   MobileCartItem,
-  removeCartItemApi,
-  updateCartItemApi,
 } from '../services/ecomApi';
 
 const SHIPPING_FEE = 10;
@@ -110,9 +108,14 @@ export default function CartScreen({ navigation }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { ids: wishlistIds } = useWishlist();
+  const {
+    cartItems: items,
+    loading,
+    refreshCart,
+    updateQuantity,
+    removeItem,
+  } = useCart();
 
-  const [items, setItems] = useState<MobileCartItem[]>([]);
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [itemToDelete, setItemToDelete] = useState<MobileCartItem | null>(null);
@@ -130,52 +133,20 @@ export default function CartScreen({ navigation }: any) {
     message: '',
   });
 
-  const loadCart = async (isRefresh = false) => {
-    if (isRefresh) setRefreshing(true);
-    else setLoading(true);
-
+  const onRefresh = async () => {
+    setRefreshing(true);
     try {
-      const res = await getCartApi();
-      if (res && Array.isArray(res.items)) {
-        setItems(res.items);
-      }
-    } catch (err: any) {
-      setModal({
-        visible: true,
-        type: 'error',
-        title: 'Cart Error',
-        message: err?.message || 'Failed to load shopping cart.',
-      });
+      await refreshCart();
     } finally {
-      setLoading(false);
       setRefreshing(false);
     }
   };
 
-  useEffect(() => {
-    loadCart();
-  }, []);
-
-  const onRefresh = () => {
-    loadCart(true);
-  };
-
   const handleQuantity = async (item: MobileCartItem, delta: number) => {
-    const newQty = item.quantity + delta;
-    if (newQty < 1) return;
-
-    // Optimistic UI update
-    const previousItems = [...items];
-    setItems(current =>
-      current.map(it => (it.id === item.id ? { ...it, quantity: newQty } : it))
-    );
     setUpdatingId(item.id);
-
     try {
-      await updateCartItemApi(item.productId, item.variantId, newQty, delta);
+      await updateQuantity(item, delta);
     } catch (err: any) {
-      // Rollback on failure
-      setItems(previousItems);
       setModal({
         visible: true,
         type: 'error',
@@ -192,13 +163,9 @@ export default function CartScreen({ navigation }: any) {
     const target = itemToDelete;
     setItemToDelete(null);
 
-    const previousItems = [...items];
-    setItems(current => current.filter(it => it.id !== target.id));
-
     try {
-      await removeCartItemApi(target.productId, target.variantId);
+      await removeItem(target);
     } catch (err: any) {
-      setItems(previousItems);
       setModal({
         visible: true,
         type: 'error',
@@ -208,7 +175,7 @@ export default function CartScreen({ navigation }: any) {
     }
   };
 
-  const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const subtotal = items.reduce((sum, item) => sum + (Number(item.price) || 0) * (item.quantity || 1), 0);
   const shipping = items.length ? SHIPPING_FEE : 0;
   const total = subtotal + shipping;
 
@@ -267,7 +234,7 @@ export default function CartScreen({ navigation }: any) {
             <Button
               title="Explore Products"
               size="sm"
-              onPress={() => navigation.navigate('Product')}
+              onPress={() => navigation.navigate('Home', { screen: 'ProductTab' })}
               style={{ marginTop: 6 }}
             />
           </View>

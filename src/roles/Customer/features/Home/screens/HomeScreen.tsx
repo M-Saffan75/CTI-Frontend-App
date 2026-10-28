@@ -1,22 +1,43 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Image, Linking, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Image,
+  Linking,
+  Modal,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
 import Button from '@/components/Button';
 import Squeeze from '@/components/Squeeze';
+import CtiLoader from '@/components/CtiLoader';
 import { FadeUp } from '@/animations';
 import {
+  bellBold,
+  checkCircleBold,
   chevronDownBold,
+  chevronRightBold,
+  closeIcon,
+  colorPaletteIcon,
   commentDotsBold,
   desktopBold,
   facebookIcon,
   headphonesBold,
+  heartExtra,
   linkedinIcon,
   mapPinBold,
   menuBold,
   mobileBold,
+  plusSquareBold,
   searchBold,
+  shoppingCartExtra,
   starExtra,
   tagBold,
   twitterIcon,
@@ -25,20 +46,17 @@ import {
 import { ctiLogo } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
-import { BLOG_SECTIONS } from '@/roles/Customer/features/Blogs/data/blogs';
-import { REPAIRMEN } from '@/roles/Customer/features/Repairmen/data/repairmen';
+import { useWishlist } from '@/roles/Customer/context/WishlistContext';
+import { useCart } from '@/roles/Customer/context/CartContext';
+import blogApi, { MobileBlog, mapBackendToBlog } from '@/services/blogApi';
 import homeApi, { HomeData } from '@/services/homeApi';
-import { startChat } from '@/services/chatApi';
+import { fetchUnreadChatCount, startChat } from '@/services/chatApi';
 import {
-  FAQS,
-  FAQ_CATEGORIES,
-  QUICK_SERVICES,
-  REVIEWS,
-  SPONSORED_PRODUCTS,
-  STATS,
-  STORES,
-  TOP_PRODUCTS,
-} from '../data/homeContent';
+  DeviceBrand,
+  DeviceModel,
+  fetchModelsByBrand,
+  fetchPublicBrands,
+} from '@/services/deviceBrandApi';
 
 const SERVICE_ICONS = {
   'Mobile Repair': mobileBold,
@@ -61,14 +79,68 @@ function Header({ navigation }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
+  const { ids: wishlistIds } = useWishlist();
+  const { cartCount, refreshCart } = useCart();
+  const [unreadMsgCount, setUnreadMsgCount] = useState(0);
+
+  const loadUnreadCount = useCallback(async () => {
+    try {
+      const count = await fetchUnreadChatCount();
+      setUnreadMsgCount(count);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    loadUnreadCount();
+    const unsubscribe = navigation.addListener('focus', () => {
+      loadUnreadCount();
+      refreshCart();
+    });
+    return unsubscribe;
+  }, [navigation, loadUnreadCount, refreshCart]);
 
   return (
     <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
       <View style={styles.headerRow}>
         <Image source={ctiLogo} resizeMode="contain" style={styles.logo} />
-        <Squeeze onPress={() => navigation.navigate('Settings')} scale={0.85}>
-          <Icon source={menuBold} size={24} color={colors.text} />
-        </Squeeze>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+          <Squeeze onPress={() => navigation.navigate('Wishlist')} scale={0.85}>
+            <View>
+              <Icon source={heartExtra} size={22} color={colors.text} />
+              {wishlistIds.length > 0 && (
+                <View style={[styles.headerBadge, { backgroundColor: colors.error }]}>
+                  <Text style={styles.headerBadgeText}>{wishlistIds.length}</Text>
+                </View>
+              )}
+            </View>
+          </Squeeze>
+          <Squeeze onPress={() => navigation.navigate('Cart')} scale={0.85}>
+            <View>
+              <Icon source={shoppingCartExtra} size={22} color={colors.text} />
+              {cartCount > 0 && (
+                <View style={[styles.headerBadge, { backgroundColor: colors.primary }]}>
+                  <Text style={styles.headerBadgeText}>{cartCount}</Text>
+                </View>
+              )}
+            </View>
+          </Squeeze>
+          <Squeeze onPress={() => navigation.navigate('Notifications')} scale={0.85}>
+            <Icon source={bellBold} size={22} color={colors.text} />
+          </Squeeze>
+          <Squeeze onPress={() => navigation.navigate('ChatList')} scale={0.85}>
+            <View>
+              <Icon source={commentDotsBold} size={22} color={colors.text} />
+              {unreadMsgCount > 0 && (
+                <View style={[styles.headerBadge, { backgroundColor: colors.error }]}>
+                  <Text style={styles.headerBadgeText}>{unreadMsgCount}</Text>
+                </View>
+              )}
+            </View>
+          </Squeeze>
+          <Squeeze onPress={() => navigation.navigate('Settings')} scale={0.85}>
+            <Icon source={menuBold} size={24} color={colors.text} />
+          </Squeeze>
+        </View>
       </View>
 
       <View style={[styles.search, { borderColor: colors.border, backgroundColor: colors.surfaceAlt }]}>
@@ -76,7 +148,9 @@ function Header({ navigation }) {
         <TextInput
           value={search}
           onChangeText={setSearch}
-          placeholder="Search  order custom product"
+          onSubmitEditing={() => search.trim() && navigation?.navigate('ExpertRepairmen', { query: search.trim() })}
+          returnKeyType="search"
+          placeholder="Search order custom product"
           placeholderTextColor={colors.textMuted}
           style={[styles.searchInput, { color: colors.text }]}
         />
@@ -85,36 +159,181 @@ function Header({ navigation }) {
   );
 }
 
-function Hero({ banner }: { banner?: any }) {
+function Hero({ banners, navigation }: { banners?: any[]; navigation?: any }) {
   const { colors } = useTheme();
-  const imgUri = banner?.image || 'https://picsum.photos/seed/cti-home-hero/700/700';
-  const title = banner?.title || 'Fast & Reliable Device Repairs';
-  const desc = banner?.description || 'Hundreds of repairs completed every month, handled by verified professionals. Book in minutes and track your repair the whole way through.';
-  const label = banner?.label || 'Trusted Repair Service';
+  const [width, setWidth] = useState(0);
+  const [index, setIndex] = useState(0);
+
+  const validBanners = Array.isArray(banners) ? banners.filter(b => !!b?.image) : [];
+  if (validBanners.length === 0) return null;
+
+  const onScrollEnd = (event: any) => {
+    if (!width) return;
+    setIndex(Math.round(event.nativeEvent.contentOffset.x / width));
+  };
+
+  const handleBannerPress = (banner: any) => {
+    const label = (banner.label || '').toLowerCase();
+    const title = (banner.title || '').toLowerCase();
+    if (label.includes('academy') || title.includes('academy') || title.includes('learn')) {
+      navigation?.navigate('Academy');
+    } else if (label.includes('repair') || title.includes('repair')) {
+      navigation?.navigate('ExpertRepairmen');
+    } else if (label.includes('marketplace') || label.includes('seller') || title.includes('seller')) {
+      navigation?.navigate('ProductTab');
+    } else {
+      navigation?.navigate('BuyRefurbished');
+    }
+  };
 
   return (
-    <View style={[styles.hero, { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.border }]}>
-      <Image
-        source={{ uri: imgUri }}
-        style={styles.heroImage}
-      />
-      <View style={[styles.heroPill, { backgroundColor: colors.onPrimary }]}>
-        <View style={[styles.badgeDot, { backgroundColor: colors.primary }]} />
-        <Text style={[styles.heroPillText, { color: colors.primary }]}>
-          {label}
-        </Text>
-      </View>
-      <Text style={[styles.heroTitle, { color: colors.text }]}>{title}</Text>
-      <Text style={[styles.heroText, { color: colors.textMuted }]}>
-        {desc}
-      </Text>
-      <Button title="Shop Now" size="lg" style={styles.heroButton} />
+    <View style={styles.heroWrap} onLayout={e => setWidth(e.nativeEvent.layout.width)}>
+      <ScrollView
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        onMomentumScrollEnd={onScrollEnd}>
+        {validBanners.map((banner, i) => (
+          <View key={banner._id || banner.id || i} style={{ width }}>
+            <View style={[styles.hero, { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.border }]}>
+              <Image source={{ uri: banner.image }} style={styles.heroImage} resizeMode="cover" />
+              {!!banner.label && (
+                <View style={[styles.heroPill, { backgroundColor: colors.onPrimary }]}>
+                  <View style={[styles.badgeDot, { backgroundColor: colors.primary }]} />
+                  <Text style={[styles.heroPillText, { color: colors.primary }]}>{banner.label}</Text>
+                </View>
+              )}
+              {!!banner.title && <Text style={[styles.heroTitle, { color: colors.text }]}>{banner.title}</Text>}
+              {!!banner.description && (
+                <Text style={[styles.heroText, { color: colors.textMuted }]} numberOfLines={3}>
+                  {banner.description}
+                </Text>
+              )}
+              <Button
+                title="Explore Now"
+                size="lg"
+                onPress={() => handleBannerPress(banner)}
+                style={styles.heroButton}
+              />
+            </View>
+          </View>
+        ))}
+      </ScrollView>
+      {validBanners.length > 1 && (
+        <View style={styles.heroDots}>
+          {validBanners.map((_, i) => (
+            <View
+              key={i}
+              style={[
+                styles.heroDot,
+                { backgroundColor: i === index ? colors.primary : colors.border },
+              ]}
+            />
+          ))}
+        </View>
+      )}
     </View>
   );
 }
 
-function ServiceFinder() {
+function ServiceFinder({ navigation }: { navigation?: any }) {
   const { colors } = useTheme();
+
+  const [brands, setBrands] = useState<DeviceBrand[]>([]);
+  const [models, setModels] = useState<DeviceModel[]>([]);
+  const [colorsList, setColorsList] = useState<string[]>([]);
+
+  const [selectedBrand, setSelectedBrand] = useState<DeviceBrand | null>(null);
+  const [selectedModel, setSelectedModel] = useState<DeviceModel | null>(null);
+  const [selectedColor, setSelectedColor] = useState<string | null>(null);
+
+  const [loadingBrands, setLoadingBrands] = useState(true);
+  const [loadingModels, setLoadingModels] = useState(false);
+
+  // Picker modal state
+  const [pickerType, setPickerType] = useState<'brand' | 'model' | 'color' | null>(null);
+  const [pickerSearch, setPickerSearch] = useState('');
+
+  // Action modal state ("What do you want to do?")
+  const [showActionModal, setShowActionModal] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    (async () => {
+      setLoadingBrands(true);
+      const data = await fetchPublicBrands();
+      if (isMounted) {
+        setBrands(data);
+        setLoadingBrands(false);
+      }
+    })();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleBrandSelect = async (brand: DeviceBrand) => {
+    setSelectedBrand(brand);
+    setSelectedModel(null);
+    setSelectedColor(null);
+    setModels([]);
+    setColorsList([]);
+    setPickerType(null);
+    setPickerSearch('');
+
+    const brandId = brand._id || brand.id;
+    if (brandId) {
+      setLoadingModels(true);
+      const fetchedModels = await fetchModelsByBrand(brandId);
+      setModels(fetchedModels);
+      setLoadingModels(false);
+    }
+  };
+
+  const handleModelSelect = (model: DeviceModel) => {
+    setSelectedModel(model);
+    setSelectedColor(null);
+    const availableColors = Array.isArray(model.colors) ? model.colors : [];
+    setColorsList(availableColors);
+    setPickerType(null);
+    setPickerSearch('');
+  };
+
+  const handleColorSelect = (color: string) => {
+    setSelectedColor(color);
+    setPickerType(null);
+    setPickerSearch('');
+  };
+
+  const handleFindService = () => {
+    if (!selectedBrand || !selectedModel || !selectedColor) return;
+    setShowActionModal(true);
+  };
+
+  const handleSearchRepairman = () => {
+    setShowActionModal(false);
+    const query = `${selectedBrand?.name || ''} ${selectedModel?.name || ''}`.trim();
+    navigation?.navigate('ExpertRepairmen', { query });
+  };
+
+  const handleHireRepairman = () => {
+    setShowActionModal(false);
+    const query = selectedBrand?.name || '';
+    navigation?.navigate('ExpertRepairmen', { query });
+  };
+
+  // Filtered options based on search in modal
+  const filteredBrands = brands.filter(b =>
+    (b.name || '').toLowerCase().includes(pickerSearch.toLowerCase())
+  );
+  const filteredModels = models.filter(m =>
+    (m.name || '').toLowerCase().includes(pickerSearch.toLowerCase())
+  );
+  const filteredColors = colorsList.filter(c =>
+    (c || '').toLowerCase().includes(pickerSearch.toLowerCase())
+  );
+
+  const isFormComplete = Boolean(selectedBrand && selectedModel && selectedColor);
 
   return (
     <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -125,39 +344,367 @@ function ServiceFinder() {
       </Text>
 
       <View style={styles.selectRow}>
-        <SelectField label="Brand" value="Select Brand" style={styles.selectHalf} />
-        <SelectField label="Model" value="Not Found" style={styles.selectHalf} />
+        <SelectField
+          label="Brand"
+          value={selectedBrand?.name}
+          placeholder={loadingBrands ? 'Loading...' : brands.length ? 'Select Brand' : 'Not Found'}
+          loading={loadingBrands}
+          onPress={() => {
+            setPickerSearch('');
+            setPickerType('brand');
+          }}
+          style={styles.selectHalf}
+        />
+        <SelectField
+          label="Model"
+          value={selectedModel?.name}
+          placeholder={
+            !selectedBrand
+              ? 'Select Brand'
+              : loadingModels
+                ? 'Loading...'
+                : models.length
+                  ? 'Select Model'
+                  : 'Not Found'
+          }
+          disabled={!selectedBrand || loadingModels || !models.length}
+          loading={loadingModels}
+          onPress={() => {
+            setPickerSearch('');
+            setPickerType('model');
+          }}
+          style={styles.selectHalf}
+        />
       </View>
-      <SelectField label="Color" value="Select Color" />
 
-      <Button title="Find Service" size="lg" style={styles.findServiceButton} />
+      <SelectField
+        label="Color"
+        value={selectedColor || undefined}
+        placeholder={
+          !selectedModel
+            ? 'Select Model First'
+            : colorsList.length
+              ? 'Select Color'
+              : 'No Colors Available'
+        }
+        disabled={!selectedModel || !colorsList.length}
+        onPress={() => {
+          setPickerSearch('');
+          setPickerType('color');
+        }}
+      />
+
+      <Button
+        title="Find Service"
+        size="lg"
+        disabled={!isFormComplete}
+        onPress={handleFindService}
+        style={[
+          styles.findServiceButton,
+          !isFormComplete && { opacity: 0.5 },
+        ]}
+      />
+
+      {/* --- Picker Selection Modal --- */}
+      <Modal
+        visible={pickerType !== null}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setPickerType(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.pickerModalContent, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            {/* Header */}
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>
+                {pickerType === 'brand' && 'Select Device Brand'}
+                {pickerType === 'model' && `Select ${selectedBrand?.name || ''} Model`}
+                {pickerType === 'color' && `Select ${selectedModel?.name || ''} Color`}
+              </Text>
+              <TouchableOpacity
+                onPress={() => setPickerType(null)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Icon source={closeIcon} size={20} color={colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Search Input for Brand / Model */}
+            {(pickerType === 'brand' || pickerType === 'model') && (
+              <View style={[styles.pickerSearchBox, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+                <Icon source={searchBold} size={16} color={colors.textMuted} />
+                <TextInput
+                  value={pickerSearch}
+                  onChangeText={setPickerSearch}
+                  placeholder={`Search ${pickerType}...`}
+                  placeholderTextColor={colors.textMuted}
+                  style={[styles.pickerSearchInput, { color: colors.text }]}
+                />
+              </View>
+            )}
+
+            {/* List */}
+            <ScrollView style={styles.pickerList} showsVerticalScrollIndicator={false}>
+              {pickerType === 'brand' && (
+                filteredBrands.length === 0 ? (
+                  <Text style={[styles.emptyListText, { color: colors.textMuted }]}>No brands found</Text>
+                ) : (
+                  filteredBrands.map(item => {
+                    const isSelected = selectedBrand?._id === item._id;
+                    return (
+                      <TouchableOpacity
+                        key={item._id}
+                        activeOpacity={0.7}
+                        onPress={() => handleBrandSelect(item)}
+                        style={[
+                          styles.pickerItem,
+                          {
+                            borderBottomColor: colors.border,
+                            backgroundColor: isSelected ? colors.surfaceAlt : 'transparent',
+                          },
+                        ]}>
+                        <View style={styles.pickerItemLeft}>
+                          {item.icon?.startsWith('http') ? (
+                            <Image
+                              source={{ uri: item.icon }}
+                              style={styles.pickerItemIcon}
+                              resizeMode="contain"
+                            />
+                          ) : (
+                            <View style={[styles.pickerIconPlaceholder, { backgroundColor: colors.surfaceAlt }]}>
+                              <Icon source={mobileBold} size={18} color={colors.primary} />
+                            </View>
+                          )}
+                          <Text style={[styles.pickerItemText, { color: colors.text, fontFamily: isSelected ? fonts.bold : fonts.medium }]}>
+                            {item.name}
+                          </Text>
+                        </View>
+                        {isSelected && (
+                          <Icon source={checkCircleBold} size={18} color={colors.primary} />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })
+                )
+              )}
+
+              {pickerType === 'model' && (
+                filteredModels.length === 0 ? (
+                  <Text style={[styles.emptyListText, { color: colors.textMuted }]}>No models found</Text>
+                ) : (
+                  filteredModels.map(item => {
+                    const isSelected = selectedModel?._id === item._id;
+                    return (
+                      <TouchableOpacity
+                        key={item._id}
+                        activeOpacity={0.7}
+                        onPress={() => handleModelSelect(item)}
+                        style={[
+                          styles.pickerItem,
+                          {
+                            borderBottomColor: colors.border,
+                            backgroundColor: isSelected ? colors.surfaceAlt : 'transparent',
+                          },
+                        ]}>
+                        <View style={styles.pickerItemLeft}>
+                          <View style={[styles.pickerIconPlaceholder, { backgroundColor: colors.surfaceAlt }]}>
+                            <Icon source={desktopBold} size={18} color={colors.primary} />
+                          </View>
+                          <Text style={[styles.pickerItemText, { color: colors.text, fontFamily: isSelected ? fonts.bold : fonts.medium }]}>
+                            {item.name}
+                          </Text>
+                        </View>
+                        {isSelected && (
+                          <Icon source={checkCircleBold} size={18} color={colors.primary} />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })
+                )
+              )}
+
+              {pickerType === 'color' && (
+                filteredColors.length === 0 ? (
+                  <Text style={[styles.emptyListText, { color: colors.textMuted }]}>No colors available</Text>
+                ) : (
+                  filteredColors.map((color, index) => {
+                    const isSelected = selectedColor === color;
+                    return (
+                      <TouchableOpacity
+                        key={index}
+                        activeOpacity={0.7}
+                        onPress={() => handleColorSelect(color)}
+                        style={[
+                          styles.pickerItem,
+                          {
+                            borderBottomColor: colors.border,
+                            backgroundColor: isSelected ? colors.surfaceAlt : 'transparent',
+                          },
+                        ]}>
+                        <View style={styles.pickerItemLeft}>
+                          <View style={[styles.colorDotPreview, { backgroundColor: colors.primary }]}>
+                            <Icon source={colorPaletteIcon} size={14} color="#FFF" />
+                          </View>
+                          <Text style={[styles.pickerItemText, { color: colors.text, fontFamily: isSelected ? fonts.bold : fonts.medium }]}>
+                            {color}
+                          </Text>
+                        </View>
+                        {isSelected && (
+                          <Icon source={checkCircleBold} size={18} color={colors.primary} />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })
+                )
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* --- Action Modal ("What do you want to do?") --- */}
+      <Modal
+        visible={showActionModal}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setShowActionModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.actionModalContent, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            {/* Header */}
+            <View style={styles.actionModalHeader}>
+              <Text style={[styles.actionModalTitle, { color: colors.text }]}>What do you want to do?</Text>
+              <Text style={[styles.actionModalSubtitle, { color: colors.textMuted }]}>
+                {selectedBrand?.name} • {selectedModel?.name} • {selectedColor}
+              </Text>
+            </View>
+
+            {/* Options */}
+            <View style={styles.actionOptions}>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={handleSearchRepairman}
+                style={[styles.actionOptionCard, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+                <View style={styles.actionOptionLeft}>
+                  <View style={[styles.actionIconWrap, { backgroundColor: '#E0F2FE' }]}>
+                    <Icon source={searchBold} size={22} color="#0284C7" />
+                  </View>
+                  <View style={styles.actionOptionTexts}>
+                    <Text style={[styles.actionOptionTitle, { color: colors.text }]}>Search Repairman</Text>
+                    <Text style={[styles.actionOptionDesc, { color: colors.textMuted }]}>
+                      Find nearby verified technicians
+                    </Text>
+                  </View>
+                </View>
+                <Icon source={chevronRightBold} size={18} color={colors.textMuted} />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={handleHireRepairman}
+                style={[styles.actionOptionCard, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+                <View style={styles.actionOptionLeft}>
+                  <View style={[styles.actionIconWrap, { backgroundColor: '#FFEDD5' }]}>
+                    <Icon source={plusSquareBold} size={22} color="#EA580C" />
+                  </View>
+                  <View style={styles.actionOptionTexts}>
+                    <Text style={[styles.actionOptionTitle, { color: colors.text }]}>Hire a Repairman</Text>
+                    <Text style={[styles.actionOptionDesc, { color: colors.textMuted }]}>
+                      Let repairmen come to you
+                    </Text>
+                  </View>
+                </View>
+                <Icon source={chevronRightBold} size={18} color={colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Cancel Button */}
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => setShowActionModal(false)}
+              style={[styles.actionCancelButton, { borderTopColor: colors.border }]}>
+              <Text style={[styles.actionCancelText, { color: colors.textMuted }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
-function SelectField({ label, value, style = null }) {
+function SelectField({
+  label,
+  value,
+  placeholder,
+  style = null,
+  onPress,
+  disabled = false,
+  loading = false,
+}: {
+  label: string;
+  value?: string;
+  placeholder?: string;
+  style?: any;
+  onPress?: () => void;
+  disabled?: boolean;
+  loading?: boolean;
+}) {
   const { colors } = useTheme();
+  const displayValue = value || placeholder || 'Select';
+  const isPlaceholder = !value;
 
   return (
-    <View style={[styles.select, { borderColor: colors.border }, style]}>
+    <TouchableOpacity
+      activeOpacity={0.7}
+      onPress={onPress}
+      disabled={disabled || loading}
+      style={[
+        styles.select,
+        {
+          borderColor: colors.border,
+          backgroundColor: disabled ? colors.surfaceAlt : colors.surface,
+          opacity: disabled ? 0.6 : 1,
+        },
+        style,
+      ]}>
       <View style={styles.selectText}>
         <Text style={[styles.selectLabel, { color: colors.textMuted }]}>{label}</Text>
-        <Text style={[styles.selectValue, { color: colors.text }]}>{value}</Text>
+        <Text
+          numberOfLines={1}
+          style={[
+            styles.selectValue,
+            { color: isPlaceholder ? colors.textMuted : colors.text },
+          ]}>
+          {displayValue}
+        </Text>
       </View>
-      <Icon source={chevronDownBold} size={16} color={colors.textMuted} />
-    </View>
+      {loading ? (
+        <ActivityIndicator size="small" color={colors.primary} />
+      ) : (
+        <Icon source={chevronDownBold} size={16} color={colors.textMuted} />
+      )}
+    </TouchableOpacity>
   );
 }
 
-function OurServices({ liveServices }: { liveServices?: any[] }) {
+function OurServices({ liveServices, navigation }: { liveServices?: any[]; navigation?: any }) {
   const { colors } = useTheme();
-  const servicesList = liveServices && liveServices.length > 0
-    ? liveServices.map((s, idx) => ({
-        id: s._id || String(idx),
-        label: s.name,
-        icon: s.icon,
-      }))
-    : QUICK_SERVICES;
+  if (!liveServices || liveServices.length === 0) return null;
+
+  const servicesList = liveServices.map((s, idx) => ({
+    id: s._id || String(idx),
+    label: s.name || s.title || 'Service',
+    icon: s.icon,
+  }));
+
+  const handleServicePress = (service: any) => {
+    const label = (service.label || '').toLowerCase();
+    if (label.includes('sell')) {
+      navigation?.navigate('SellRefurbished');
+    } else if (label.includes('accessori') || label.includes('refurbish')) {
+      navigation?.navigate('BuyRefurbished');
+    } else {
+      // Repair / Tech service e.g. "Mobile Repairing", "Repair Laptop", "Panel", "Mother Board", "software"
+      navigation?.navigate('ExpertRepairmen', { query: service.label });
+    }
+  };
 
   return (
     <View style={styles.section}>
@@ -170,7 +717,7 @@ function OurServices({ liveServices }: { liveServices?: any[] }) {
         style={styles.bleed}
         contentContainerStyle={styles.servicesRow}>
         {servicesList.map((service: any) => (
-          <Squeeze key={service.id}>
+          <Squeeze key={service.id} onPress={() => handleServicePress(service)}>
             <View style={styles.serviceItem}>
               <View style={[styles.serviceIcon, { backgroundColor: colors.surfaceAlt }]}>
                 {service.icon?.startsWith('http') ? (
@@ -192,8 +739,17 @@ function OurServices({ liveServices }: { liveServices?: any[] }) {
 
 function SpecialistCard({ repairman, navigation }: { repairman: any; navigation?: any }) {
   const { colors } = useTheme();
-  const name = repairman.name || repairman.repairmanProfile?.fullName || 'Verified Professional';
-  const role = repairman.role || (repairman.repairmanProfile?.specializations?.[0] ?? 'Repair Specialist');
+  const displayName =
+    repairman.repairmanProfile?.fullName ||
+    repairman.name ||
+    repairman.repairmanProfile?.shopName ||
+    'Verified Professional';
+
+  const specialty =
+    repairman.repairmanProfile?.specialization ||
+    (Array.isArray(repairman.repairmanProfile?.specializations) && repairman.repairmanProfile.specializations[0]) ||
+    (repairman.role && repairman.role !== 'repairman' ? repairman.role : 'Repair Specialist');
+
   const photo = repairman.photo || repairman.repairmanProfile?.profilePhoto || 'https://picsum.photos/seed/repairman/400/400';
   const location = repairman.shortLocation || repairman.city?.name || 'Lahore, Pakistan';
   const description = repairman.description || repairman.repairmanProfile?.description || 'Certified repair technician.';
@@ -206,19 +762,15 @@ function SpecialistCard({ repairman, navigation }: { repairman: any; navigation?
     }
     try {
       const res = await startChat({ repairmanId });
-      if (res.success && res.chat) {
-        navigation?.navigate('ChatDetail', {
-          chatId: res.chat._id || res.chat.chatId,
-          participantName: name,
-          participantAvatar: photo,
-        });
-      } else {
-        navigation?.navigate('ChatDetail', {
-          participantName: name,
-          participantAvatar: photo,
-          participantId: repairmanId,
-        });
-      }
+      const targetName = res.chat?.user?.name || res.chat?.repairman?.name || displayName;
+      const targetAvatar = res.chat?.user?.avatar || res.chat?.repairman?.avatar || photo;
+
+      navigation?.navigate('ChatDetail', {
+        chatId: res.chat?._id || res.chat?.chatId,
+        participantId: repairmanId,
+        participantName: targetName,
+        participantAvatar: targetAvatar,
+      });
     } catch {
       navigation?.navigate('ChatList');
     }
@@ -229,8 +781,8 @@ function SpecialistCard({ repairman, navigation }: { repairman: any; navigation?
       <Image source={{ uri: photo }} style={styles.specialistImage} />
 
       <View style={styles.specialistBody}>
-        <Text style={[styles.specialistName, { color: colors.text }]}>{name}</Text>
-        <Text style={[styles.specialistRole, { color: colors.textMuted }]}>{role}</Text>
+        <Text style={[styles.specialistName, { color: colors.text }]} numberOfLines={1}>{displayName}</Text>
+        <Text style={[styles.specialistRole, { color: colors.primary }]} numberOfLines={1}>{specialty}</Text>
 
         <View style={styles.metaRow}>
           <Icon source={mapPinBold} size={13} color={colors.textMuted} />
@@ -258,7 +810,7 @@ function SpecialistCard({ repairman, navigation }: { repairman: any; navigation?
         </View>
 
         <View style={styles.specialistActions}>
-          <Button title="Book Appointement" style={styles.bookButton} />
+          <Button title="Book Appointment" onPress={handleOpenChat} style={styles.bookButton} />
           <Squeeze onPress={handleOpenChat} style={[styles.chatButton, { borderColor: colors.border }]}>
             <Icon source={commentDotsBold} size={20} color={colors.text} />
           </Squeeze>
@@ -270,11 +822,19 @@ function SpecialistCard({ repairman, navigation }: { repairman: any; navigation?
 
 function OurSpecialists({ liveRepairmen, navigation }: { liveRepairmen?: any[]; navigation?: any }) {
   const { colors } = useTheme();
-  const list = liveRepairmen && liveRepairmen.length > 0 ? liveRepairmen : REPAIRMEN.slice(0, 4);
+  const list = liveRepairmen || [];
+  if (list.length === 0) return null;
 
   return (
     <View style={styles.section}>
-      <Badge label="Our Specialists" />
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Badge label="Our Specialists" />
+        <Squeeze onPress={() => navigation?.navigate('ExpertRepairmen')} scale={0.95}>
+          <Text style={{ fontFamily: fonts.bold, fontSize: 13, color: colors.primary }}>
+            View All →
+          </Text>
+        </Squeeze>
+      </View>
       <Text style={[styles.sectionTitle, { color: colors.text }]}>Meet Our Verified Professional</Text>
       <Text style={[styles.sectionSubtitle, { color: colors.textMuted }]}>
         Our certified repair experts bring years of hands-on experience and consistently high
@@ -294,121 +854,60 @@ function OurSpecialists({ liveRepairmen, navigation }: { liveRepairmen?: any[]; 
   );
 }
 
-function TrustedStats() {
+function OurBlogs({ navigation, refreshing }: { navigation: any; refreshing?: boolean }) {
   const { colors } = useTheme();
+  const [blogs, setBlogs] = useState<MobileBlog[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  return (
-    <View style={styles.section}>
-      <Text style={[styles.sectionTitle, { color: colors.text }]}>
-        Trusted by 169.65 Lac+ Happy Users and Major Brands since 2015
-      </Text>
+  const fetchBlogs = useCallback(async () => {
+    try {
+      const res = await blogApi.getBlogs({ limit: 3 });
+      if (Array.isArray(res)) {
+        setBlogs(res);
+      }
+    } catch (e) {
+      // ignore
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-      <View style={styles.statsGrid}>
-        {STATS.map(stat => (
-          <View key={stat.id} style={[styles.statCard, { backgroundColor: colors.primary + '14' }]}>
-            <View style={[styles.statIcon, { backgroundColor: colors.primary }]}>
-              <Icon source={usersThreeBold} size={16} color={colors.onPrimary} />
-            </View>
-            <Text style={[styles.statValue, { color: colors.primary }]}>{stat.value}</Text>
-            <Text style={[styles.statLabel, { color: colors.primary }]}>{stat.label}</Text>
-          </View>
-        ))}
+  useEffect(() => {
+    fetchBlogs();
+  }, [fetchBlogs, refreshing]);
+
+  if (loading && blogs.length === 0) {
+    return (
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Our Blogs</Text>
+        <CtiLoader size="sm" text="Loading blogs..." style={{ paddingVertical: 20 }} />
       </View>
-    </View>
-  );
-}
+    );
+  }
 
-function OurBlogs({ navigation }) {
-  const { colors } = useTheme();
-  const posts: any[] = BLOG_SECTIONS[0].posts.slice(0, 3);
+  if (blogs.length === 0) {
+    return null;
+  }
 
   return (
     <View style={styles.section}>
       <Text style={[styles.sectionTitle, { color: colors.text }]}>Our Blogs</Text>
 
-      {posts.map(post => (
+      {blogs.map(post => (
         <Squeeze
           key={post.id}
-          onPress={() => navigation.navigate('BlogDetail', { post })}
+          onPress={() => navigation.navigate('BlogDetail', { post, slug: post.slug })}
           style={[styles.blogCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Image source={{ uri: post.image }} style={styles.blogImage} />
+          {post.image ? <Image source={{ uri: post.image }} style={styles.blogImage} /> : null}
           <Text style={[styles.blogTitle, { color: colors.text }]}>{post.title}</Text>
-          {post.description && (
+          {post.description ? (
             <Text style={[styles.blogText, { color: colors.textMuted }]} numberOfLines={2}>
               {post.description}
             </Text>
-          )}
+          ) : null}
           <Text style={[styles.blogReadMore, { color: colors.error }]}>Readmore</Text>
         </Squeeze>
       ))}
-    </View>
-  );
-}
-
-function FAQSection() {
-  const { colors } = useTheme();
-  const [category, setCategory] = useState(FAQ_CATEGORIES[0]);
-  const [openId, setOpenId] = useState(null);
-
-  const faqs = FAQS.filter(faq => faq.category === category);
-
-  return (
-    <View style={styles.section}>
-      <Badge label="Frequently Asked Questions" />
-      <Text style={[styles.sectionTitle, { color: colors.text }]}>Frequently Asked Questions</Text>
-
-      <View style={styles.faqTabs}>
-        {FAQ_CATEGORIES.map(item => {
-          const active = item === category;
-          return (
-            <Squeeze key={item} onPress={() => setCategory(item)}>
-              <View
-                style={[
-                  styles.faqTab,
-                  { backgroundColor: active ? colors.primary : colors.primary + '1A' },
-                ]}>
-                <Text style={[styles.faqTabText, { color: active ? colors.onPrimary : colors.primary }]}>
-                  {item}
-                </Text>
-              </View>
-            </Squeeze>
-          );
-        })}
-      </View>
-
-      <View style={styles.faqList}>
-        {faqs.map(faq => {
-          const open = faq.id === openId;
-          return (
-            <Squeeze
-              key={faq.id}
-              onPress={() => setOpenId(open ? null : faq.id)}
-              style={[styles.faqItem, { borderColor: colors.border }]}>
-              <View style={styles.faqQuestionRow}>
-                <Text style={[styles.faqQuestion, { color: colors.text }]}>{faq.question}</Text>
-                <Icon
-                  source={chevronDownBold}
-                  size={16}
-                  color={colors.text}
-                  style={open && styles.chevronFlipped}
-                />
-              </View>
-              {open && (
-                <Text style={[styles.faqAnswer, { color: colors.textMuted }]}>{faq.answer}</Text>
-              )}
-            </Squeeze>
-          );
-        })}
-      </View>
-
-      <View style={[styles.questionCta, { backgroundColor: colors.primary }]}>
-        <Text style={styles.questionCtaTitle}>Still Have a Question?</Text>
-        <Text style={styles.questionCtaText}>
-          Can't find what you're looking for? Our support team is happy to help with anything
-          repair or order related.
-        </Text>
-        <Button title="Contact Support" variant="soft" size="sm" style={styles.questionCtaButton} />
-      </View>
     </View>
   );
 }
@@ -418,15 +917,15 @@ function RatingsSlider({ liveReviews }: { liveReviews?: any[] }) {
   const [width, setWidth] = useState(0);
   const [index, setIndex] = useState(0);
 
-  const reviewsList = liveReviews && liveReviews.length > 0
-    ? liveReviews.map((review, i) => ({
-        id: review._id || String(i),
-        photo: review.profilePhoto || 'https://picsum.photos/seed/customer/200/200',
-        name: review.username || 'Verified Customer',
-        text: review.reviewText || '',
-        date: review.createdAt ? new Date(review.createdAt).toLocaleDateString() : 'Recent',
-      }))
-    : REVIEWS;
+  if (!liveReviews || liveReviews.length === 0) return null;
+
+  const reviewsList = liveReviews.map((review, i) => ({
+    id: review._id || String(i),
+    photo: review.profilePhoto || 'https://picsum.photos/seed/customer/200/200',
+    name: review.username || 'Verified Customer',
+    text: review.reviewText || '',
+    date: review.createdAt ? new Date(review.createdAt).toLocaleDateString() : 'Recent',
+  }));
 
   const onScrollEnd = (event: any) => {
     if (!width) return;
@@ -480,67 +979,7 @@ function RatingsSlider({ liveReviews }: { liveReviews?: any[] }) {
   );
 }
 
-function ProductCard({ product }: { product: any }) {
-  const { colors } = useTheme();
-
-  return (
-    <Squeeze style={[styles.productCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-      <View style={styles.productHead}>
-        <Image source={ctiLogo} resizeMode="contain" style={styles.productLogo} />
-        <View style={[styles.adBadge, { backgroundColor: colors.text }]}>
-          <Text style={[styles.adBadgeText, { color: colors.background }]}>AD</Text>
-        </View>
-      </View>
-
-      <Image source={{ uri: product.image }} style={styles.productImage} />
-
-      <Text style={[styles.productName, { color: colors.text }]} numberOfLines={1}>
-        {product.name}
-      </Text>
-      <Text style={[styles.productDescription, { color: colors.textMuted }]} numberOfLines={2}>
-        {product.description}
-      </Text>
-
-      <View style={styles.productRating}>
-        {[1, 2, 3, 4, 5].map(n => (
-          <Icon
-            key={n}
-            source={starExtra}
-            size={13}
-            color={n <= Math.round(product.rating) ? colors.primary : colors.border}
-          />
-        ))}
-        <Text style={[styles.metaText, { color: colors.textMuted }]}>
-          {product.rating.toFixed(1)} ({product.ratingCount})
-        </Text>
-      </View>
-
-      <Text style={[styles.productPrice, { color: colors.error }]}>${product.price.toFixed(2)}</Text>
-    </Squeeze>
-  );
-}
-
-function ProductsSlider({ title, products }: { title: string; products: any[] }) {
-  const { colors } = useTheme();
-
-  return (
-    <View style={styles.section}>
-      <Text style={[styles.sectionTitle, { color: colors.text }]}>{title}</Text>
-
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.bleed}
-        contentContainerStyle={styles.productsRow}>
-        {products.map((product, idx) => (
-          <ProductCard key={product.id || idx} product={product} />
-        ))}
-      </ScrollView>
-    </View>
-  );
-}
-
-function StoreCard({ store }: { store: any }) {
+function StoreCard({ store, navigation }: { store: any; navigation?: any }) {
   const { colors } = useTheme();
   const name = store.name || store.businessName || 'Verified Store';
   const tagline = store.tagline || (store.productCategories?.[0] ?? 'Top Electronics Seller');
@@ -570,14 +1009,26 @@ function StoreCard({ store }: { store: any }) {
         </Text>
       </View>
 
-      <Text style={[styles.visitStore, { color: colors.primary }]}>Visit Store  →</Text>
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPress={() => {
+          const sId = store.sellerId?._id || store.sellerId?.id || (typeof store.sellerId === 'string' ? store.sellerId : (store._id || store.id));
+          navigation?.navigate('SellerStore', {
+            sellerId: sId,
+            sellerName: store.sellerId?.name || store.seller?.name || store.name,
+            seller: store.sellerId || store.seller || store,
+          });
+        }}>
+        <Text style={[styles.visitStore, { color: colors.primary }]}>Visit Store  →</Text>
+      </TouchableOpacity>
     </View>
   );
 }
 
-function BestRatedStores({ liveSellers }: { liveSellers?: any[] }) {
+function BestRatedStores({ liveSellers, navigation }: { liveSellers?: any[]; navigation?: any }) {
   const { colors } = useTheme();
-  const storesList = liveSellers && liveSellers.length > 0 ? liveSellers : STORES;
+  const storesList = liveSellers || [];
+  if (storesList.length === 0) return null;
 
   return (
     <View style={styles.section}>
@@ -593,7 +1044,7 @@ function BestRatedStores({ liveSellers }: { liveSellers?: any[] }) {
         style={styles.bleed}
         contentContainerStyle={styles.storesRow}>
         {storesList.map((store: any, idx: number) => (
-          <StoreCard key={store._id || store.id || idx} store={store} />
+          <StoreCard key={store._id || store.id || idx} store={store} navigation={navigation} />
         ))}
       </ScrollView>
     </View>
@@ -604,6 +1055,7 @@ export default function HomeScreen({ navigation }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [homeData, setHomeData] = useState<HomeData | null>(null);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -612,6 +1064,8 @@ export default function HomeScreen({ navigation }: any) {
       if (data) setHomeData(data);
     } catch (e) {
       // Graceful fallback
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -633,39 +1087,47 @@ export default function HomeScreen({ navigation }: any) {
         contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />}>
-        <FadeUp duration={500}>
-          <Hero banner={homeData?.banners?.[0]} />
-        </FadeUp>
-        <FadeUp duration={500} delay={60}>
-          <ServiceFinder />
-        </FadeUp>
-        <FadeUp duration={500} delay={100}>
-          <OurServices liveServices={homeData?.services} />
-        </FadeUp>
-        <FadeUp duration={500} delay={140}>
-          <OurSpecialists liveRepairmen={homeData?.repairmen} navigation={navigation} />
-        </FadeUp>
-        <FadeUp duration={500} delay={180}>
-          <TrustedStats />
-        </FadeUp>
-        <FadeUp duration={500} delay={220}>
-          <OurBlogs navigation={navigation} />
-        </FadeUp>
-        <FadeUp duration={500} delay={260}>
-          <FAQSection />
-        </FadeUp>
-        <FadeUp duration={500} delay={300}>
-          <RatingsSlider liveReviews={homeData?.reviews} />
-        </FadeUp>
-        <FadeUp duration={500} delay={340}>
-          <ProductsSlider title="Sponsored Products" products={SPONSORED_PRODUCTS} />
-        </FadeUp>
-        <FadeUp duration={500} delay={380}>
-          <BestRatedStores liveSellers={homeData?.sellers} />
-        </FadeUp>
-        <FadeUp duration={500} delay={420}>
-          <ProductsSlider title="Top Products" products={TOP_PRODUCTS} />
-        </FadeUp>
+        {loading && !refreshing ? (
+          <CtiLoader
+            size="md"
+            text="Loading home..."
+            style={{ paddingVertical: 50 }}
+          />
+        ) : !homeData ? (
+          <View style={{ paddingVertical: 80, alignItems: 'center', paddingHorizontal: 24 }}>
+            <Text style={{ fontFamily: fonts.bold, fontSize: 16, color: colors.text }}>
+              Unable to load home content
+            </Text>
+            <Text style={{ fontFamily: fonts.regular, fontSize: 13, color: colors.textMuted, marginTop: 6, textAlign: 'center' }}>
+              Please check your connection and pull down to refresh.
+            </Text>
+            <Button title="Retry" size="sm" onPress={loadData} style={{ marginTop: 16 }} />
+          </View>
+        ) : (
+          <>
+            <FadeUp duration={500}>
+              <Hero banners={homeData?.banners} navigation={navigation} />
+            </FadeUp>
+            <FadeUp duration={500} delay={60}>
+              <ServiceFinder navigation={navigation} />
+            </FadeUp>
+            <FadeUp duration={500} delay={100}>
+              <OurServices liveServices={homeData?.services} navigation={navigation} />
+            </FadeUp>
+            <FadeUp duration={500} delay={140}>
+              <OurSpecialists liveRepairmen={homeData?.repairmen} navigation={navigation} />
+            </FadeUp>
+            <FadeUp duration={500} delay={180}>
+              <OurBlogs navigation={navigation} refreshing={refreshing} />
+            </FadeUp>
+            <FadeUp duration={500} delay={220}>
+              <RatingsSlider liveReviews={homeData?.reviews} />
+            </FadeUp>
+            <FadeUp duration={500} delay={260}>
+              <BestRatedStores liveSellers={homeData?.sellers} navigation={navigation} />
+            </FadeUp>
+          </>
+        )}
       </ScrollView>
     </View>
   );
@@ -709,6 +1171,15 @@ const styles = StyleSheet.create({
   sectionTitle: { fontFamily: fonts.bold, fontSize: 20, lineHeight: 27, marginTop: 10 },
   sectionSubtitle: { fontFamily: fonts.regular, fontSize: 13, lineHeight: 19, marginTop: 6 },
 
+  heroWrap: { width: '100%' },
+  heroDots: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 10,
+  },
+  heroDot: { width: 7, height: 7, borderRadius: 4 },
   hero: { borderRadius: 16, padding: 18, marginTop: 18 },
   heroImage: { width: '100%', height: 170, borderRadius: 12 },
   heroPill: {
@@ -844,4 +1315,181 @@ const styles = StyleSheet.create({
   storeTagline: { fontFamily: fonts.medium, fontSize: 13, marginTop: 2 },
   storeDescription: { fontFamily: fonts.regular, fontSize: 12, lineHeight: 18, marginTop: 6 },
   visitStore: { fontFamily: fonts.bold, fontSize: 13, marginTop: 12 },
+
+  // --- Picker & Action Modal Styles ---
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  pickerModalContent: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    maxHeight: '75%',
+    paddingBottom: 24,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+  },
+  modalTitle: { fontFamily: fonts.bold, fontSize: 16 },
+  pickerSearchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 6,
+    paddingHorizontal: 12,
+    height: 42,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  pickerSearchInput: {
+    flex: 1,
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    paddingVertical: 0,
+  },
+  pickerList: {
+    paddingHorizontal: 16,
+  },
+  pickerItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderRadius: 8,
+  },
+  pickerItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  pickerItemIcon: {
+    width: 24,
+    height: 24,
+  },
+  pickerIconPlaceholder: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  colorDotPreview: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pickerItemText: {
+    fontSize: 14,
+    flex: 1,
+  },
+  emptyListText: {
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    textAlign: 'center',
+    paddingVertical: 24,
+  },
+  actionModalContent: {
+    marginHorizontal: 20,
+    marginBottom: 40,
+    borderRadius: 24,
+    borderWidth: 1,
+    overflow: 'hidden',
+    alignSelf: 'stretch',
+  },
+  actionModalHeader: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 14,
+    alignItems: 'center',
+  },
+  actionModalTitle: {
+    fontFamily: fonts.bold,
+    fontSize: 18,
+    textAlign: 'center',
+  },
+  actionModalSubtitle: {
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  actionOptions: {
+    paddingHorizontal: 16,
+    gap: 12,
+    paddingBottom: 16,
+  },
+  actionOptionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  actionOptionLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  actionIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionOptionTexts: {
+    flex: 1,
+    gap: 2,
+  },
+  actionOptionTitle: {
+    fontFamily: fonts.bold,
+    fontSize: 15,
+  },
+  actionOptionDesc: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+  },
+  actionCancelButton: {
+    borderTopWidth: 1,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  actionCancelText: {
+    fontFamily: fonts.medium,
+    fontSize: 14,
+  },
+  headerBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -6,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  headerBadgeText: {
+    fontFamily: fonts.bold,
+    fontSize: 9,
+    color: '#FFFFFF',
+  },
 });

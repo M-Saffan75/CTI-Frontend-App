@@ -10,7 +10,7 @@ import {
  * Adapter: Convert Backend Refurbished Product to Mobile RefurbishedProduct Model
  */
 export function mapBackendToProduct(raw: any): RefurbishedProduct {
-  if (!raw) return REFURBISHED_PRODUCTS[0];
+  if (!raw) return null as any;
 
   const variants = Array.isArray(raw.variants) ? raw.variants : [];
   const defaultVariant = variants.find((v: any) => v.isDefault) || variants[0] || {};
@@ -100,10 +100,10 @@ export async function getRefurbishedCategories(): Promise<any[]> {
         image: cat.image,
       }));
     }
-    return REFURBISHED_CATEGORIES;
+    return [];
   } catch (error) {
-    console.warn('getRefurbishedCategories fallback to mock:', error);
-    return REFURBISHED_CATEGORIES;
+    if (__DEV__) console.warn('getRefurbishedCategories error:', error);
+    return [];
   }
 }
 
@@ -114,12 +114,12 @@ export async function getTopSellingProducts(): Promise<RefurbishedProduct[]> {
   try {
     const res = await apiClient.get('/public/refurbished-devices/products/top-selling');
     if (res.data?.success && Array.isArray(res.data?.data)) {
-      return res.data.data.map(mapBackendToProduct);
+      return res.data.data.map(mapBackendToProduct).filter(Boolean);
     }
-    return REFURBISHED_PRODUCTS;
+    return [];
   } catch (error) {
-    console.warn('getTopSellingProducts fallback to mock:', error);
-    return REFURBISHED_PRODUCTS;
+    if (__DEV__) console.warn('getTopSellingProducts error:', error);
+    return [];
   }
 }
 
@@ -130,14 +130,12 @@ export async function getCategoryProducts(categorySlug: string): Promise<Refurbi
   try {
     const res = await apiClient.get(`/public/refurbished-devices/products/category/${categorySlug}`);
     if (res.data?.success && Array.isArray(res.data?.data)) {
-      return res.data.data.map(mapBackendToProduct);
+      return res.data.data.map(mapBackendToProduct).filter(Boolean);
     }
-    return REFURBISHED_PRODUCTS.filter(p =>
-      p?.category?.toLowerCase()?.includes(categorySlug.toLowerCase()),
-    );
+    return [];
   } catch (error) {
-    console.warn(`getCategoryProducts(${categorySlug}) fallback to mock:`, error);
-    return REFURBISHED_PRODUCTS;
+    if (__DEV__) console.warn(`getCategoryProducts(${categorySlug}) error:`, error);
+    return [];
   }
 }
 
@@ -148,12 +146,12 @@ export async function getRefurbishedProducts(params?: Record<string, any>): Prom
   try {
     const res = await apiClient.get('/public/refurbished-devices/products', { params });
     if (res.data?.success && Array.isArray(res.data?.data)) {
-      return res.data.data.map(mapBackendToProduct);
+      return res.data.data.map(mapBackendToProduct).filter(Boolean);
     }
-    return REFURBISHED_PRODUCTS;
+    return [];
   } catch (error) {
-    console.warn('getRefurbishedProducts fallback to mock:', error);
-    return REFURBISHED_PRODUCTS;
+    if (__DEV__) console.warn('getRefurbishedProducts error:', error);
+    return [];
   }
 }
 
@@ -166,12 +164,10 @@ export async function getRefurbishedProductDetail(idOrSlug: string): Promise<Ref
     if (res.data?.success && res.data?.data) {
       return mapBackendToProduct(res.data.data);
     }
-    const found = REFURBISHED_PRODUCTS.find(p => p.id === idOrSlug || p.name === idOrSlug);
-    return found || null;
+    return null;
   } catch (error) {
-    console.warn(`getRefurbishedProductDetail(${idOrSlug}) fallback:`, error);
-    const found = REFURBISHED_PRODUCTS.find(p => p.id === idOrSlug);
-    return found || null;
+    if (__DEV__) console.warn(`getRefurbishedProductDetail(${idOrSlug}) error:`, error);
+    return null;
   }
 }
 

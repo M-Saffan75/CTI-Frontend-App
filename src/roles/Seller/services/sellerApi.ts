@@ -392,15 +392,15 @@ export async function fetchSellerDashboardOverviewApi(): Promise<SellerDashboard
       })),
     };
   } catch (error) {
-    console.log('[sellerApi] fetchSellerDashboardOverviewApi fallback:', error);
+    if (__DEV__) console.log('[sellerApi] fetchSellerDashboardOverviewApi error:', error);
     return {
-      totalEarnings: 8450,
-      totalOrders: 142,
-      pendingOrders: 18,
-      totalProducts: 45,
+      totalEarnings: 0,
+      totalOrders: 0,
+      pendingOrders: 0,
+      totalProducts: 0,
       growth: {
-        earnings: '+14.2%',
-        orders: '+9.5%',
+        earnings: '0%',
+        orders: '0%',
       },
       recentOrders: [],
     };
@@ -429,11 +429,11 @@ export async function fetchSellerWalletApi(): Promise<SellerWalletData> {
         : null,
     };
   } catch (error) {
-    console.log('[sellerApi] fetchSellerWalletApi fallback:', error);
+    if (__DEV__) console.log('[sellerApi] fetchSellerWalletApi error:', error);
     return {
-      availableBalance: 2450.75,
-      pendingBalance: 520.00,
-      totalWithdrawn: 12400.00,
+      availableBalance: 0,
+      pendingBalance: 0,
+      totalWithdrawn: 0,
       activeRequest: null,
     };
   }
