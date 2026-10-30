@@ -38,6 +38,7 @@ import DeviceConditionScreen from '@/features/Refurbished/screens/DeviceConditio
 import UploadDeviceMediaScreen from '@/features/Refurbished/screens/UploadDeviceMediaScreen';
 import QuoteApplicationScreen from '@/features/Refurbished/screens/QuoteApplicationScreen';
 import ApplicationSubmittedScreen from '@/features/Refurbished/screens/ApplicationSubmittedScreen';
+import MySellRequestsScreen from '@/features/Refurbished/screens/MySellRequestsScreen';
 import NotificationsScreen from '@/features/Notifications/screens/NotificationsScreen';
 import ChatListScreen from '@/roles/Repairman/features/Chat/screens/ChatListScreen';
 import ChatDetailScreen from '@/roles/Repairman/features/Chat/screens/ChatDetailScreen';
@@ -100,6 +101,7 @@ export default function CustomerNavigator({ onLogout }) {
         <Stack.Screen name="UploadDeviceMedia" component={UploadDeviceMediaScreen} />
         <Stack.Screen name="QuoteApplication" component={QuoteApplicationScreen} />
         <Stack.Screen name="ApplicationSubmitted" component={ApplicationSubmittedScreen} />
+        <Stack.Screen name="MySellRequests" component={MySellRequestsScreen} />
         {/* Legal documents slide up from the bottom instead of in from the side. */}
         <Stack.Screen
           name="PrivacyPolicy"

@@ -6,6 +6,40 @@ import {
   removeCartItemApi,
   updateCartItemApi,
 } from '../features/Product/services/ecomApi';
+import {
+  getRefurbishedCart,
+  updateRefurbishedCartItem,
+  removeRefurbishedCartItem,
+} from '@/features/Refurbished/services/refurbishedApi';
+import { demoProductPhoto } from '@/assets/images';
+
+function mapRefurbishedCartItems(refurbItems: any[]): MobileCartItem[] {
+  if (!Array.isArray(refurbItems)) return [];
+  return refurbItems.map((it: any, index: number) => {
+    const p = typeof it.productId === 'object' && it.productId ? it.productId : (it.product || {});
+    const v = typeof it.variantId === 'object' && it.variantId ? it.variantId : {};
+    const pId = String(p._id || p.id || it.productId || `refurb-${index}`);
+    const vId = it.variantId ? String(v._id || v.id || it.variantId) : undefined;
+    const price = Number(v.discountPrice || v.sellingPrice || v.price || p.price || 0);
+    const rawImages = Array.isArray(p.images) ? p.images : [];
+    const varImages = Array.isArray(v.images) ? v.images : [];
+    const imgUrl = varImages[0]?.url || rawImages[0]?.url || p.image;
+    const imageSource = imgUrl ? (typeof imgUrl === 'string' ? { uri: imgUrl } : imgUrl) : demoProductPhoto;
+
+    return {
+      id: String(it._id || `${pId}-${vId || 'def'}`),
+      productId: pId,
+      variantId: vId,
+      variantLabel: v.title || (Array.isArray(v.attributes) ? v.attributes.map((a: any) => `${a.name}: ${a.value}`).join(' / ') : undefined),
+      title: p.title || p.name || 'Refurbished Device',
+      price,
+      quantity: Number(it.quantity || 1),
+      image: imageSource,
+      product: p,
+      isRefurbished: true,
+    };
+  });
+}
 
 interface CartContextType {
   cartItems: MobileCartItem[];
@@ -25,17 +59,26 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const [subtotal, setSubtotal] = useState(0);
   const [loading, setLoading] = useState(false);
 
-  // Count of distinct products/items in the cart (matches Next.js and physical rows)
+  // Count of distinct products/items in the cart (sum of standard + refurbished, matching Next.js)
   const cartCount = cartItems.length;
 
   const refreshCart = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await getCartApi();
-      if (res && Array.isArray(res.items)) {
-        setCartItems(res.items);
-        setSubtotal(res.subtotal || 0);
-      }
+      const [res, refurbRaw] = await Promise.all([
+        getCartApi().catch(() => null),
+        getRefurbishedCart().catch(() => []),
+      ]);
+
+      const standardItems = res && Array.isArray(res.items) ? res.items : [];
+      const refurbItems = mapRefurbishedCartItems(refurbRaw);
+      const allItems = [...standardItems, ...refurbItems];
+
+      const standardSub = res?.subtotal || 0;
+      const refurbSub = refurbItems.reduce((acc, it) => acc + (it.price * it.quantity), 0);
+
+      setCartItems(allItems);
+      setSubtotal(standardSub + refurbSub);
     } catch {
       // Fallback
     } finally {
@@ -73,14 +116,19 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       );
 
       try {
-        await updateCartItemApi(item.productId, item.variantId, newQty, delta);
+        if (item.isRefurbished) {
+          await updateRefurbishedCartItem(item.productId, item.variantId, delta);
+        } else {
+          await updateCartItemApi(item.productId, item.variantId, newQty, delta);
+        }
+        await refreshCart();
         return true;
       } catch (err) {
         setCartItems(previousItems);
         throw err;
       }
     },
-    [cartItems]
+    [cartItems, refreshCart]
   );
 
   const removeItem = useCallback(
@@ -89,14 +137,19 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       setCartItems(current => current.filter(it => it.id !== item.id));
 
       try {
-        await removeCartItemApi(item.productId, item.variantId);
+        if (item.isRefurbished) {
+          await removeRefurbishedCartItem(item.productId, item.variantId);
+        } else {
+          await removeCartItemApi(item.productId, item.variantId);
+        }
+        await refreshCart();
         return true;
       } catch (err) {
         setCartItems(previousItems);
         throw err;
       }
     },
-    [cartItems]
+    [cartItems, refreshCart]
   );
 
   return (

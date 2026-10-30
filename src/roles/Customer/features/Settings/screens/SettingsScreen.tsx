@@ -57,13 +57,13 @@ const MENU = [
   { label: 'Support', icon: headphonesBold },
   { label: 'My Orders', icon: packageBold, screen: 'Orders' },
   { label: 'My Messages', icon: commentDotsBold, screen: 'ChatList' },
-  { label: 'My Sell Request', icon: tagBold },
+  { label: 'My Sell Request', icon: tagBold, screen: 'MySellRequests' },
   {
     label: 'Refurbished Devices',
     icon: mobileBold,
     children: [
-      { label: 'Sell Gadgets', icon: storeBold, screen: 'SellRefurbished' },
-      { label: 'Sell Phone', icon: phoneBold, screen: 'SellRefurbished' },
+      { label: 'Sell Gadgets', icon: storeBold, screen: 'SellRefurbished', params: { mode: 'gadget' } },
+      { label: 'Sell Phone', icon: phoneBold, screen: 'SellRefurbished', params: { mode: 'phone' } },
     ],
   },
   {

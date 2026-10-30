@@ -10,6 +10,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
+import Button from '@/components/Button';
+import CtiLoader from '@/components/CtiLoader';
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
+import { FadeUp } from '@/animations';
 import {
   checkCircleBold,
   chevronLeftBold,
@@ -22,50 +26,123 @@ import RefurbishedHeader from '../components/RefurbishedHeader';
 import { CONDITION_QUESTIONS } from '../data/refurbishedData';
 import { getSellDeviceConfig } from '../services/refurbishedApi';
 
+interface ConditionOption {
+  id: string | number;
+  label: string;
+  description?: string;
+}
+
+interface ConditionItem {
+  id: string | number;
+  question: string;
+  options: ConditionOption[];
+}
+
 export default function DeviceConditionScreen({ navigation, route }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
-  const brand = route?.params?.brand || 'Apple';
-  const model = route?.params?.model || '12 pro max';
-  const storage = route?.params?.storage || '128 GB';
+  const brand = route?.params?.brand || 'Device';
+  const brandSlug = route?.params?.brandSlug || brand.toLowerCase();
+  const brandId = route?.params?.brandId;
+  const model = route?.params?.model || 'Device Model';
+  const modelSlug =
+    route?.params?.modelSlug || model.toLowerCase().replace(/\s+/g, '-');
+  const modelId = route?.params?.modelId;
+  const categoryId = route?.params?.categoryId;
+  const categorySlug = route?.params?.categorySlug;
+  const storage = route?.params?.storage;
+  const selectedVariants = route?.params?.selectedVariants || [];
+  const initialConfig = route?.params?.config;
 
+  const [deviceConfig, setDeviceConfig] = useState<any>(initialConfig || null);
+  const [loading, setLoading] = useState<boolean>(!initialConfig);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
-  const [questionsList, setQuestionsList] = useState(CONDITION_QUESTIONS);
-  const [answers, setAnswers] = useState<Record<number, string>>({
-    0: 'Good / Minor Scratches',
-    1: 'Yes',
-    2: 'Yes',
-    3: 'Clean & Pristine',
+  const [questionsList, setQuestionsList] = useState<ConditionItem[]>([]);
+  const [answers, setAnswers] = useState<Record<number, string>>({});
+
+  // AlertModal State for validation
+  const [modal, setModal] = useState<{
+    visible: boolean;
+    type: AlertModalType;
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    type: 'warning',
+    title: '',
+    message: '',
   });
 
+  const isPhone = Boolean(
+    categorySlug?.toLowerCase()?.includes('phone') ||
+    brandSlug?.toLowerCase()?.includes('apple') ||
+    brand?.toLowerCase()?.includes('iphone') ||
+    model?.toLowerCase()?.includes('iphone') ||
+    modelSlug?.toLowerCase()?.includes('iphone')
+  );
+
+  const mapQuestions = (fetched: any[]) => {
+    return fetched.map((q: any, idx: number) => ({
+      id: q._id || idx + 1,
+      question: q.question || q.title || 'Condition question',
+      options: Array.isArray(q.options)
+        ? q.options.map((opt: any, oIdx: number) => ({
+            id: opt._id || oIdx + 1,
+            label: typeof opt === 'string' ? opt : (opt.label || opt.text || String(opt)),
+            description: typeof opt === 'string' ? '' : (opt.description || ''),
+          }))
+        : [],
+    }));
+  };
+
   useEffect(() => {
-    if (brand && model) {
-      getSellDeviceConfig(brand, model)
+    if (initialConfig?.categoryQuestions?.length > 0) {
+      setQuestionsList(mapQuestions(initialConfig.categoryQuestions));
+      setLoading(false);
+    } else if (brandSlug && modelSlug) {
+      setLoading(true);
+      getSellDeviceConfig(brandSlug, modelSlug)
         .then(config => {
-          const fetched = config?.categoryQuestions;
-          if (Array.isArray(fetched) && fetched.length > 0) {
-            const mapped = fetched.map((q: any, idx: number) => ({
-              id: q._id || idx + 1,
-              question: q.question || q.title || 'Condition question',
-              options: Array.isArray(q.options)
-                ? q.options.map((opt: any, oIdx: number) => ({
-                    id: opt._id || oIdx + 1,
-                    label: opt.label || opt.text || String(opt),
-                    description: opt.description || '',
-                  }))
-                : [],
-            }));
-            if (mapped.length > 0) {
-              setQuestionsList(mapped);
+          if (config) {
+            setDeviceConfig(config);
+            if (Array.isArray(config?.categoryQuestions) && config.categoryQuestions.length > 0) {
+              setQuestionsList(mapQuestions(config.categoryQuestions));
+            } else if (isPhone) {
+              // Fallback to default phone questions ONLY if confirmed phone category
+              setQuestionsList(CONDITION_QUESTIONS as any);
+            } else {
+              // Non-phone device (e.g. Haier AC, Camera, Speaker) with no custom questions configured
+              setQuestionsList([]);
             }
+          } else if (isPhone) {
+            setQuestionsList(CONDITION_QUESTIONS as any);
+          } else {
+            setQuestionsList([]);
           }
         })
-        .catch(() => {});
+        .catch(() => {
+          if (isPhone) {
+            setQuestionsList(CONDITION_QUESTIONS as any);
+          } else {
+            setQuestionsList([]);
+          }
+        })
+        .finally(() => {
+          setLoading(false);
+        });
+    } else {
+      if (isPhone) {
+        setQuestionsList(CONDITION_QUESTIONS as any);
+      } else {
+        setQuestionsList([]);
+      }
+      setLoading(false);
     }
-  }, [brand, model]);
+  }, [brandSlug, modelSlug, initialConfig, isPhone]);
 
-  const currentQ = questionsList[currentStepIndex] || questionsList[0] || CONDITION_QUESTIONS[0];
+  const hasQuestions = questionsList.length > 0;
+  const currentQ = hasQuestions ? questionsList[currentStepIndex] : null;
   const isLastQuestion = currentStepIndex >= questionsList.length - 1;
 
   const handleSelectOption = (label: string) => {
@@ -73,16 +150,57 @@ export default function DeviceConditionScreen({ navigation, route }: any) {
   };
 
   const handleNext = () => {
+    if (!answers[currentStepIndex]) {
+      setModal({
+        visible: true,
+        type: 'warning',
+        title: 'Selection Required',
+        message: 'Please select an option before proceeding to the next step.',
+      });
+      return;
+    }
+
     if (isLastQuestion) {
+      const answersMap: Record<string, string> = {};
+      questionsList.forEach((q, idx) => {
+        const qText = q.question || `Question ${idx + 1}`;
+        if (answers[idx]) {
+          answersMap[qText] = answers[idx];
+        }
+      });
+
       navigation.navigate('UploadDeviceMedia', {
         brand,
+        brandSlug,
+        brandId: brandId || deviceConfig?.brand?._id,
         model,
+        modelSlug,
+        modelId: modelId || deviceConfig?.model?._id,
+        categoryId: categoryId || deviceConfig?.categoryId,
+        categorySlug,
         storage,
-        conditionAnswers: answers,
+        selectedVariants,
+        conditionAnswers: answersMap,
       });
     } else {
       setCurrentStepIndex(currentStepIndex + 1);
     }
+  };
+
+  const handleContinueNoQuestions = () => {
+    navigation.navigate('UploadDeviceMedia', {
+      brand,
+      brandSlug,
+      brandId: brandId || deviceConfig?.brand?._id,
+      model,
+      modelSlug,
+      modelId: modelId || deviceConfig?.model?._id,
+      categoryId: categoryId || deviceConfig?.categoryId,
+      categorySlug,
+      storage,
+      selectedVariants,
+      conditionAnswers: {},
+    });
   };
 
   const handlePrevious = () => {
@@ -95,141 +213,165 @@ export default function DeviceConditionScreen({ navigation, route }: any) {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <RefurbishedHeader showBack={false} showActions={false} />
+      <RefurbishedHeader showActions={false} />
 
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 40 }]}>
-        {/* Main Question Card matching Figma */}
-        <View
-          style={[
-            styles.questionCard,
-            { backgroundColor: colors.surface, borderColor: colors.border + '44' },
-          ]}>
-          <Text style={[styles.stepCaption, { color: colors.primary }]}>
-            QUESTION {currentStepIndex + 1} OF {questionsList.length}
-          </Text>
+        
+        {loading ? (
+          <View style={{ paddingVertical: 60, alignItems: 'center' }}>
+            <CtiLoader size="md" text="Loading condition criteria..." />
+          </View>
+        ) : !hasQuestions ? (
+          /* Next.js matching state: When model does not require condition assessment */
+          <FadeUp
+            delay={100}
+            style={[
+              styles.emptyContainer,
+              {
+                backgroundColor: colors.surface,
+                borderColor: colors.border + '66',
+              },
+            ]}>
+            <View
+              style={[
+                styles.checkIconWrap,
+                {
+                  backgroundColor: colors.primary + '18',
+                  borderColor: colors.primary + '33',
+                  borderWidth: 1,
+                },
+              ]}>
+              <Icon source={checkCircleBold} size={36} color={colors.primary} />
+            </View>
+            <Text style={[styles.emptyHeading, { color: colors.text }]}>
+              No Condition Assessment Required
+            </Text>
+            <Text style={[styles.emptySubheading, { color: colors.textMuted }]}>
+              This <Text style={{ fontFamily: fonts.bold, color: colors.primary }}>{model}</Text> does not require any specific condition assessment. You can proceed directly to upload device media.
+            </Text>
+            <Button
+              title="Continue to Upload Media"
+              onPress={handleContinueNoQuestions}
+              style={{ marginTop: 24, width: '100%' }}
+            />
+          </FadeUp>
+        ) : (
+          /* Main Question Card */
+          <View
+            style={[
+              styles.questionCard,
+              { backgroundColor: colors.surface, borderColor: colors.border + '44' },
+            ]}>
+            <Text style={[styles.stepCaption, { color: colors.primary }]}>
+              QUESTION {currentStepIndex + 1} OF {questionsList.length}
+            </Text>
 
-          <Text style={[styles.questionTitle, { color: colors.text }]}>
-            {currentQ?.question || ''}
-          </Text>
+            <Text style={[styles.questionTitle, { color: colors.text }]}>
+              {currentQ?.question || ''}
+            </Text>
 
-          {/* Options List */}
-          <View style={styles.optionsList}>
-            {(currentQ?.options || []).map(opt => {
-              const isSelected = answers?.[currentStepIndex] === opt?.label;
-              return (
-                <TouchableOpacity
-                  key={opt?.id}
-                  onPress={() => handleSelectOption(opt?.label || '')}
-                  style={[
-                    styles.optionRow,
-                    {
-                      backgroundColor: isSelected ? colors.primary + '14' : colors.surfaceAlt,
-                      borderColor: isSelected ? colors.primary : colors.border + '33',
-                    },
-                  ]}>
-                  <View
+            {/* Options List */}
+            <View style={styles.optionsList}>
+              {(currentQ?.options || []).map(opt => {
+                const isSelected = answers?.[currentStepIndex] === opt?.label;
+                return (
+                  <TouchableOpacity
+                    key={opt?.id}
+                    onPress={() => handleSelectOption(opt?.label || '')}
                     style={[
-                      styles.checkCircle,
+                      styles.optionRow,
                       {
-                        borderColor: isSelected ? colors.primary : colors.textMuted + '66',
-                        backgroundColor: isSelected ? colors.primary : 'transparent',
+                        backgroundColor: isSelected ? colors.primary + '14' : colors.surfaceAlt,
+                        borderColor: isSelected ? colors.primary : colors.border + '33',
                       },
                     ]}>
-                    <Icon
-                      source={checkCircleBold}
-                      size={18}
-                      color={isSelected ? '#FFFFFF' : colors.textMuted}
-                    />
-                  </View>
-                  <View style={styles.optionTextCol}>
-                    <Text
+                    <View
                       style={[
-                        styles.optionLabel,
+                        styles.checkCircle,
                         {
-                          color: isSelected ? colors.primary : colors.text,
-                          fontFamily: isSelected ? fonts.bold : fonts.medium,
+                          borderColor: isSelected ? colors.primary : colors.textMuted + '66',
+                          backgroundColor: isSelected ? colors.primary : 'transparent',
                         },
                       ]}>
-                      {opt.label}
-                    </Text>
-                    {opt.description && (
-                      <Text style={[styles.optionSub, { color: colors.textMuted }]}>
-                        {opt.description}
+                      <Icon
+                        source={checkCircleBold}
+                        size={18}
+                        color={isSelected ? '#FFFFFF' : colors.textMuted}
+                      />
+                    </View>
+                    <View style={styles.optionTextCol}>
+                      <Text
+                        style={[
+                          styles.optionLabel,
+                          {
+                            color: isSelected ? colors.primary : colors.text,
+                            fontFamily: isSelected ? fonts.bold : fonts.medium,
+                          },
+                        ]}>
+                        {opt.label}
                       </Text>
-                    )}
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          {/* Navigation Buttons */}
-          <View style={styles.buttonsRow}>
-            <TouchableOpacity
-              onPress={handlePrevious}
-              style={[
-                styles.navBtnOutline,
-                { borderColor: colors.border + '66', backgroundColor: colors.surfaceAlt },
-              ]}>
-              <Icon source={chevronLeftBold} size={14} color={colors.text} />
-              <Text style={[styles.navBtnOutlineText, { color: colors.text }]}>Previous</Text>
-            </TouchableOpacity>
-
-            <Squeeze
-              onPress={handleNext}
-              style={[styles.navBtnFilled, { backgroundColor: colors.primary }]}>
-              <View style={styles.btnRow}>
-                <Text style={styles.navBtnFilledText}>
-                  {isLastQuestion ? 'Proceed' : 'Next Question'}
-                </Text>
-                <Icon source={chevronRightBold} size={14} color="#FFFFFF" style={{ marginLeft: 6 }} />
-              </View>
-            </Squeeze>
-          </View>
-        </View>
-
-        {/* Device Details Card matching Figma */}
-        <View
-          style={[
-            styles.detailsCard,
-            { backgroundColor: colors.surface, borderColor: colors.border + '44' },
-          ]}>
-          <Text style={[styles.detailsHeading, { color: colors.text }]}>Device Details</Text>
-          <View style={[styles.divider, { backgroundColor: colors.border + '33' }]} />
-
-          <View style={styles.detailRow}>
-            <View>
-              <Text style={[styles.metaLabel, { color: colors.textMuted }]}>Brand</Text>
-              <Text style={[styles.metaValue, { color: colors.text }]}>{brand}</Text>
+                      {opt.description ? (
+                        <Text style={[styles.optionSub, { color: colors.textMuted }]}>
+                          {opt.description}
+                        </Text>
+                      ) : null}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
 
-            <View style={{ alignItems: 'flex-end' }}>
-              <Text style={[styles.metaLabel, { color: colors.textMuted }]}>Model</Text>
-              <Text style={[styles.metaValue, { color: colors.text }]}>
-                {model} ({storage})
-              </Text>
+            {/* Navigation Buttons */}
+            <View style={styles.buttonsRow}>
+              <TouchableOpacity
+                onPress={handlePrevious}
+                style={[
+                  styles.navBtnOutline,
+                  { borderColor: colors.border + '66', backgroundColor: colors.surfaceAlt },
+                ]}>
+                <Icon source={chevronLeftBold} size={14} color={colors.text} />
+                <Text style={[styles.navBtnOutlineText, { color: colors.text }]}>Previous</Text>
+              </TouchableOpacity>
+
+              <Squeeze
+                onPress={handleNext}
+                disabled={!answers[currentStepIndex]}
+                style={[
+                  styles.navBtnFilled,
+                  {
+                    backgroundColor: answers[currentStepIndex] ? colors.primary : colors.textMuted + '55',
+                  },
+                ]}>
+                <View style={styles.btnRow}>
+                  <Text style={styles.navBtnFilledText}>
+                    {isLastQuestion ? 'Proceed' : 'Next Question'}
+                  </Text>
+                  <Icon source={chevronRightBold} size={14} color="#FFFFFF" style={{ marginLeft: 6 }} />
+                </View>
+              </Squeeze>
             </View>
           </View>
-        </View>
+        )}
 
-        {/* Security & Guarantee Trust Card matching Figma */}
-        <View
-          style={[
-            styles.trustCard,
-            { backgroundColor: colors.surface, borderColor: colors.border + '44' },
-          ]}>
-          <View style={styles.trustHeader}>
-            <Icon source={shieldBold} size={20} color={colors.primary} />
-            <Text style={[styles.trustTitle, { color: colors.text }]}>Device Detail</Text>
-          </View>
-          <Text style={[styles.trustDesc, { color: colors.textMuted }]}>
-            Get paid instantly at your doorstep. We guarantee 100% data security and professional
-            device assessment through the CTI platform.
+        {/* Security / Trust Banner */}
+        <View style={styles.trustBanner}>
+          <Icon source={shieldBold} size={18} color={colors.primary} />
+          <Text style={[styles.trustText, { color: colors.textMuted }]}>
+            Accurate answers guarantee the highest quote and instant pickup approval.
           </Text>
         </View>
       </ScrollView>
+
+      {/* Alert Modal for strict validation */}
+      <AlertModal
+        visible={modal.visible}
+        type={modal.type}
+        title={modal.title}
+        message={modal.message}
+        onClose={() => setModal(prev => ({ ...prev, visible: false }))}
+      />
     </View>
   );
 }
@@ -239,25 +381,26 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 12,
   },
   questionCard: {
     borderRadius: 20,
     borderWidth: 1,
     padding: 20,
-    marginBottom: 16,
+    marginBottom: 20,
   },
   stepCaption: {
-    fontSize: 12,
+    fontSize: 11,
     fontFamily: fonts.bold,
-    letterSpacing: 0.5,
-    marginBottom: 6,
+    letterSpacing: 1.2,
+    marginBottom: 10,
   },
   questionTitle: {
     fontSize: 20,
     fontFamily: fonts.bold,
-    lineHeight: 26,
-    marginBottom: 20,
+    lineHeight: 28,
+    marginBottom: 22,
   },
   optionsList: {
     gap: 12,
@@ -266,15 +409,16 @@ const styles = StyleSheet.create({
   optionRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    padding: 16,
     borderRadius: 14,
     borderWidth: 1,
-    padding: 14,
-    gap: 12,
+    gap: 14,
   },
   checkCircle: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -291,16 +435,17 @@ const styles = StyleSheet.create({
   },
   buttonsRow: {
     flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 12,
   },
   navBtnOutline: {
-    flex: 1,
-    height: 46,
-    borderRadius: 12,
-    borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    paddingHorizontal: 20,
+    height: 48,
+    borderRadius: 14,
+    borderWidth: 1,
     gap: 6,
   },
   navBtnOutlineText: {
@@ -308,68 +453,61 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
   },
   navBtnFilled: {
-    flex: 1.3,
-    height: 46,
-    borderRadius: 12,
+    flex: 1,
+    height: 48,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
   btnRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
   },
   navBtnFilledText: {
     color: '#FFFFFF',
     fontSize: 14,
     fontFamily: fonts.bold,
   },
-  detailsCard: {
-    borderRadius: 18,
-    borderWidth: 1,
-    padding: 18,
-    marginBottom: 16,
-  },
-  detailsHeading: {
-    fontSize: 17,
-    fontFamily: fonts.bold,
-  },
-  divider: {
-    height: 1,
-    marginVertical: 12,
-  },
-  detailRow: {
+  trustBanner: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 10,
   },
-  metaLabel: {
+  trustText: {
+    flex: 1,
     fontSize: 12,
     fontFamily: fonts.regular,
-    marginBottom: 3,
+    lineHeight: 18,
   },
-  metaValue: {
-    fontSize: 15,
-    fontFamily: fonts.bold,
-  },
-  trustCard: {
-    borderRadius: 18,
-    borderWidth: 1,
-    padding: 18,
-  },
-  trustHeader: {
-    flexDirection: 'row',
+  emptyContainer: {
+    marginHorizontal: 8,
+    marginTop: 20,
+    padding: 24,
+    borderRadius: 20,
     alignItems: 'center',
-    gap: 8,
+    textAlign: 'center',
+    borderWidth: 1,
+  },
+  checkIconWrap: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  emptyHeading: {
+    fontSize: 20,
+    fontFamily: fonts.bold,
+    textAlign: 'center',
     marginBottom: 8,
   },
-  trustTitle: {
-    fontSize: 15,
-    fontFamily: fonts.bold,
-  },
-  trustDesc: {
-    fontSize: 13,
+  emptySubheading: {
+    fontSize: 14,
     fontFamily: fonts.regular,
-    lineHeight: 19,
+    textAlign: 'center',
+    lineHeight: 22,
   },
 });

@@ -16,6 +16,7 @@ import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
 import { FadeUp } from '@/animations';
 import {
+  arrowLeftBold,
   arrowRightBold,
   desktopBold,
   heartExtra,
@@ -37,7 +38,11 @@ import {
   REFURBISHED_TESTIMONIALS,
   RefurbishedProduct,
 } from '../data/refurbishedData';
-import { getTopSellingProducts } from '../services/refurbishedApi';
+import {
+  getTopSellingProducts,
+  getRefurbishedProducts,
+} from '../services/refurbishedApi';
+import { useWishlist } from '@/roles/Customer/context/WishlistContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = (SCREEN_WIDTH - 44) / 2;
@@ -45,18 +50,24 @@ const CARD_WIDTH = (SCREEN_WIDTH - 44) / 2;
 export default function BuyRefurbishedScreen({ navigation }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const { ids: wishlistIds, toggle: toggleWishlistContext, refreshWishlist } = useWishlist();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterModalVisible, setFilterModalVisible] = useState(false);
-  const [wishlist, setWishlist] = useState<string[]>([]);
   const [productsList, setProductsList] = useState<RefurbishedProduct[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const loadLiveData = async () => {
     try {
-      const live = await getTopSellingProducts();
-      setProductsList(Array.isArray(live) ? live : []);
+      // First fetch all live refurbished products from store
+      const allProducts = await getRefurbishedProducts();
+      if (Array.isArray(allProducts) && allProducts.length > 0) {
+        setProductsList(allProducts);
+      } else {
+        const live = await getTopSellingProducts();
+        setProductsList(Array.isArray(live) ? live : []);
+      }
     } catch (e) {
       setProductsList([]);
     } finally {
@@ -70,28 +81,29 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadLiveData();
+    await Promise.all([loadLiveData(), refreshWishlist()]);
     setRefreshing(false);
   };
 
-  const toggleWishlist = (id: string) => {
-    if (wishlist.includes(id)) {
-      setWishlist(wishlist.filter(item => item !== id));
-    } else {
-      setWishlist([...wishlist, id]);
-    }
+  const toggleWishlist = async (product: RefurbishedProduct) => {
+    try {
+      await toggleWishlistContext(product, product.defaultVariantId);
+    } catch {}
   };
 
   const handleProductPress = (product: RefurbishedProduct) => {
+    const slug = product.slug || product.raw?.slug;
+    const pId = String(product.rawId || product.id);
     if (typeof navigation.push === 'function') {
-      navigation.push('RefurbishedProductDetail', { productId: product.id, product });
+      navigation.push('RefurbishedProductDetail', { productId: pId, slug, product });
     } else {
-      navigation.navigate('RefurbishedProductDetail', { productId: product.id, product });
+      navigation.navigate('RefurbishedProductDetail', { productId: pId, slug, product });
     }
   };
 
   const renderProductCard = (product: RefurbishedProduct, index: number) => {
-    const isWished = wishlist.includes(product.id);
+    const pId = String(product.rawId || product.id);
+    const isWished = wishlistIds.includes(pId) || wishlistIds.includes(String(product.id));
     return (
       <FadeUp key={product.id + index} delay={index * 40}>
         <Squeeze
@@ -108,7 +120,7 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
           <View style={styles.cardHeader}>
             <Image source={ctiLogo} style={styles.miniLogo} resizeMode="contain" />
             <TouchableOpacity
-              onPress={() => toggleWishlist(product.id)}
+              onPress={() => toggleWishlist(product)}
               hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
               <Icon
                 source={isWished ? heartFilled : heartExtra}
@@ -207,6 +219,18 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
           />
         }
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 40 }]}>
+        {/* Back Button matching About Screen */}
+        <Squeeze
+          onPress={() => {
+            if (navigation.canGoBack()) navigation.goBack();
+          }}
+          scale={0.9}
+          style={styles.backWrap}>
+          <View style={[styles.back, { backgroundColor: colors.primary }]}>
+            <Icon source={arrowLeftBold} size={20} color="#FFFFFF" />
+          </View>
+        </Squeeze>
+
         {/* Search Bar */}
         <View
           style={[
@@ -359,10 +383,17 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
               </TouchableOpacity>
             </View>
             <View style={styles.productsGrid}>
-              {(productsList || [])
-                .filter(p => p?.category === 'Sell Phone' || p?.category === 'Earbuds')
-                .slice(0, 2)
-                .map((item, idx) => renderProductCard(item, idx + 4))}
+              {(() => {
+                const phones = (productsList || []).filter(
+                  p =>
+                    p?.category?.toLowerCase()?.includes('phone') ||
+                    p?.category?.toLowerCase()?.includes('mobile') ||
+                    p?.name?.toLowerCase()?.includes('phone'),
+                );
+                return (phones.length > 0 ? phones : (productsList || []).slice(0, 2))
+                  .slice(0, 2)
+                  .map((item, idx) => renderProductCard(item, idx + 4));
+              })()}
             </View>
 
             {/* Section: Top Selling Laptop */}
@@ -376,11 +407,18 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
               </TouchableOpacity>
             </View>
             <View style={styles.productsGrid}>
-              {(productsList || [])
-                .filter(p => p?.category === 'Laptop' || p?.brand === 'Hp')
-                .concat((productsList || []).slice(0, 1))
-                .slice(0, 2)
-                .map((item, idx) => renderProductCard(item, idx + 6))}
+              {(() => {
+                const laptops = (productsList || []).filter(
+                  p =>
+                    p?.category?.toLowerCase()?.includes('laptop') ||
+                    p?.category?.toLowerCase()?.includes('notebook') ||
+                    p?.name?.toLowerCase()?.includes('laptop') ||
+                    p?.brand?.toLowerCase() === 'hp',
+                );
+                return (laptops.length > 0 ? laptops : (productsList || []).slice(0, 2))
+                  .slice(0, 2)
+                  .map((item, idx) => renderProductCard(item, idx + 6));
+              })()}
             </View>
 
             {/* Section: In-Demand Smartwatches */}
@@ -390,17 +428,22 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
               </Text>
               <TouchableOpacity
                 onPress={() =>
-                  navigation.navigate('AllGadgets', { initialCategory: 'Smart watches' })
+                  navigation.navigate('AllGadgets', { initialCategory: 'Smartwatches' })
                 }>
                 <Text style={[styles.seeAllText, { color: colors.primary }]}>See All</Text>
               </TouchableOpacity>
             </View>
             <View style={styles.productsGrid}>
-              {(productsList || [])
-                .filter(p => p?.category === 'Smart watches')
-                .concat((productsList || []).slice(1, 2))
-                .slice(0, 2)
-                .map((item, idx) => renderProductCard(item, idx + 8))}
+              {(() => {
+                const watches = (productsList || []).filter(
+                  p =>
+                    p?.category?.toLowerCase()?.includes('watch') ||
+                    p?.name?.toLowerCase()?.includes('watch'),
+                );
+                return (watches.length > 0 ? watches : (productsList || []).slice(0, 2))
+                  .slice(0, 4)
+                  .map((item, idx) => renderProductCard(item, idx + 8));
+              })()}
             </View>
 
             {/* Section: Trending Gamer Essentials */}
@@ -416,11 +459,16 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
               </TouchableOpacity>
             </View>
             <View style={styles.productsGrid}>
-              {(productsList || [])
-                .filter(p => p?.category === 'Gaming Console')
-                .concat((productsList || []).slice(0, 1))
-                .slice(0, 2)
-                .map((item, idx) => renderProductCard(item, idx + 10))}
+              {(() => {
+                const games = (productsList || []).filter(
+                  p =>
+                    p?.category?.toLowerCase()?.includes('gaming') ||
+                    p?.category?.toLowerCase()?.includes('console'),
+                );
+                return (games.length > 0 ? games : (productsList || []).slice(0, 2))
+                  .slice(0, 2)
+                  .map((item, idx) => renderProductCard(item, idx + 10));
+              })()}
             </View>
           </>
         )}
@@ -483,6 +531,18 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingTop: 12,
+  },
+  backWrap: {
+    alignSelf: 'flex-start',
+    marginHorizontal: 16,
+    marginBottom: 12,
+  },
+  back: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   searchBar: {
     flexDirection: 'row',

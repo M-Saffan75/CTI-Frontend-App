@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -7,14 +8,17 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { launchImageLibrary } from 'react-native-image-picker';
 
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
 import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import {
+  arrowLeftBold,
   cameraBold,
   chevronLeftBold,
   chevronRightBold,
+  closeIcon,
   shieldBold,
   videoBold,
 } from '@/assets/icons';
@@ -27,12 +31,19 @@ export default function UploadDeviceMediaScreen({ navigation, route }: any) {
   const insets = useSafeAreaInsets();
 
   const brand = route?.params?.brand || 'Apple';
+  const brandSlug = route?.params?.brandSlug || brand.toLowerCase();
+  const brandId = route?.params?.brandId;
   const model = route?.params?.model || '12 pro max';
+  const modelSlug =
+    route?.params?.modelSlug || model.toLowerCase().replace(/\s+/g, '-');
+  const modelId = route?.params?.modelId;
+  const categoryId = route?.params?.categoryId;
   const storage = route?.params?.storage || '128 GB';
+  const selectedVariants = route?.params?.selectedVariants || [{ key: 'Storage', value: storage }];
   const conditionAnswers = route?.params?.conditionAnswers || {};
 
-  const [picCount, setPicCount] = useState(3);
-  const [vidCount, setVidCount] = useState(1);
+  const [images, setImages] = useState<any[]>([]);
+  const [videos, setVideos] = useState<any[]>([]);
 
   // AlertModal State
   const [modal, setModal] = useState<{
@@ -48,61 +59,139 @@ export default function UploadDeviceMediaScreen({ navigation, route }: any) {
   });
 
   const handlePickPicture = () => {
-    if (picCount < 10) {
-      setPicCount(picCount + 1);
-      setModal({
-        visible: true,
-        type: 'success',
-        title: 'Photo Added',
-        message: 'Photo attached successfully to device verification.',
-      });
-    } else {
+    if (images.length >= 10) {
       setModal({
         visible: true,
         type: 'warning',
         title: 'Limit Reached',
-        message: 'Maximum 10 pictures allowed.',
+        message: 'You can upload a maximum of 10 pictures.',
       });
+      return;
     }
+
+    launchImageLibrary(
+      {
+        mediaType: 'photo',
+        selectionLimit: 10 - images.length,
+      },
+      response => {
+        if (response.didCancel) return;
+        if (response.errorCode) {
+          setModal({
+            visible: true,
+            type: 'error',
+            title: 'Media Error',
+            message: response.errorMessage || 'Failed to select pictures.',
+          });
+          return;
+        }
+
+        const assets = response.assets || [];
+        if (assets.length > 0) {
+          setImages(prev => {
+            const updated = [...prev, ...assets];
+            return updated.slice(0, 10);
+          });
+        }
+      },
+    );
   };
 
   const handlePickVideo = () => {
-    if (vidCount < 3) {
-      setVidCount(vidCount + 1);
-      setModal({
-        visible: true,
-        type: 'success',
-        title: 'Video Added',
-        message: '360° device inspection video attached.',
-      });
-    } else {
+    if (videos.length >= 3) {
       setModal({
         visible: true,
         type: 'warning',
         title: 'Limit Reached',
-        message: 'Maximum 3 videos allowed.',
+        message: 'You can upload a maximum of 3 videos.',
       });
+      return;
     }
+
+    launchImageLibrary(
+      {
+        mediaType: 'video',
+        selectionLimit: 3 - videos.length,
+      },
+      response => {
+        if (response.didCancel) return;
+        if (response.errorCode) {
+          setModal({
+            visible: true,
+            type: 'error',
+            title: 'Media Error',
+            message: response.errorMessage || 'Failed to select videos.',
+          });
+          return;
+        }
+
+        const assets = response.assets || [];
+        if (assets.length > 0) {
+          setVideos(prev => {
+            const updated = [...prev, ...assets];
+            return updated.slice(0, 3);
+          });
+        }
+      },
+    );
+  };
+
+  const handleRemoveImage = (index: number) => {
+    setImages(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleRemoveVideo = (index: number) => {
+    setVideos(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleGetQuote = () => {
+    if (images.length === 0) {
+      setModal({
+        visible: true,
+        type: 'warning',
+        title: 'Pictures Required',
+        message: 'Please upload at least 1 clear picture of your device before proceeding.',
+      });
+      return;
+    }
+
     navigation.navigate('QuoteApplication', {
       brand,
+      brandSlug,
+      brandId,
       model,
+      modelSlug,
+      modelId,
+      categoryId,
       storage,
+      selectedVariants,
       conditionAnswers,
-      picCount,
-      vidCount,
+      images,
+      videos,
+      picCount: images.length,
+      vidCount: videos.length,
     });
   };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <RefurbishedHeader showBack={false} showActions={false} />
+      <RefurbishedHeader showActions={false} />
 
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 40 }]}>
+        {/* Back Button matching About Screen */}
+        <Squeeze
+          onPress={() => {
+            if (navigation.canGoBack()) navigation.goBack();
+          }}
+          scale={0.9}
+          style={styles.backWrap}>
+          <View style={[styles.back, { backgroundColor: colors.primary }]}>
+            <Icon source={arrowLeftBold} size={20} color="#FFFFFF" />
+          </View>
+        </Squeeze>
+
         {/* Upload Media Card matching Figma */}
         <View
           style={[
@@ -113,7 +202,7 @@ export default function UploadDeviceMediaScreen({ navigation, route }: any) {
             Upload Device Photos & Media
           </Text>
           <Text style={[styles.uploadSub, { color: colors.textMuted }]}>
-            Upload images and videos of your device to verify its physical condition.
+            Upload images (max 10) and videos (max 3) of your device to verify its physical condition.
           </Text>
 
           <View style={styles.dropzonesRow}>
@@ -130,7 +219,7 @@ export default function UploadDeviceMediaScreen({ navigation, route }: any) {
               <View style={styles.dropzoneHeader}>
                 <Text style={[styles.dropzoneType, { color: colors.text }]}>Picture</Text>
                 <Text style={[styles.dropzoneLimit, { color: colors.textMuted }]}>
-                  {picCount}/10 Max
+                  {images.length}/10 Max
                 </Text>
               </View>
               <View style={styles.dropzoneCenter}>
@@ -157,7 +246,7 @@ export default function UploadDeviceMediaScreen({ navigation, route }: any) {
               <View style={styles.dropzoneHeader}>
                 <Text style={[styles.dropzoneType, { color: colors.text }]}>Video</Text>
                 <Text style={[styles.dropzoneLimit, { color: colors.textMuted }]}>
-                  {vidCount}/3 Max
+                  {videos.length}/3 Max
                 </Text>
               </View>
               <View style={styles.dropzoneCenter}>
@@ -171,6 +260,61 @@ export default function UploadDeviceMediaScreen({ navigation, route }: any) {
               </View>
             </TouchableOpacity>
           </View>
+
+          {/* Attached Images Preview Grid */}
+          {images.length > 0 && (
+            <View style={styles.mediaPreviewSection}>
+              <Text style={[styles.mediaSectionTitle, { color: colors.text }]}>
+                Attached Photos ({images.length}/10)
+              </Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.thumbnailsScroll}>
+                {images.map((img, idx) => (
+                  <View key={idx} style={[styles.thumbWrapper, { borderColor: colors.border + '55' }]}>
+                    <Image source={{ uri: img.uri }} style={styles.thumbImage} resizeMode="cover" />
+                    <TouchableOpacity
+                      onPress={() => handleRemoveImage(idx)}
+                      style={[styles.removeBadge, { backgroundColor: colors.error }]}>
+                      <Icon source={closeIcon} size={10} color="#FFFFFF" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
+          {/* Attached Videos List */}
+          {videos.length > 0 && (
+            <View style={styles.mediaPreviewSection}>
+              <Text style={[styles.mediaSectionTitle, { color: colors.text }]}>
+                Attached Videos ({videos.length}/3)
+              </Text>
+              {videos.map((vid, idx) => {
+                const vidName = vid.fileName || `Video ${idx + 1}.mp4`;
+                const sizeMb = vid.fileSize ? (vid.fileSize / (1024 * 1024)).toFixed(2) + ' MB' : '';
+                return (
+                  <View
+                    key={idx}
+                    style={[
+                      styles.videoRow,
+                      { backgroundColor: colors.surfaceAlt, borderColor: colors.border + '33' },
+                    ]}>
+                    <Icon source={videoBold} size={18} color={colors.primary} />
+                    <View style={styles.videoMeta}>
+                      <Text style={[styles.videoName, { color: colors.text }]} numberOfLines={1}>
+                        {vidName}
+                      </Text>
+                      {sizeMb ? <Text style={[styles.videoSize, { color: colors.textMuted }]}>{sizeMb}</Text> : null}
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => handleRemoveVideo(idx)}
+                      style={[styles.removeVideoBtn, { backgroundColor: colors.border + '33' }]}>
+                      <Icon source={closeIcon} size={12} color={colors.error} />
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+            </View>
+          )}
 
           {/* Action Buttons */}
           <View style={styles.buttonsRow}>
@@ -186,7 +330,13 @@ export default function UploadDeviceMediaScreen({ navigation, route }: any) {
 
             <Squeeze
               onPress={handleGetQuote}
-              style={[styles.navBtnFilled, { backgroundColor: colors.primary }]}>
+              disabled={images.length === 0}
+              style={[
+                styles.navBtnFilled,
+                {
+                  backgroundColor: images.length > 0 ? colors.primary : colors.textMuted + '55',
+                },
+              ]}>
               <View style={styles.btnRow}>
                 <Text style={styles.navBtnFilledText}>Get Quote</Text>
                 <Icon source={chevronRightBold} size={14} color="#FFFFFF" style={{ marginLeft: 6 }} />
@@ -213,7 +363,12 @@ export default function UploadDeviceMediaScreen({ navigation, route }: any) {
             <View style={{ alignItems: 'flex-end' }}>
               <Text style={[styles.metaLabel, { color: colors.textMuted }]}>Model</Text>
               <Text style={[styles.metaValue, { color: colors.text }]}>
-                {model} ({storage})
+                {model}
+                {selectedVariants && selectedVariants.length > 0
+                  ? ` (${selectedVariants.map((v: any) => v.value).join(', ')})`
+                  : storage
+                  ? ` (${storage})`
+                  : ''}
               </Text>
             </View>
           </View>
@@ -222,7 +377,7 @@ export default function UploadDeviceMediaScreen({ navigation, route }: any) {
             <View>
               <Text style={[styles.metaLabel, { color: colors.textMuted }]}>Media Uploaded</Text>
               <Text style={[styles.metaValue, { color: colors.primary }]}>
-                {picCount} Pics, {vidCount} Vids
+                {images.length} Pics, {videos.length} Vids
               </Text>
             </View>
           </View>
@@ -263,6 +418,17 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 16,
   },
+  backWrap: {
+    alignSelf: 'flex-start',
+    marginBottom: 12,
+  },
+  back: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   uploadCard: {
     borderRadius: 20,
     borderWidth: 1,
@@ -283,7 +449,7 @@ const styles = StyleSheet.create({
   dropzonesRow: {
     flexDirection: 'row',
     gap: 12,
-    marginBottom: 20,
+    marginBottom: 16,
   },
   dropzoneBox: {
     flex: 1,
@@ -322,9 +488,74 @@ const styles = StyleSheet.create({
     marginTop: 2,
     textAlign: 'center',
   },
+  mediaPreviewSection: {
+    marginBottom: 16,
+  },
+  mediaSectionTitle: {
+    fontSize: 12,
+    fontFamily: fonts.bold,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  thumbnailsScroll: {
+    gap: 10,
+    paddingVertical: 4,
+  },
+  thumbWrapper: {
+    width: 68,
+    height: 68,
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  thumbImage: {
+    width: '100%',
+    height: '100%',
+  },
+  removeBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  videoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 8,
+    gap: 10,
+  },
+  videoMeta: {
+    flex: 1,
+  },
+  videoName: {
+    fontSize: 12,
+    fontFamily: fonts.medium,
+  },
+  videoSize: {
+    fontSize: 10,
+    fontFamily: fonts.regular,
+    marginTop: 2,
+  },
+  removeVideoBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   buttonsRow: {
     flexDirection: 'row',
     gap: 12,
+    marginTop: 8,
   },
   navBtnOutline: {
     flex: 1,

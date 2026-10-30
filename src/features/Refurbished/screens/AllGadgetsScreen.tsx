@@ -16,6 +16,7 @@ import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
 import { FadeUp } from '@/animations';
 import {
+  arrowLeftBold,
   chevronDownBold,
   chevronRightBold,
   packageBold,
@@ -80,21 +81,53 @@ export default function AllGadgetsScreen({ navigation, route }: any) {
   let filtered = Array.isArray(rawProducts) ? [...rawProducts] : [];
 
   if (initialCategory) {
-    const catLower = String(initialCategory).toLowerCase();
-    filtered = filtered.filter(
-      p =>
-        p?.category?.toLowerCase()?.includes(catLower) ||
-        p?.name?.toLowerCase()?.includes(catLower),
-    );
+    const rawClean = String(initialCategory).toLowerCase();
+    const catClean = rawClean.replace(/[\s\-_]+/g, '');
+    filtered = filtered.filter(p => {
+      const pCat = String(p?.category || '').toLowerCase();
+      const pCatClean = pCat.replace(/[\s\-_]+/g, '');
+      const pName = String(p?.name || '').toLowerCase();
+
+      // Flexible Watch matching ("Smartwatches", "Smart watches", "watch")
+      if (rawClean.includes('watch') && (pCat.includes('watch') || pName.includes('watch'))) {
+        return true;
+      }
+      // Phone / Mobile matching
+      if (
+        (rawClean.includes('phone') || rawClean.includes('mobile')) &&
+        (pCat.includes('phone') || pCat.includes('mobile') || pName.includes('phone'))
+      ) {
+        return true;
+      }
+      // General clean match
+      return (
+        pCat.includes(rawClean) ||
+        pCatClean.includes(catClean) ||
+        catClean.includes(pCatClean) ||
+        pName.includes(rawClean)
+      );
+    });
   }
 
   if (activeFilters) {
     if (Array.isArray(activeFilters?.types) && !activeFilters.types.includes('all')) {
-      filtered = filtered.filter(p =>
-        activeFilters.types.some((t: string) =>
-          p?.category?.toLowerCase()?.includes(String(t).toLowerCase()),
-        ),
-      );
+      filtered = filtered.filter(p => {
+        const pCat = String(p?.category || '').toLowerCase();
+        const pName = String(p?.name || '').toLowerCase();
+        return activeFilters.types.some((t: string) => {
+          const typeLower = String(t).toLowerCase();
+          if (typeLower === 'watch' && (pCat.includes('watch') || pName.includes('watch'))) {
+            return true;
+          }
+          if (
+            (typeLower === 'phone' || typeLower === 'mobile') &&
+            (pCat.includes('phone') || pCat.includes('mobile') || pName.includes('phone'))
+          ) {
+            return true;
+          }
+          return pCat.includes(typeLower) || pName.includes(typeLower);
+        });
+      });
     }
     if (Array.isArray(activeFilters?.brands) && activeFilters.brands.length > 0) {
       filtered = filtered.filter(p =>
@@ -121,10 +154,12 @@ export default function AllGadgetsScreen({ navigation, route }: any) {
   }
 
   const handleProductPress = (product: RefurbishedProduct) => {
+    const slug = product?.slug || product?.raw?.slug;
+    const pId = String(product?.rawId || product?.id);
     if (typeof navigation.push === 'function') {
-      navigation.push('RefurbishedProductDetail', { productId: product?.id, product });
+      navigation.push('RefurbishedProductDetail', { productId: pId, slug, product });
     } else {
-      navigation.navigate('RefurbishedProductDetail', { productId: product?.id, product });
+      navigation.navigate('RefurbishedProductDetail', { productId: pId, slug, product });
     }
   };
 
@@ -160,6 +195,18 @@ export default function AllGadgetsScreen({ navigation, route }: any) {
           />
         }
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 40 }]}>
+        {/* Back Button matching About Screen */}
+        <Squeeze
+          onPress={() => {
+            if (navigation.canGoBack()) navigation.goBack();
+          }}
+          scale={0.9}
+          style={styles.backWrap}>
+          <View style={[styles.back, { backgroundColor: colors.primary }]}>
+            <Icon source={arrowLeftBold} size={20} color="#FFFFFF" />
+          </View>
+        </Squeeze>
+
         {/* Title & Subtitle matching Figma */}
         <View style={styles.titleSection}>
           <Text style={[styles.mainHeading, { color: colors.text }]}>
@@ -352,6 +399,18 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingTop: 16,
+  },
+  backWrap: {
+    alignSelf: 'flex-start',
+    marginHorizontal: 16,
+    marginBottom: 12,
+  },
+  back: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   titleSection: {
     paddingHorizontal: 16,

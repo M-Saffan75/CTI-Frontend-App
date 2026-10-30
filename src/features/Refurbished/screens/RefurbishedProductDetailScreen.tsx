@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Dimensions,
   Image,
   ScrollView,
@@ -47,7 +48,14 @@ import {
   REFURBISHED_PRODUCTS,
   RefurbishedProduct,
 } from '../data/refurbishedData';
-import { getRefurbishedProductDetail } from '../services/refurbishedApi';
+import {
+  getRefurbishedProductDetail,
+  addRefurbishedCartItem,
+  toggleRefurbishedWishlist,
+  checkIsRefurbishedWishlisted,
+} from '../services/refurbishedApi';
+import { useWishlist } from '@/roles/Customer/context/WishlistContext';
+import { useCart } from '@/roles/Customer/context/CartContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -63,10 +71,15 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
   const insets = useSafeAreaInsets();
 
   const passedProduct: RefurbishedProduct | undefined = route?.params?.product;
-  const productId: string | undefined = route?.params?.productId || passedProduct?.id;
+  const lookupKey: string | undefined =
+    route?.params?.slug ||
+    passedProduct?.slug ||
+    route?.params?.productId ||
+    passedProduct?.rawId ||
+    passedProduct?.id;
 
   const [product, setProduct] = useState<RefurbishedProduct | null>(passedProduct || null);
-  const [loading, setLoading] = useState<boolean>(!passedProduct && !!productId);
+  const [loading, setLoading] = useState<boolean>(!passedProduct && !!lookupKey);
 
   // Sync state whenever route params change
   useEffect(() => {
@@ -77,12 +90,12 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
         setSelectedGrade(passedProduct.grade as any);
       }
     }
-  }, [passedProduct, productId]);
+  }, [passedProduct, lookupKey]);
 
   useEffect(() => {
-    if (productId) {
+    if (lookupKey) {
       if (!passedProduct && !product) setLoading(true);
-      getRefurbishedProductDetail(productId)
+      getRefurbishedProductDetail(lookupKey)
         .then(live => {
           if (live) {
             setProduct(live);
@@ -99,7 +112,7 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
           setLoading(false);
         });
     }
-  }, [productId]);
+  }, [lookupKey]);
 
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [quantity, setQuantity] = useState(1);
@@ -109,6 +122,53 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
   const [askModalVisible, setAskModalVisible] = useState(false);
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [isWished, setIsWished] = useState(false);
+  const [wishlistLoading, setWishlistLoading] = useState(false);
+  const [addingToCart, setAddingToCart] = useState(false);
+
+  const { ids: wishlistIds, isSaved, toggle: toggleWishlistContext, refreshWishlist } = useWishlist();
+  const { cartCount, refreshCart } = useCart();
+
+  // Variant handling
+  const variants: any[] = product?.variants || product?.raw?.variants || [];
+  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (product) {
+      const vars = product?.variants || product?.raw?.variants || [];
+      const def = vars.find((v: any) => v.isDefault) || vars[0];
+      const vId = def?._id ? String(def._id) : (product.defaultVariantId || null);
+      setSelectedVariantId(vId);
+
+      const pId = String(product.rawId || product.id);
+      setIsWished(wishlistIds.includes(pId));
+    }
+  }, [product, wishlistIds]);
+
+  const selectedVariant =
+    variants.find((v: any) => String(v._id) === String(selectedVariantId)) ||
+    variants[0] ||
+    null;
+
+  const displayPrice = Number(
+    selectedVariant?.discountPrice ||
+    selectedVariant?.sellingPrice ||
+    selectedVariant?.price ||
+    product?.price ||
+    0,
+  );
+
+  const displayMrp = Number(
+    selectedVariant?.sellingPrice ||
+    selectedVariant?.price ||
+    product?.originalPrice ||
+    Math.round(displayPrice * 1.25),
+  );
+
+  const displayStock = Number(
+    selectedVariant?.stock ??
+    product?.inStockCount ??
+    5,
+  );
 
   // Review Form states
   const [userRating, setUserRating] = useState(5);
@@ -160,27 +220,85 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
     });
   };
 
-  const handleAddToCart = () => {
-    setModal({
-      visible: true,
-      type: 'success',
-      title: 'Added to Cart',
-      message: `${product?.name || 'Item'} (Qty: ${quantity}) has been added to your cart.`,
-    });
+  const handleAddToCart = async () => {
+    if (!product) return;
+    const pId = product.rawId || product.id;
+    const vId = selectedVariant?._id ? String(selectedVariant._id) : (selectedVariantId || product.defaultVariantId);
+    setAddingToCart(true);
+    try {
+      const res = await addRefurbishedCartItem(pId, vId || undefined, quantity, product);
+      if (res.success) {
+        await refreshCart();
+        setModal({
+          visible: true,
+          type: 'success',
+          title: 'Added to Cart',
+          message: `${product.name} (Qty: ${quantity}) has been added to your cart.`,
+        });
+      } else {
+        setModal({
+          visible: true,
+          type: 'error',
+          title: 'Error',
+          message: res.message || 'Could not add to cart.',
+        });
+      }
+    } catch (err: any) {
+      setModal({
+        visible: true,
+        type: 'error',
+        title: 'Error',
+        message: err?.message || 'Could not add to cart.',
+      });
+    } finally {
+      setAddingToCart(false);
+    }
+  };
+
+  const handleToggleWishlist = async () => {
+    if (!product) return;
+    setWishlistLoading(true);
+    try {
+      const vId = selectedVariantId || product.defaultVariantId;
+      const nextWished = await toggleWishlistContext(product, vId);
+      setIsWished(nextWished);
+      setModal({
+        visible: true,
+        type: 'success',
+        title: nextWished ? 'Added to Wishlist' : 'Removed from Wishlist',
+        message: nextWished
+          ? `${product.name} has been added to your wishlist!`
+          : `${product.name} has been removed from your wishlist.`,
+      });
+    } catch (err) {
+      // Revert if error
+    } finally {
+      setWishlistLoading(false);
+    }
   };
 
   const handleBuyNow = () => {
     try {
+      const pId = String(product?.rawId || product?.id || '');
+      const vId = selectedVariant?._id
+        ? String(selectedVariant._id)
+        : (selectedVariantId || product?.defaultVariantId || undefined);
+
       navigation.navigate('Checkout', {
+        isRefurbished: true,
         cartItems: [{
-          id: product?.id || 'refurb-item',
-          productId: product?.id,
+          id: pId || 'refurb-item',
+          productId: pId,
+          variantId: vId,
           title: product?.name || 'Refurbished Device',
-          price: product?.price || 0,
+          price: displayPrice,
           quantity,
           image: product?.image,
+          isRefurbished: true,
+          product: product?.raw || product,
         }],
-        total: (product?.price ?? 0) * quantity,
+        subtotal: displayPrice * quantity,
+        total: displayPrice * quantity,
       });
     } catch {
       handleAddToCart();
@@ -210,26 +328,37 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
           <Icon source={arrowLeftBold} size={18} color="#FFFFFF" />
         </Squeeze>
 
-        <View
-          style={[
-            styles.searchBar,
-            { backgroundColor: colors.surfaceAlt, borderColor: colors.border + '33' },
-          ]}>
-          <Icon source={searchBold} size={16} color={colors.textMuted} />
-          <TextInput
-            placeholder="Search In Cti"
-            placeholderTextColor={colors.textMuted + '88'}
-            style={[styles.searchInput, { color: colors.text }]}
-          />
+        <View style={{ flex: 1, paddingHorizontal: 12 }}>
+          <Text
+            style={{
+              fontFamily: fonts.bold,
+              fontSize: 16,
+              color: colors.text,
+            }}
+            numberOfLines={1}>
+            {product?.name || 'Device Details'}
+          </Text>
         </View>
 
         <View style={styles.headerActions}>
-          <TouchableOpacity onPress={() => setIsWished(!isWished)} style={styles.headIconBtn}>
-            <Icon
-              source={isWished ? heartFilled : heartExtra}
-              size={20}
-              color={isWished ? '#EF4444' : colors.text}
-            />
+          <TouchableOpacity
+            onPress={handleToggleWishlist}
+            disabled={wishlistLoading}
+            style={styles.headIconBtn}>
+            <View style={{ position: 'relative' }}>
+              <Icon
+                source={isWished ? heartFilled : heartExtra}
+                size={20}
+                color={isWished ? '#EF4444' : colors.text}
+              />
+              {wishlistIds.length > 0 && (
+                <View style={[styles.headBadge, { backgroundColor: colors.error }]}>
+                  <Text style={styles.headBadgeText}>
+                    {wishlistIds.length > 99 ? '99+' : wishlistIds.length}
+                  </Text>
+                </View>
+              )}
+            </View>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -245,7 +374,16 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
               } catch {}
             }}
             style={styles.headIconBtn}>
-            <Icon source={shoppingCartExtra} size={20} color={colors.text} />
+            <View style={{ position: 'relative' }}>
+              <Icon source={shoppingCartExtra} size={20} color={colors.text} />
+              {cartCount > 0 && (
+                <View style={[styles.headBadge, { backgroundColor: colors.primary }]}>
+                  <Text style={styles.headBadgeText}>
+                    {cartCount > 99 ? '99+' : cartCount}
+                  </Text>
+                </View>
+              )}
+            </View>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -374,15 +512,68 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
             {product?.description || ''}
           </Text>
 
+          {/* Variants Selector */}
+          {variants.length > 1 && (
+            <View style={styles.variantsSection}>
+              <Text style={[styles.variantSectionTitle, { color: colors.text }]}>
+                Select Variant:
+              </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.variantsRow}>
+                {variants.map((v: any, vIdx: number) => {
+                  const isSel = String(v._id) === String(selectedVariantId);
+                  const attrText =
+                    Array.isArray(v.attributes) && v.attributes.length > 0
+                      ? v.attributes.map((a: any) => `${a.name}: ${a.value}`).join(' • ')
+                      : v.title || `Option ${vIdx + 1}`;
+                  return (
+                    <TouchableOpacity
+                      key={v._id || vIdx}
+                      onPress={() => setSelectedVariantId(String(v._id))}
+                      style={[
+                        styles.variantChip,
+                        {
+                          borderColor: isSel ? colors.primary : colors.border + '55',
+                          backgroundColor: isSel ? colors.primary + '15' : colors.surfaceAlt,
+                        },
+                      ]}>
+                      <Text
+                        style={[
+                          styles.variantChipText,
+                          {
+                            color: isSel ? colors.primary : colors.text,
+                            fontFamily: isSel ? fonts.bold : fonts.regular,
+                          },
+                        ]}>
+                        {attrText}
+                      </Text>
+                      {typeof v.stock === 'number' && (
+                        <Text
+                          style={[
+                            styles.variantStockText,
+                            { color: v.stock > 0 ? '#059669' : '#EF4444' },
+                          ]}>
+                          {v.stock > 0 ? `${v.stock} in stock` : 'Out of stock'}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          )}
+
           {/* Price & In-stock Row */}
           <View style={styles.priceRow}>
-            <Text style={[styles.priceValue, { color: colors.text }]}>${product?.price ?? 0}.00</Text>
+            <Text style={[styles.priceValue, { color: colors.text }]}>${displayPrice}.00</Text>
             <Text style={[styles.mrpValue, { color: colors.textMuted }]}>
-              MRP ${product?.originalPrice ?? 0}.00
+              MRP ${displayMrp}.00
             </Text>
             <View style={styles.inStockBadge}>
               <Icon source={checkCircleFilled} size={14} color="#059669" />
-              <Text style={styles.inStockText}>In Stock ({product?.inStockCount ?? 0} left)</Text>
+              <Text style={styles.inStockText}>In Stock ({displayStock} left)</Text>
             </View>
           </View>
         </View>
@@ -391,10 +582,17 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
         <View style={styles.cartButtonsRow}>
           <Squeeze
             onPress={handleAddToCart}
+            disabled={addingToCart}
             style={[styles.primaryActionBtn, { backgroundColor: colors.primary }]}>
             <View style={styles.actionBtnRow}>
-              <Icon source={shoppingBasketBold} size={18} color="#FFFFFF" />
-              <Text style={styles.primaryActionText}>Add To Cart</Text>
+              {addingToCart ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <>
+                  <Icon source={shoppingBasketBold} size={18} color="#FFFFFF" />
+                  <Text style={styles.primaryActionText}>Add To Cart</Text>
+                </>
+              )}
             </View>
           </Squeeze>
 
@@ -997,6 +1195,24 @@ const styles = StyleSheet.create({
   headIconBtn: {
     padding: 2,
   },
+  headBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -8,
+    minWidth: 15,
+    height: 15,
+    borderRadius: 7.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+  },
+  headBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontFamily: fonts.bold,
+    textAlign: 'center',
+    lineHeight: 11,
+  },
   scrollContent: {
     paddingTop: 14,
   },
@@ -1128,6 +1344,35 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     lineHeight: 19,
     marginTop: 6,
+  },
+  variantsSection: {
+    marginTop: 14,
+  },
+  variantSectionTitle: {
+    fontSize: 13,
+    fontFamily: fonts.bold,
+    marginBottom: 8,
+  },
+  variantsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingRight: 10,
+  },
+  variantChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  variantChipText: {
+    fontSize: 13,
+  },
+  variantStockText: {
+    fontSize: 10,
+    fontFamily: fonts.medium,
+    marginTop: 2,
   },
   priceRow: {
     flexDirection: 'row',

@@ -16,7 +16,7 @@ import Squeeze from '@/components/Squeeze';
 import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import { arrowLeftBold, commentDotsBold, mapPinBold, packageBold, sendBold } from '@/assets/icons';
-import { ctiLogo } from '@/assets/images';
+import { ctiLogo, demoProductPhoto } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
 import { badges, palette } from '@/theme/colors';
 import { fonts } from '@/theme/fonts';
@@ -26,6 +26,48 @@ import { getCustomerOrderDetail, MobileOrder } from '../services/orderApi';
 const PROGRESS_STEPS = ['Pending', 'Processing', 'Shipping', 'Shipped', 'Delivered'];
 
 const money = (n: number = 0) => `$${Number(n || 0).toFixed(2)}`;
+
+function OrderItemImage({ uri, style }: { uri?: string; style?: any }) {
+  const [loadError, setLoadError] = useState(false);
+  const { colors } = useTheme();
+
+  const hasValidUri = Boolean(
+    !loadError &&
+    uri &&
+    typeof uri === 'string' &&
+    uri.trim().length > 0 &&
+    (uri.startsWith('http://') || uri.startsWith('https://')) &&
+    !uri.includes('via.placeholder.com')
+  );
+
+  return (
+    <View
+      style={[
+        style,
+        {
+          backgroundColor: colors.surfaceAlt,
+          overflow: 'hidden',
+          alignItems: 'center',
+          justifyContent: 'center',
+        },
+      ]}>
+      {hasValidUri ? (
+        <Image
+          source={{ uri }}
+          style={{ width: '100%', height: '100%' }}
+          resizeMode="cover"
+          onError={() => setLoadError(true)}
+        />
+      ) : (
+        <Image
+          source={demoProductPhoto}
+          style={{ width: '100%', height: '100%' }}
+          resizeMode="cover"
+        />
+      )}
+    </View>
+  );
+}
 
 export default function OrderDetailScreen({ navigation, route }: any) {
   const { colors } = useTheme();
@@ -176,15 +218,7 @@ export default function OrderDetailScreen({ navigation, route }: any) {
 
                   return (
                     <View key={`item-${item.id || idx}-${idx}`} style={styles.item}>
-                      <Image
-                        source={{
-                          uri:
-                            item.image && typeof item.image === 'string' && item.image.startsWith('http')
-                              ? item.image
-                              : 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400&q=80',
-                        }}
-                        style={styles.itemImage}
-                      />
+                      <OrderItemImage uri={item.image} style={styles.itemImage} />
                       <View style={styles.itemText}>
                         <Text style={[styles.itemName, { color: colors.text }]}>
                           {String(item.name || 'Purchased Item')}

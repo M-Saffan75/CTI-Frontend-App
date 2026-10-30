@@ -28,16 +28,12 @@ export default function ApplicationSubmittedScreen({ navigation, route }: any) {
 
   const referenceId = route?.params?.referenceId || 'REF-781920';
   const applicantName = route?.params?.applicantName || 'Valued Customer';
-  const brand = route?.params?.brand || 'Apple';
-  const model = route?.params?.model || '12 pro max';
-  const storage = route?.params?.storage || '128 GB';
-  const conditionAnswers = route?.params?.conditionAnswers || {
-    0: 'Good',
-    1: 'Yes',
-    2: 'Yes',
-  };
-  const picCount = route?.params?.picCount || 3;
-  const vidCount = route?.params?.vidCount || 1;
+  const brand = route?.params?.brand || 'Device';
+  const model = route?.params?.model || 'Device Model';
+  const selectedVariants: any[] = route?.params?.selectedVariants || [];
+  const conditionAnswers = route?.params?.conditionAnswers || {};
+  const picCount = route?.params?.picCount || 0;
+  const vidCount = route?.params?.vidCount || 0;
 
   const handleGoHome = () => {
     try {
@@ -163,44 +159,42 @@ export default function ApplicationSubmittedScreen({ navigation, route }: any) {
             <View style={{ alignItems: 'flex-end' }}>
               <Text style={[styles.metaLabel, { color: colors.textMuted }]}>Model</Text>
               <Text style={[styles.metaValue, { color: colors.text }]}>
-                {model} ({storage})
+                {model}
               </Text>
             </View>
           </View>
 
-          {/* Condition Breakdown */}
-          <View style={{ marginTop: 14 }}>
-            <Text style={[styles.conditionHeader, { color: colors.textMuted }]}>
-              DEVICE CONDITION
-            </Text>
-
-            <View style={styles.conditionRow}>
-              <Text style={[styles.conditionQ, { color: colors.textMuted }]}>
-                What is the Screen Condition
-              </Text>
-              <Text style={[styles.conditionA, { color: colors.text }]}>
-                {conditionAnswers?.[0] || 'Good'}
-              </Text>
+          {/* Selected Specifications / Variants */}
+          {Array.isArray(selectedVariants) && selectedVariants.length > 0 && (
+            <View style={{ marginTop: 10 }}>
+              {selectedVariants.map((v: any, idx: number) => (
+                <View key={idx} style={[styles.detailRow, { marginTop: 6 }]}>
+                  <Text style={[styles.metaLabel, { color: colors.textMuted }]}>{v.key || 'Specification'}</Text>
+                  <Text style={[styles.metaValue, { color: colors.text }]}>{v.value}</Text>
+                </View>
+              ))}
             </View>
+          )}
 
-            <View style={styles.conditionRow}>
-              <Text style={[styles.conditionQ, { color: colors.textMuted }]}>
-                Is your device's touch screen working properly?
+          {/* Dynamic Condition Breakdown */}
+          {Object.entries(conditionAnswers).length > 0 && (
+            <View style={{ marginTop: 14 }}>
+              <Text style={[styles.conditionHeader, { color: colors.textMuted }]}>
+                DEVICE CONDITION
               </Text>
-              <Text style={[styles.conditionA, { color: colors.text }]}>
-                {conditionAnswers?.[1] || 'Yes'}
-              </Text>
-            </View>
 
-            <View style={styles.conditionRow}>
-              <Text style={[styles.conditionQ, { color: colors.textMuted }]}>
-                Is your phone's screen original?
-              </Text>
-              <Text style={[styles.conditionA, { color: colors.text }]}>
-                {conditionAnswers?.[2] || 'Yes'}
-              </Text>
+              {Object.entries(conditionAnswers).map(([q, a], idx) => (
+                <View key={idx} style={styles.conditionRow}>
+                  <Text style={[styles.conditionQ, { color: colors.textMuted }]} numberOfLines={2}>
+                    {q}
+                  </Text>
+                  <Text style={[styles.conditionA, { color: colors.text }]}>
+                    {String(a)}
+                  </Text>
+                </View>
+              ))}
             </View>
-          </View>
+          )}
 
           <View style={[styles.detailRow, { marginTop: 14 }]}>
             <View>

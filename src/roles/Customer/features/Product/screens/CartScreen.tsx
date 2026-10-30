@@ -69,6 +69,11 @@ function CartRow({
             {item.variantLabel}
           </Text>
         )}
+        {item.isRefurbished && (
+          <View style={{ backgroundColor: '#FEF3C7', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, alignSelf: 'flex-start', marginVertical: 2 }}>
+            <Text style={{ fontFamily: fonts.bold, fontSize: 9, color: '#92400E', textTransform: 'uppercase' }}>Refurbished</Text>
+          </View>
+        )}
         <Text style={[styles.rowPrice, { color: colors.primary }]}>
           ${Number(item.price || 0).toFixed(2)}
         </Text>
@@ -279,14 +284,16 @@ export default function CartScreen({ navigation }: any) {
           <Button
             title="Proceed to Checkout"
             disabled={items.length === 0}
-            onPress={() =>
+            onPress={() => {
+              const hasRefurbished = items.some((i: any) => i.isRefurbished || i.product?.isRefurbished);
               navigation.navigate('Checkout', {
                 cartItems: items,
                 subtotal,
                 shipping,
                 total,
-              })
-            }
+                isRefurbished: hasRefurbished,
+              });
+            }}
             style={styles.checkoutButton}
           />
         </View>

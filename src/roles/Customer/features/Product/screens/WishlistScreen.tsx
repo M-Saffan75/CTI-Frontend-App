@@ -28,10 +28,19 @@ function WishlistCard({ product, navigation, onRemove }: any) {
   return (
     <Squeeze
       onPress={() => {
-        if (typeof navigation.push === 'function') {
-          navigation.push('ProductDetail', { productId, product });
+        if (product.isRefurbished) {
+          const slug = product.slug || product.raw?.slug;
+          if (typeof navigation.push === 'function') {
+            navigation.push('RefurbishedProductDetail', { productId, slug, product });
+          } else {
+            navigation.navigate('RefurbishedProductDetail', { productId, slug, product });
+          }
         } else {
-          navigation.navigate('ProductDetail', { productId, product });
+          if (typeof navigation.push === 'function') {
+            navigation.push('ProductDetail', { productId, product });
+          } else {
+            navigation.navigate('ProductDetail', { productId, product });
+          }
         }
       }}
       style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -48,6 +57,11 @@ function WishlistCard({ product, navigation, onRemove }: any) {
       </View>
 
       <View style={styles.cardBody}>
+        {product.isRefurbished && (
+          <View style={{ backgroundColor: '#FEF3C7', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, alignSelf: 'flex-start', marginBottom: 4 }}>
+            <Text style={{ fontFamily: fonts.bold, fontSize: 9, color: '#92400E', textTransform: 'uppercase' }}>Refurbished</Text>
+          </View>
+        )}
         <Text style={[styles.brand, { color: colors.textMuted }]} numberOfLines={1}>
           {typeof product.brand === 'string' ? product.brand : (product.brand as any)?.title || (product.brand as any)?.name || 'CTI Store'}
         </Text>

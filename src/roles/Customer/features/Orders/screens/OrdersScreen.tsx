@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,11 +28,12 @@ import {
   tagBold,
   uploadBold,
 } from '@/assets/icons';
-import { ctiLogo } from '@/assets/images';
+import { ctiLogo, demoProductPhoto } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
 import { badges } from '@/theme/colors';
 import { fonts } from '@/theme/fonts';
 import {
+  getAllCustomerOrders,
   getCustomerOrders,
   getCustomerReturnsApi,
   cancelCustomerOrder,
@@ -44,6 +46,48 @@ function StatusPill({ label, badge }: { label: string; badge: { bg: string; text
   return (
     <View style={[styles.pill, { backgroundColor: badge.bg }]}>
       <Text style={[styles.pillText, { color: badge.text }]}>{label}</Text>
+    </View>
+  );
+}
+
+function OrderItemImage({ uri, style }: { uri?: string; style?: any }) {
+  const [loadError, setLoadError] = useState(false);
+  const { colors } = useTheme();
+
+  const hasValidUri = Boolean(
+    !loadError &&
+    uri &&
+    typeof uri === 'string' &&
+    uri.trim().length > 0 &&
+    (uri.startsWith('http://') || uri.startsWith('https://')) &&
+    !uri.includes('via.placeholder.com')
+  );
+
+  return (
+    <View
+      style={[
+        style,
+        {
+          backgroundColor: colors.surfaceAlt,
+          overflow: 'hidden',
+          alignItems: 'center',
+          justifyContent: 'center',
+        },
+      ]}>
+      {hasValidUri ? (
+        <Image
+          source={{ uri }}
+          style={{ width: '100%', height: '100%' }}
+          resizeMode="cover"
+          onError={() => setLoadError(true)}
+        />
+      ) : (
+        <Image
+          source={demoProductPhoto}
+          style={{ width: '100%', height: '100%' }}
+          resizeMode="cover"
+        />
+      )}
     </View>
   );
 }
@@ -134,15 +178,7 @@ function OrderCard({
 
             return (
               <View key={item.id || String(idx)} style={styles.item}>
-                <Image
-                  source={{
-                    uri:
-                      item.image && typeof item.image === 'string' && item.image.startsWith('http')
-                        ? item.image
-                        : 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400&q=80',
-                  }}
-                  style={styles.itemImage}
-                />
+                <OrderItemImage uri={item.image} style={styles.itemImage} />
                 <View style={styles.itemText}>
                   <Text style={[styles.itemName, { color: colors.text }]}>
                     {String(item.name || 'Purchased Item')}
@@ -204,6 +240,7 @@ export default function OrdersScreen({ navigation }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<'orders' | 'returns'>('orders');
+  const [orderType, setOrderType] = useState<'all' | 'marketplace' | 'refurbished'>('all');
   const [search, setSearch] = useState('');
   const [orders, setOrders] = useState<MobileOrder[]>([]);
   const [returnsList, setReturnsList] = useState<any[]>([]);
@@ -217,12 +254,39 @@ export default function OrdersScreen({ navigation }: any) {
     message: '',
   });
 
-  const loadOrders = async () => {
+  const loadOrders = async (type = orderType) => {
     try {
-      const [ordersData, returnsData] = await Promise.all([
-        getCustomerOrders({ search }),
-        getCustomerReturnsApi().catch(() => []),
-      ]);
+      setLoading(true);
+      let ordersData: MobileOrder[] = [];
+      let returnsData: any[] = [];
+
+      if (type === 'all') {
+        const [allOrders, retEcom, retRefurb] = await Promise.all([
+          getAllCustomerOrders({ search }),
+          getCustomerReturnsApi(false).catch(() => []),
+          getCustomerReturnsApi(true).catch(() => []),
+        ]);
+        ordersData = allOrders;
+        returnsData = [
+          ...(Array.isArray(retEcom) ? retEcom : []),
+          ...(Array.isArray(retRefurb) ? retRefurb : []),
+        ];
+      } else if (type === 'refurbished') {
+        const [refurb, retRefurb] = await Promise.all([
+          getCustomerOrders({ search, isRefurbished: true }),
+          getCustomerReturnsApi(true).catch(() => []),
+        ]);
+        ordersData = refurb;
+        returnsData = Array.isArray(retRefurb) ? retRefurb : [];
+      } else {
+        const [ecom, retEcom] = await Promise.all([
+          getCustomerOrders({ search, isRefurbished: false }),
+          getCustomerReturnsApi(false).catch(() => []),
+        ]);
+        ordersData = ecom;
+        returnsData = Array.isArray(retEcom) ? retEcom : [];
+      }
+
       setOrders(ordersData);
 
       if (Array.isArray(returnsData) && returnsData.length > 0) {
@@ -272,7 +336,12 @@ export default function OrdersScreen({ navigation }: any) {
   });
 
   const goToDetail = (order: MobileOrder) => {
-    navigation.navigate('OrderDetail', { orderId: order.id, order });
+    const isRefurbished =
+      order.orderNo?.startsWith('REF-') ||
+      order.orderId?.startsWith('REF-') ||
+      order.orderNo?.includes('REF-') ||
+      order.orderId?.includes('REF-');
+    navigation.navigate('OrderDetail', { orderId: order.id, isRefurbished, order });
   };
 
   const handleCancelOrder = async () => {
@@ -324,6 +393,43 @@ export default function OrdersScreen({ navigation }: any) {
         <Text style={[styles.subtitle, { color: colors.textMuted }]}>
           Track and manage all your purchases
         </Text>
+
+        {/* Purchase Type Filter (All / Marketplace / Refurbished Store matching Next.js) */}
+        <View style={styles.orderTypeRow}>
+          {[
+            { key: 'all', label: 'All Orders' },
+            { key: 'marketplace', label: 'Marketplace' },
+            { key: 'refurbished', label: 'Refurbished Store' },
+          ].map(t => {
+            const isActive = orderType === t.key;
+            return (
+              <TouchableOpacity
+                key={t.key}
+                onPress={() => {
+                  setOrderType(t.key as any);
+                  loadOrders(t.key as any);
+                }}
+                style={[
+                  styles.orderTypePill,
+                  {
+                    backgroundColor: isActive ? colors.primary : colors.surfaceAlt,
+                    borderColor: isActive ? colors.primary : colors.border + '33',
+                  },
+                ]}>
+                <Text
+                  style={[
+                    styles.orderTypePillText,
+                    {
+                      color: isActive ? '#FFFFFF' : colors.textMuted,
+                      fontFamily: isActive ? fonts.bold : fonts.medium,
+                    },
+                  ]}>
+                  {t.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
 
         <View style={styles.segment}>
           <Squeeze onPress={() => setTab('orders')} style={styles.segmentItemWrap}>
@@ -500,6 +606,21 @@ const styles = StyleSheet.create({
   title: { fontFamily: fonts.bold, fontSize: 26, marginTop: 6 },
   subtitle: { fontFamily: fonts.regular, fontSize: 13, marginTop: 4 },
 
+  orderTypeRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 14,
+    marginBottom: 4,
+  },
+  orderTypePill: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  orderTypePillText: {
+    fontSize: 12,
+  },
   segment: { flexDirection: 'row', gap: 10, marginTop: 16 },
   segmentItemWrap: { flex: 1 },
   segmentItem: {

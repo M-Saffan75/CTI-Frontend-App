@@ -46,6 +46,7 @@ import DeviceConditionScreen from '@/features/Refurbished/screens/DeviceConditio
 import UploadDeviceMediaScreen from '@/features/Refurbished/screens/UploadDeviceMediaScreen';
 import QuoteApplicationScreen from '@/features/Refurbished/screens/QuoteApplicationScreen';
 import ApplicationSubmittedScreen from '@/features/Refurbished/screens/ApplicationSubmittedScreen';
+import MySellRequestsScreen from '@/features/Refurbished/screens/MySellRequestsScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -107,6 +108,7 @@ export default function RepairmanNavigator({ onLogout }) {
         <Stack.Screen name="UploadDeviceMedia" component={UploadDeviceMediaScreen} />
         <Stack.Screen name="QuoteApplication" component={QuoteApplicationScreen} />
         <Stack.Screen name="ApplicationSubmitted" component={ApplicationSubmittedScreen} />
+        <Stack.Screen name="MySellRequests" component={MySellRequestsScreen} />
 
         {/* Legal documents slide up from the bottom instead of in from the side. */}
         <Stack.Screen

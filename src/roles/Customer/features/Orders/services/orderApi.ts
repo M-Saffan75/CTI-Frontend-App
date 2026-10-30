@@ -135,7 +135,7 @@ export function mapBackendToOrder(raw: any): MobileOrder {
       variantTitle = item.variantTitle;
     }
 
-    // Resolve Image from product or variant
+    // Resolve Image from variant or product with full fallback
     const prodImages = Array.isArray(prod?.images) ? prod.images : [];
     const variantImages = Array.isArray(item.variantId?.images)
       ? item.variantId.images
@@ -143,12 +143,12 @@ export function mapBackendToOrder(raw: any): MobileOrder {
       ? item.variant.images
       : [];
 
-    const firstProdImg = prodImages[0];
     const firstVariantImg = variantImages[0];
+    const firstProdImg = prodImages[0];
 
     const rawImg =
-      (typeof firstProdImg === 'object' && firstProdImg !== null ? firstProdImg.url : firstProdImg) ||
-      (typeof firstVariantImg === 'object' && firstVariantImg !== null ? firstVariantImg.url : firstVariantImg) ||
+      (typeof firstVariantImg === 'object' && firstVariantImg?.url ? firstVariantImg.url : firstVariantImg) ||
+      (typeof firstProdImg === 'object' && firstProdImg?.url ? firstProdImg.url : firstProdImg) ||
       prod?.image ||
       prod?.thumbnail ||
       (typeof prod?.images === 'string' ? prod.images : null) ||
@@ -156,13 +156,15 @@ export function mapBackendToOrder(raw: any): MobileOrder {
       item.imageUrl ||
       item.photo;
 
-    let imgUrl = 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400&q=80';
+    let imgUrl = '';
     if (typeof rawImg === 'string' && rawImg.trim()) {
       const cleanImg = rawImg.trim();
       if (cleanImg.startsWith('http://') || cleanImg.startsWith('https://')) {
         imgUrl = cleanImg;
       } else if (cleanImg.startsWith('/')) {
         imgUrl = `https://tbt-backend-hwu3.onrender.com${cleanImg}`;
+      } else if (cleanImg.startsWith('uploads/')) {
+        imgUrl = `https://tbt-backend-hwu3.onrender.com/${cleanImg}`;
       }
     }
 
@@ -263,6 +265,29 @@ export function mapBackendToOrder(raw: any): MobileOrder {
 /**
  * 1. Fetch Customer Orders (Marketplace & Refurbished)
  */
+/**
+ * Fetch All Orders combined (Marketplace + Refurbished)
+ */
+export async function getAllCustomerOrders(params?: {
+  search?: string;
+}): Promise<MobileOrder[]> {
+  try {
+    const [ecom, refurb] = await Promise.all([
+      getCustomerOrders({ search: params?.search, isRefurbished: false }),
+      getCustomerOrders({ search: params?.search, isRefurbished: true }),
+    ]);
+
+    const combined = [...ecom, ...refurb];
+    return combined.sort((a, b) => {
+      const timeA = new Date(a.raw?.createdAt || a.date).getTime() || 0;
+      const timeB = new Date(b.raw?.createdAt || b.date).getTime() || 0;
+      return timeB - timeA;
+    });
+  } catch (err) {
+    return [];
+  }
+}
+
 export async function getCustomerOrders(params?: {
   page?: number;
   limit?: number;

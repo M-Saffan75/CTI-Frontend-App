@@ -309,6 +309,7 @@ export interface MobileCartItem {
   quantity: number;
   image: any;
   product?: any;
+  isRefurbished?: boolean;
 }
 
 /**

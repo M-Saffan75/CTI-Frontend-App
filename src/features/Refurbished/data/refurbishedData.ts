@@ -29,6 +29,12 @@ export interface RefurbishedProduct {
     cameraSystem: string;
     batteryAndConnectivity: string;
   };
+  rawId?: string;
+  slug?: string;
+  isRefurbished?: boolean;
+  defaultVariantId?: string;
+  variants?: any[];
+  raw?: any;
 }
 
 export const REFURBISHED_CATEGORIES = [

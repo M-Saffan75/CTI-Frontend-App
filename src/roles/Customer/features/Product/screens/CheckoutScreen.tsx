@@ -238,6 +238,31 @@ export default function CheckoutScreen({ navigation, route }: any) {
       const [expireMonth, expireYearShort] = cardExpiry.split('/');
       const expireYear = expireYearShort ? `20${expireYearShort}` : undefined;
 
+      const isRefurbishedOrder = Boolean(
+        route?.params?.isRefurbished ||
+        cartItems.some((i: any) =>
+          i.isRefurbished ||
+          i.product?.isRefurbished ||
+          i.itemType === 'refurbished' ||
+          i.product?.condition === 'Refurbished'
+        )
+      );
+
+      const orderItemsPayload = cartItems.map((i: any) => {
+        const pId = String(i.productId || i.product?._id || i.product?.id || i.id || '');
+        let vId = i.variantId
+          ? String(typeof i.variantId === 'object' ? (i.variantId._id || i.variantId.id) : i.variantId)
+          : undefined;
+        if (!vId && i.product) {
+          vId = i.product.defaultVariantId || i.product.variants?.[0]?._id;
+        }
+        return {
+          productId: pId,
+          variantId: vId,
+          quantity: Number(i.quantity || 1),
+        };
+      });
+
       await createCustomerOrderApi({
         shippingAddress: {
           fullName: `${firstName} ${lastName}`.trim(),
@@ -253,12 +278,8 @@ export default function CheckoutScreen({ navigation, route }: any) {
         expireMonth: expireMonth?.trim(),
         expireYear: expireYear?.trim(),
         cvc: cardCvv.trim(),
-        items: cartItems.map((i: any) => ({
-          productId: i.productId || i.id,
-          variantId: i.variantId,
-          quantity: i.quantity || 1,
-        })),
-        isRefurbished: route?.params?.isRefurbished,
+        items: orderItemsPayload,
+        isRefurbished: isRefurbishedOrder,
       });
 
       try {

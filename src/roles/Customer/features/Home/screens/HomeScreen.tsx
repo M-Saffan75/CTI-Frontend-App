@@ -79,7 +79,7 @@ function Header({ navigation }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
-  const { ids: wishlistIds } = useWishlist();
+  const { ids: wishlistIds, refreshWishlist } = useWishlist();
   const { cartCount, refreshCart } = useCart();
   const [unreadMsgCount, setUnreadMsgCount] = useState(0);
 
@@ -95,9 +95,10 @@ function Header({ navigation }) {
     const unsubscribe = navigation.addListener('focus', () => {
       loadUnreadCount();
       refreshCart();
+      refreshWishlist();
     });
     return unsubscribe;
-  }, [navigation, loadUnreadCount, refreshCart]);
+  }, [navigation, loadUnreadCount, refreshCart, refreshWishlist]);
 
   return (
     <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
@@ -696,8 +697,10 @@ function OurServices({ liveServices, navigation }: { liveServices?: any[]; navig
 
   const handleServicePress = (service: any) => {
     const label = (service.label || '').toLowerCase();
-    if (label.includes('sell')) {
-      navigation?.navigate('SellRefurbished');
+    if (label.includes('sell') && label.includes('gadget')) {
+      navigation?.navigate('SellRefurbished', { mode: 'gadget' });
+    } else if (label.includes('sell')) {
+      navigation?.navigate('SellRefurbished', { mode: 'phone' });
     } else if (label.includes('accessori') || label.includes('refurbish')) {
       navigation?.navigate('BuyRefurbished');
     } else {
