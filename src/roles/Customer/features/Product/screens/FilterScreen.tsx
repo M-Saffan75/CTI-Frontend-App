@@ -5,8 +5,8 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 
 import Icon from '@/components/Icon';
-import Checkbox from '@/components/Checkbox';
 import Button from '@/components/Button';
+import Checkbox from '@/components/Checkbox';
 import Squeeze from '@/components/Squeeze';
 import { FadeUp } from '@/animations';
 import { arrowLeftBold, chevronDownBold, chevronUpBold, starExtra } from '@/assets/icons';
