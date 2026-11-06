@@ -160,10 +160,14 @@ export default function RepairDetailScreen({ navigation, route }: any) {
     }
   };
 
-  // Open modern booking modal when customer taps Accept Offer
+  // Show web checkout guidance when customer taps Accept Offer
   const handleAcceptOffer = (offer: NormalizedOffer) => {
-    setSelectedOfferForBooking(offer);
-    setBookingModalVisible(true);
+    setAlertState({
+      visible: true,
+      type: 'info',
+      title: 'Complete on Website',
+      message: `To accept this offer of ${offer.currency} ${offer.finalTotal.toLocaleString()} from "${offer.repairmanName}" and secure your booking with Buyer Protection, please complete checkout on the CTI website.`,
+    });
   };
 
   // Submit booking from modern BookingModal
@@ -651,14 +655,14 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                                 <>
                                   <Icon source={sendBold} size={16} color={colors.primary} />
                                   <Text style={[styles.chatBtnText, { color: colors.primary }]}>
-                                    Chat
+                                    {isAccepted ? 'Chat' : 'Chat with Technician'}
                                   </Text>
                                 </>
                               )}
                             </Squeeze>
 
-                            {/* Accept Offer Button */}
-                            {isAccepted ? (
+                            {/* Accepted Status Button (Only shown if already accepted) */}
+                            {isAccepted && (
                               <View
                                 style={[
                                   styles.acceptedBtn,
@@ -670,23 +674,33 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                                   Accepted
                                 </Text>
                               </View>
-                            ) : (
-                              <Squeeze
-                                onPress={() => handleAcceptOffer(offer)}
-                                disabled={isSubmitting}
-                                style={[
-                                  styles.acceptBtn,
-                                  { backgroundColor: colors.primary },
-                                ]}
-                              >
-                                {isSubmitting ? (
-                                  <ActivityIndicator size="small" color="#fff" />
-                                ) : (
-                                  <Text style={styles.acceptBtnText}>Accept Offer</Text>
-                                )}
-                              </Squeeze>
                             )}
                           </View>
+
+                          {/* Secure Web Payment / Checkout Notice */}
+                          {!isAccepted && (
+                            <View
+                              style={[
+                                styles.secureNoticeBox,
+                                { backgroundColor: colors.surfaceAlt, borderColor: colors.border },
+                              ]}
+                            >
+                              <View
+                                style={[
+                                  styles.secureShieldWrap,
+                                  { backgroundColor: colors.primary + '18' },
+                                ]}
+                              >
+                                <Icon source={shieldBold} size={14} color={colors.primary} />
+                              </View>
+                              <Text style={[styles.secureNoticeText, { color: colors.textMuted }]}>
+                                <Text style={{ fontFamily: fonts.bold, color: colors.text }}>
+                                  Secure Payment:{' '}
+                                </Text>
+                                You can safely complete payment and accept this offer from the CTI website.
+                              </Text>
+                            </View>
+                          )}
                         </View>
                       );
                     })}
@@ -1223,6 +1237,29 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontFamily: fonts.bold,
     fontSize: 13,
+  },
+  secureNoticeBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    marginTop: 2,
+  },
+  secureShieldWrap: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  secureNoticeText: {
+    flex: 1,
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    lineHeight: 16,
   },
 
   repairmanCard: {

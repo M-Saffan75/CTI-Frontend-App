@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { launchImageLibrary } from 'react-native-image-picker';
@@ -12,6 +12,7 @@ import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
   cameraBold,
+  checkCircleBold,
   checkCircleIcon,
   checkCircleFilled,
   closeIcon,
@@ -47,6 +48,7 @@ import {
   MobileEcomProduct,
   resolveImageSource,
   submitProductReviewApi,
+  COLOR_HEX_MAP,
 } from '../services/ecomApi';
 import { demoProductPhoto } from '@/assets/images';
 import { startChat } from '@/services/chatApi';
@@ -183,8 +185,8 @@ export default function ProductDetailScreen({ navigation, route }: any) {
   const initialProduct = route.params?.product || null;
   const productId = route.params?.productId || initialProduct?.id;
   const productSlug = route.params?.slug || initialProduct?.slug;
-  const [product, setProduct] = useState<MobileEcomProduct | null>(initialProduct);
-  const [loading, setLoading] = useState<boolean>(!initialProduct && (!!productSlug || !!productId));
+  const [product, setProduct] = useState<MobileEcomProduct | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
   const [addingToCart, setAddingToCart] = useState(false);
   const [buyingNow, setBuyingNow] = useState(false);
   const [askModalVisible, setAskModalVisible] = useState(false);
@@ -193,9 +195,9 @@ export default function ProductDetailScreen({ navigation, route }: any) {
   const { isSaved, toggle: toggleWishlist } = useWishlist();
   const { cartCount, addToCart } = useCart();
   const saved = product?.id ? isSaved(product.id) : false;
-  const [color, setColor] = useState(initialProduct?.colors?.[0] || '#222222');
+  const [selectedAttributes, setSelectedAttributes] = useState<Record<string, string>>({});
+  const [variantId, setVariantId] = useState<string | undefined>(undefined);
   const [quantity, setQuantity] = useState(1);
-  const [variantId, setVariantId] = useState(initialProduct?.variants?.[0]?.id);
   const [myRating, setMyRating] = useState(0);
   const [reviewText, setReviewText] = useState('');
   const [reviewPhoto, setReviewPhoto] = useState<any>(null);
@@ -228,76 +230,62 @@ export default function ProductDetailScreen({ navigation, route }: any) {
     message: '',
   });
 
-  // Whenever the active product, productId, or slug params change, update the state immediately!
-  useEffect(() => {
-    const freshProduct = route.params?.product || null;
-    if (freshProduct) {
-      setProduct(freshProduct);
-      setQuantity(1);
-      if (freshProduct.variants?.length) {
-        const defaultOrFirst =
-          freshProduct.variants.find((v: any) => v.id && v.id.length === 24) || freshProduct.variants[0];
-        setVariantId(defaultOrFirst.id);
-      }
-      if (freshProduct.colors?.length) {
-        setColor(freshProduct.colors[0]);
-      }
+  const loadProductDetails = useCallback(async () => {
+    const lookupKey = productSlug || productId || initialProduct?.slug || initialProduct?.id;
+    if (!lookupKey) {
+      setLoading(false);
+      return;
     }
-  }, [route.params?.product, route.params?.productId, route.params?.slug]);
+
+    setLoading(true);
+    try {
+      const [liveProd, revs] = await Promise.all([
+        getEcomProductDetail(lookupKey),
+        getProductReviewsApi(productSlug || lookupKey).catch(() => []),
+      ]);
+
+      if (liveProd) {
+        setProduct(liveProd);
+        if (Array.isArray(revs)) {
+          setReviewsList(revs);
+        }
+        if (liveProd.variants?.length) {
+          const defaultOrFirst =
+            liveProd.variants.find(v => v.isDefault) || liveProd.variants[0];
+          setVariantId(defaultOrFirst.id);
+          const initialAttrs: Record<string, string> = {};
+          (defaultOrFirst.attributes || []).forEach((a: any) => {
+            if (a.name && a.value) initialAttrs[a.name] = a.value;
+          });
+          setSelectedAttributes(initialAttrs);
+          const s = Number(defaultOrFirst.stockLeft ?? 0);
+          setQuantity(s > 0 ? 1 : 0);
+        } else {
+          const s = Number(liveProd.stock ?? 0);
+          setQuantity(s > 0 ? 1 : 0);
+        }
+
+        // Fetch related products in background
+        getEcomProducts()
+          .then(prods => {
+            if (Array.isArray(prods)) {
+              setRelated(prods.filter(p => p.id !== liveProd.id).slice(0, 8));
+            }
+          })
+          .catch(() => {});
+      } else {
+        setProduct(null);
+      }
+    } catch {
+      setProduct(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [productId, productSlug, initialProduct?.id, initialProduct?.slug]);
 
   useEffect(() => {
-    // Prefer productSlug over productId because backend /e-commerce/products/:slug expects slug
-    const lookupKey = productSlug || productId;
-    if (!lookupKey) return;
-    let isMounted = true;
-    if (!initialProduct && !product) setLoading(true);
-
-    getEcomProductDetail(lookupKey)
-      .then(liveProd => {
-        if (isMounted && liveProd) {
-          setProduct(liveProd);
-          if (liveProd.variants?.length) {
-            const defaultOrFirst = liveProd.variants.find(v => v.id && v.id.length === 24) || liveProd.variants[0];
-            setVariantId(defaultOrFirst.id);
-          }
-          if (liveProd.colors?.length) {
-            setColor(liveProd.colors[0]);
-          }
-
-          // Fetch real related products
-          getEcomProducts()
-            .then(prods => {
-              if (isMounted && Array.isArray(prods)) {
-                setRelated(prods.filter(p => p.id !== liveProd.id).slice(0, 8));
-              }
-            })
-            .catch(() => {});
-
-          // Fetch product reviews
-          const reviewKey = liveProd.slug || lookupKey;
-          getProductReviewsApi(reviewKey)
-            .then(revs => {
-              if (isMounted && Array.isArray(revs)) {
-                setReviewsList(revs);
-              }
-            })
-            .catch(() => {});
-        } else if (isMounted && !product && !initialProduct) {
-          setProduct(null);
-        }
-      })
-      .catch(() => {
-        if (isMounted && !product && !initialProduct) {
-          setProduct(null);
-        }
-      })
-      .finally(() => {
-        if (isMounted) setLoading(false);
-      });
-    return () => {
-      isMounted = false;
-    };
-  }, [productId, productSlug]);
+    loadProductDetails();
+  }, [loadProductDetails]);
 
   const activeVariant =
     (product?.variants || []).find((v: any) => v.id === variantId) ||
@@ -307,8 +295,70 @@ export default function ProductDetailScreen({ navigation, route }: any) {
   const activeOriginalPrice = activeVariant?.originalPrice || (product as any)?.originalPrice || activePrice;
   const hasDiscount = activeOriginalPrice > activePrice;
   const discountPercent = hasDiscount ? Math.round(((activeOriginalPrice - activePrice) / activeOriginalPrice) * 100) : null;
-  const activeStock = activeVariant ? Number(activeVariant.stockLeft ?? 5) : Number((product as any)?.stock ?? 5);
+  const activeStock = activeVariant ? Number(activeVariant.stockLeft ?? 0) : Number(product?.stock ?? 0);
   const inStock = activeStock > 0;
+
+  const handleSelectAttribute = (attrName: string, value: string) => {
+    const next = { ...selectedAttributes, [attrName]: value };
+    setSelectedAttributes(next);
+
+    if (!product?.variants?.length) return;
+
+    // Find the variant that matches all selected attributes
+    const match = product.variants.find(v => {
+      return Object.entries(next).every(([k, val]) =>
+        (v.attributes || []).some(
+          a => a.name?.toLowerCase() === k.toLowerCase() && a.value?.toLowerCase() === val.toLowerCase()
+        )
+      );
+    }) || product.variants.find(v => {
+      return (v.attributes || []).some(
+        a => a.name?.toLowerCase() === attrName.toLowerCase() && a.value?.toLowerCase() === value.toLowerCase()
+      );
+    });
+
+    if (match) {
+      setVariantId(match.id);
+      const newStock = Number(match.stockLeft ?? 0);
+      if (newStock <= 0) {
+        setQuantity(0);
+      } else if (quantity > newStock) {
+        setQuantity(newStock);
+      } else if (quantity === 0 && newStock > 0) {
+        setQuantity(1);
+      }
+    }
+  };
+
+  const handleSelectVariant = (vId: string) => {
+    setVariantId(vId);
+    const v = product?.variants?.find(item => item.id === vId);
+    if (v) {
+      const nextAttrs: Record<string, string> = {};
+      (v.attributes || []).forEach(a => {
+        if (a.name && a.value) nextAttrs[a.name] = a.value;
+      });
+      setSelectedAttributes(nextAttrs);
+      const newStock = Number(v.stockLeft ?? 0);
+      if (newStock <= 0) {
+        setQuantity(0);
+      } else if (quantity > newStock) {
+        setQuantity(newStock);
+      } else if (quantity === 0 && newStock > 0) {
+        setQuantity(1);
+      }
+    }
+  };
+
+  const handleDecreaseQty = () => {
+    if (!inStock) return;
+    setQuantity(q => Math.max(1, q - 1));
+  };
+
+  const handleIncreaseQty = () => {
+    if (!inStock) return;
+    setQuantity(q => Math.min(activeStock, q + 1));
+  };
 
   const handleAddToCart = async () => {
     if (!product?.id || addingToCart || buyingNow) return;
@@ -580,9 +630,14 @@ export default function ProductDetailScreen({ navigation, route }: any) {
           <Text style={{ fontFamily: fonts.regular, fontSize: 14, color: colors.textMuted, marginTop: 8, textAlign: 'center' }}>
             The requested product is not available or could not be loaded.
           </Text>
-          <Squeeze onPress={() => navigation.goBack()} style={{ marginTop: 24, paddingHorizontal: 24, paddingVertical: 12, backgroundColor: colors.primary, borderRadius: 12 }}>
-            <Text style={{ color: '#fff', fontFamily: fonts.bold }}>Go Back</Text>
-          </Squeeze>
+          <View style={{ flexDirection: 'row', gap: 12, marginTop: 24 }}>
+            <Squeeze onPress={() => navigation.goBack()} style={{ paddingHorizontal: 20, paddingVertical: 12, borderWidth: 1, borderColor: colors.border, borderRadius: 12 }}>
+              <Text style={{ color: colors.text, fontFamily: fonts.bold }}>Go Back</Text>
+            </Squeeze>
+            <Squeeze onPress={() => loadProductDetails()} style={{ paddingHorizontal: 24, paddingVertical: 12, backgroundColor: colors.primary, borderRadius: 12 }}>
+              <Text style={{ color: '#fff', fontFamily: fonts.bold }}>Retry</Text>
+            </Squeeze>
+          </View>
         </View>
       ) : (
         <ScrollView
@@ -640,119 +695,275 @@ export default function ProductDetailScreen({ navigation, route }: any) {
               ) : null}
             </View>
 
-            <View style={[styles.stockRow, { backgroundColor: inStock ? '#10B98118' : '#EF444418' }]}>
-              <View style={[styles.stockDot, { backgroundColor: inStock ? '#10B981' : '#EF4444' }]} />
-              <Text style={[styles.stockStatusText, { color: inStock ? '#10B981' : '#EF4444' }]}>
-                {inStock ? `In Stock (${activeStock} left)` : 'Out of Stock'}
-              </Text>
-            </View>
-          </View>
-        </FadeUp>
-
-        {/* Available Variants */}
-        {product.variants && product.variants.length > 0 && (
-          <FadeUp delay={140} duration={450}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={[styles.label, { color: colors.text, marginTop: 0 }]}>Available Variants</Text>
-              {activeVariant && (
-                <Text style={[styles.selectedVariantNote, { color: colors.primary }]} numberOfLines={1}>
-                  {activeVariant.label}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <View style={[styles.stockRow, { backgroundColor: inStock ? '#10B98118' : '#EF444418' }]}>
+                <View style={[styles.stockDot, { backgroundColor: inStock ? '#10B981' : '#EF4444' }]} />
+                <Text style={[styles.stockStatusText, { color: inStock ? '#10B981' : '#EF4444' }]}>
+                  {inStock ? `In Stock (${activeStock} left)` : 'Out of Stock'}
                 </Text>
+              </View>
+
+              {product.warranty?.type === 'yes' && (
+                <View style={[styles.warrantyPill, { backgroundColor: '#10B98114', borderColor: '#10B98135' }]}>
+                  <Icon source={shieldIcon} size={14} color="#10B981" />
+                  <Text style={[styles.warrantyPillText, { color: '#047857' }]}>
+                    {product.specs?.warranty || 'Official Warranty'}
+                  </Text>
+                </View>
               )}
             </View>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.bleed}
-              contentContainerStyle={styles.variantsRow}>
-              {product.variants.map(variant => (
-                <VariantCard
-                  key={variant.id}
-                  variant={variant}
-                  selected={variant.id === (activeVariant?.id || variantId)}
-                  onPress={() => setVariantId(variant.id)}
-                />
-              ))}
-            </ScrollView>
-          </FadeUp>
-        )}
+          </View>
+        </FadeUp>
 
-        {product.colors && product.colors.length > 0 && (
-          <FadeUp delay={160} duration={450}>
-            <Text style={[styles.label, { color: colors.text }]}>Color</Text>
-            <View style={styles.colorsRow}>
-              {product.colors.map(hex => (
-                <Squeeze key={hex} onPress={() => setColor(hex)} scale={0.9}>
-                  <View
-                    style={[
-                      styles.colorSwatch,
-                      { backgroundColor: hex, borderColor: colors.border },
-                      color === hex && { borderWidth: 3, borderColor: colors.primary },
-                    ]}
-                  />
-                </Squeeze>
-              ))}
+        {/* Dynamic Attributes (e.g. Color, Storage, Resolution, Cable Length, etc.) */}
+        {product.attrTypes && product.attrTypes.length > 0 ? (
+          <FadeUp delay={140} duration={450}>
+            {product.attrTypes.map(type => {
+              const options = product.attrOptions?.[type] || [];
+              const selectedVal = selectedAttributes[type];
+              const isColorType = type.toLowerCase() === 'color' || type.toLowerCase() === 'colour';
+
+              return (
+                <View key={type} style={{ marginTop: 16 }}>
+                  <Text style={[styles.label, { color: colors.text, marginTop: 0 }]}>
+                    {type}
+                    {selectedVal ? (
+                      <Text style={{ fontFamily: fonts.bold, color: colors.primary }}>: {selectedVal}</Text>
+                    ) : null}
+                  </Text>
+
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                    {options.map(opt => {
+                      const isSelected = selectedVal?.toLowerCase() === opt.value?.toLowerCase();
+                      const hexColor = opt.hex || (isColorType ? COLOR_HEX_MAP[opt.value.toLowerCase()] : null);
+
+                      return (
+                        <TouchableOpacity
+                          key={opt.value}
+                          activeOpacity={0.7}
+                          onPress={() => handleSelectAttribute(type, opt.value)}
+                          style={[
+                            styles.attrOptionBtn,
+                            {
+                              borderColor: isSelected ? colors.primary : colors.border,
+                              backgroundColor: isSelected ? colors.primary + '18' : colors.surface,
+                            },
+                          ]}>
+                          {hexColor && (
+                            <View
+                              style={[
+                                styles.attrColorCircle,
+                                {
+                                  backgroundColor: hexColor,
+                                  borderColor: hexColor.toLowerCase() === '#ffffff' ? colors.border : 'transparent',
+                                },
+                              ]}
+                            />
+                          )}
+                          <Text
+                            style={[
+                              styles.attrOptionText,
+                              {
+                                color: isSelected ? colors.primary : colors.text,
+                                fontFamily: isSelected ? fonts.bold : fonts.medium,
+                              },
+                            ]}>
+                            {opt.value}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              );
+            })}
+          </FadeUp>
+        ) : product.variants && product.variants.length > 1 ? (
+          /* General Variant Options when no specific named attributes */
+          <FadeUp delay={140} duration={450}>
+            <View style={{ marginTop: 16 }}>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={[styles.label, { color: colors.text, marginTop: 0 }]}>Select Option</Text>
+                {activeVariant && (
+                  <Text style={[styles.selectedVariantNote, { color: colors.primary }]} numberOfLines={1}>
+                    {activeVariant.label}
+                  </Text>
+                )}
+              </View>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                {product.variants.map(v => {
+                  const isSelected = v.id === (activeVariant?.id || variantId);
+                  return (
+                    <TouchableOpacity
+                      key={v.id}
+                      activeOpacity={0.7}
+                      onPress={() => handleSelectVariant(v.id)}
+                      style={[
+                        styles.attrOptionBtn,
+                        {
+                          borderColor: isSelected ? colors.primary : colors.border,
+                          backgroundColor: isSelected ? colors.primary + '18' : colors.surface,
+                        },
+                      ]}>
+                      <Text
+                        style={[
+                          styles.attrOptionText,
+                          {
+                            color: isSelected ? colors.primary : colors.text,
+                            fontFamily: isSelected ? fonts.bold : fonts.medium,
+                          },
+                        ]}>
+                        {v.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
             </View>
           </FadeUp>
-        )}
+        ) : null}
 
-        <FadeUp delay={190} duration={450}>
+        <FadeUp delay={180} duration={450}>
           <View style={[styles.quantityRow, { backgroundColor: colors.surfaceAlt }]}>
-            <Text style={[styles.label, { color: colors.text, marginTop: 0 }]}>Quantity</Text>
+            <View>
+              <Text style={[styles.label, { color: colors.text, marginTop: 0 }]}>Quantity</Text>
+              <Text style={{ fontFamily: fonts.regular, fontSize: 11, color: colors.textMuted, marginTop: 2 }}>
+                {!inStock
+                  ? 'Out of stock'
+                  : quantity >= activeStock
+                  ? `Max stock reached (${activeStock})`
+                  : `Max available: ${activeStock}`}
+              </Text>
+            </View>
+
             <View style={styles.quantityControls}>
-              <Squeeze onPress={() => setQuantity(Math.max(1, quantity - 1))} style={[styles.qtyBtn, { borderColor: colors.border }]}>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                disabled={quantity <= 1 || !inStock}
+                onPress={handleDecreaseQty}
+                style={[
+                  styles.qtyBtn,
+                  {
+                    borderColor: colors.border,
+                    opacity: quantity <= 1 || !inStock ? 0.35 : 1,
+                  },
+                ]}>
                 <Icon source={minusSquareBold} size={18} color={colors.text} />
-              </Squeeze>
-              <Text style={[styles.qtyValue, { color: colors.text }]}>{quantity}</Text>
-              <Squeeze onPress={() => setQuantity(quantity + 1)} style={[styles.qtyBtn, { borderColor: colors.border }]}>
+              </TouchableOpacity>
+
+              <Text style={[styles.qtyValue, { color: colors.text }]}>
+                {inStock ? quantity : 0}
+              </Text>
+
+              <TouchableOpacity
+                activeOpacity={0.7}
+                disabled={quantity >= activeStock || !inStock}
+                onPress={handleIncreaseQty}
+                style={[
+                  styles.qtyBtn,
+                  {
+                    borderColor: colors.border,
+                    opacity: quantity >= activeStock || !inStock ? 0.35 : 1,
+                  },
+                ]}>
                 <Icon source={plusSquareBold} size={18} color={colors.text} />
-              </Squeeze>
+              </TouchableOpacity>
             </View>
           </View>
 
           <Button
-            title="Buy Now"
+            title={inStock ? 'Buy Now' : 'Out of Stock'}
             variant="outline"
             loading={buyingNow}
-            disabled={addingToCart || buyingNow}
+            disabled={!inStock || addingToCart || buyingNow}
             onPress={handleBuyNow}
-            style={styles.spaced}
+            style={[styles.spaced, { opacity: inStock ? 1 : 0.5 }]}
           />
           <Button
-            title="Add to Cart"
+            title={inStock ? 'Add to Cart' : 'Out of Stock'}
             icon={shoppingCartExtra}
             loading={addingToCart}
-            disabled={addingToCart || buyingNow}
+            disabled={!inStock || addingToCart || buyingNow}
             onPress={handleAddToCart}
-            style={styles.spaced}
+            style={[styles.spaced, { opacity: inStock ? 1 : 0.5 }]}
           />
         </FadeUp>
 
-        <FadeUp delay={230} duration={450}>
+        <FadeUp delay={220} duration={450}>
           <View style={[styles.sellerCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.sellerHead}>
               <TouchableOpacity
                 activeOpacity={0.8}
                 onPress={handleVisitStore}
-                style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 12 }}>
-                <Image source={resolveImageSource(product.seller?.avatar, demoProductPhoto)} style={styles.sellerAvatar} />
+                style={styles.sellerTouchable}>
+                <Image
+                  source={resolveImageSource(product.seller?.avatar, demoProductPhoto)}
+                  style={styles.sellerAvatar}
+                />
                 <View style={styles.sellerInfo}>
-                  <Text style={[styles.sellerName, { color: colors.text }]}>{product.seller?.name || 'Verified Seller'}</Text>
+                  <View style={styles.sellerNameRow}>
+                    <Text style={[styles.sellerName, { color: colors.text }]} numberOfLines={1}>
+                      {product.seller?.name || 'Verified Store'}
+                    </Text>
+                    {Boolean(product.seller?.isApproved) && (
+                      <View style={styles.verifiedBadge}>
+                        <Icon source={checkCircleBold} size={14} color="#10B981" />
+                      </View>
+                    )}
+                  </View>
                   <Text style={[styles.sellerLocation, { color: colors.textMuted }]} numberOfLines={1}>
-                    {product.seller?.location || 'Karachi, Pakistan'}
+                    {product.seller?.location || 'Pakistan'}
                   </Text>
+                  {product.seller?.isOnline !== undefined && (
+                    <View style={styles.sellerOnlineRow}>
+                      <View
+                        style={[
+                          styles.onlineDot,
+                          {
+                            backgroundColor: product.seller.isOnline ? '#10B981' : '#9CA3AF',
+                          },
+                        ]}
+                      />
+                      <Text
+                        style={[
+                          styles.onlineText,
+                          {
+                            color: product.seller.isOnline ? '#10B981' : colors.textMuted,
+                          },
+                        ]}>
+                        {product.seller.isOnline ? 'Online' : 'Offline'}
+                      </Text>
+                    </View>
+                  )}
                 </View>
               </TouchableOpacity>
-              <Button title="Visit Store" size="sm" fullWidth={false} onPress={handleVisitStore} />
+              <Button
+                title="Visit Store"
+                size="xs"
+                variant="outline"
+                fullWidth={false}
+                onPress={handleVisitStore}
+                style={styles.visitStoreBtn}
+              />
             </View>
             <View style={[styles.divider, { backgroundColor: colors.border }]} />
-            <Button
-              title="Ask Seller"
-              variant="outline"
-              icon={commentDotsBold}
-              iconPosition="left"
-              onPress={handleAskSeller}
-            />
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <Button
+                title="Ask Seller"
+                variant="outline"
+                size="sm"
+                icon={commentDotsBold}
+                iconPosition="left"
+                onPress={handleAskSeller}
+                style={{ flex: 1 }}
+              />
+              <Button
+                title="Chat"
+                size="sm"
+                onPress={handleDirectChat}
+                style={{ flex: 1 }}
+              />
+            </View>
           </View>
         </FadeUp>
 
@@ -766,12 +977,15 @@ export default function ProductDetailScreen({ navigation, route }: any) {
           <Text style={[styles.sectionTitle, { color: colors.text }]}>Specifications</Text>
           <View style={[styles.specsTable, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <SpecRow label="Brand" value={product.specs?.brand || product.brand} alt />
-            <SpecRow label="SKU" value={product.specs?.sku || `SKU-${String(product.id || '').slice(-6)}`} />
+            <SpecRow label="SKU" value={activeVariant?.sku || product.specs?.sku || `SKU-${String(product.id || '').slice(-6)}`} />
             <SpecRow label="Category" value={product.specs?.category || product.category || 'Electronics'} alt />
             <SpecRow label="Total Variants" value={product.specs?.totalVariants || product.variants?.length || 1} />
-            <SpecRow label="Total Stock" value={product.specs?.totalStock ?? (product.inStock ? 10 : 0)} alt />
+            <SpecRow label="Total Stock" value={product.specs?.totalStock ?? (product.inStock ? product.stock : 0)} alt />
             <SpecRow label="Price Range" value={product.specs?.priceRange || `$${Number(product.price || 0).toFixed(2)}`} />
-            <SpecRow label="Warranty" value={product.specs?.warranty || '1 Year Official Warranty'} alt />
+            <SpecRow label="Warranty" value={product.specs?.warranty || 'No Warranty'} alt />
+            {(activeVariant?.attributes || []).map((attr: any, idx: number) => (
+              <SpecRow key={`attr-${idx}`} label={attr.name} value={attr.value} alt={idx % 2 === 1} />
+            ))}
           </View>
         </FadeUp>
 
@@ -1135,6 +1349,20 @@ const styles = StyleSheet.create({
   stockDot: { width: 7, height: 7, borderRadius: 4 },
   stockStatusText: { fontFamily: fonts.medium, fontSize: 12 },
 
+  warrantyPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  warrantyPillText: {
+    fontFamily: fonts.bold,
+    fontSize: 11,
+  },
+
   sectionHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1145,8 +1373,25 @@ const styles = StyleSheet.create({
   selectedVariantNote: { fontFamily: fonts.medium, fontSize: 12, maxWidth: '60%' },
 
   label: { fontFamily: fonts.bold, fontSize: 14, marginTop: 16 },
-  colorsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 10 },
-  colorSwatch: { width: 30, height: 30, borderRadius: 15, borderWidth: 1 },
+
+  attrOptionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1.5,
+  },
+  attrColorCircle: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 1,
+  },
+  attrOptionText: {
+    fontSize: 12,
+  },
 
   quantityRow: {
     flexDirection: 'row',
@@ -1164,11 +1409,53 @@ const styles = StyleSheet.create({
   spaced: { marginTop: 14 },
 
   sellerCard: { borderRadius: 14, borderWidth: 1, padding: 14, marginTop: 16, gap: 12 },
-  sellerHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  sellerAvatar: { width: 44, height: 44, borderRadius: 10 },
-  sellerInfo: { flex: 1, gap: 2 },
-  sellerName: { fontFamily: fonts.bold, fontSize: 15 },
+  sellerHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  sellerTouchable: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    minWidth: 0,
+    gap: 12,
+  },
+  sellerAvatar: { width: 44, height: 44, borderRadius: 10, flexShrink: 0 },
+  sellerInfo: { flex: 1, minWidth: 0, gap: 2 },
+  sellerNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minWidth: 0,
+  },
+  sellerName: { fontFamily: fonts.bold, fontSize: 15, flexShrink: 1 },
+  verifiedBadge: {
+    flexShrink: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   sellerLocation: { fontFamily: fonts.regular, fontSize: 12 },
+  sellerOnlineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
+  onlineDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  onlineText: {
+    fontSize: 10,
+    fontFamily: fonts.medium,
+  },
+  visitStoreBtn: {
+    flexShrink: 0,
+    alignSelf: 'center',
+  },
   divider: { height: 1 },
 
   sectionTitle: { fontFamily: fonts.bold, fontSize: 17, marginTop: 22, marginBottom: 10 },

@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 
 import Icon from '@/components/Icon';
 import Button from '@/components/Button';
@@ -43,10 +44,12 @@ function RepairmanCard({
   repairman,
   navigation,
   onViewProfile,
+  searchQuery,
 }: {
   repairman: MobileRepairman;
   navigation: any;
   onViewProfile: (repairman: MobileRepairman) => void;
+  searchQuery?: string;
 }) {
   const { colors } = useTheme();
 
@@ -67,6 +70,21 @@ function RepairmanCard({
     }
   };
 
+  // Find matching specialization based on searchQuery if available
+  const q = (searchQuery || '').trim().toLowerCase();
+  const matchedSpec = (repairman.specializations || []).find(spec => {
+    const s = spec.toLowerCase();
+    if (q.includes('mobile') || q.includes('phone')) return s.includes('mobile') || s.includes('phone');
+    if (q.includes('laptop')) return s.includes('laptop') || s.includes('notebook') || s.includes('macbook');
+    if (q.includes('desktop')) return s.includes('desktop') || s.includes('computer');
+    if (q.includes('watch')) return s.includes('watch');
+    if (q.includes('audio')) return s.includes('audio');
+    if (q.includes('camera')) return s.includes('camera');
+    return s.includes(q);
+  });
+
+  const displaySpecialty = matchedSpec || repairman.specialty || 'Device Repair Specialist';
+
   return (
     <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
       <Image source={{ uri: repairman.photo }} style={styles.photo} />
@@ -76,7 +94,7 @@ function RepairmanCard({
           {repairman.name}
         </Text>
         <Text style={[styles.shopName, { color: colors.primary }]} numberOfLines={1}>
-          {repairman.specialty || repairman.shopName || 'Device Repair Specialist'}
+          {displaySpecialty}
         </Text>
 
         <View style={[styles.locationPill, { borderColor: colors.border, backgroundColor: colors.background }]}>
@@ -85,12 +103,34 @@ function RepairmanCard({
           </Text>
         </View>
 
-        <View style={styles.metaRow}>
-          <Icon source={shieldBold} size={12} color={colors.primary} />
-          <Text style={[styles.metaText, { color: colors.textMuted }]} numberOfLines={1}>
-            {repairman.specialty}
-          </Text>
-        </View>
+        {/* Specialization Badges */}
+        {repairman.specializations && repairman.specializations.length > 0 && (
+          <View style={styles.cardBadgesRow}>
+            {repairman.specializations.slice(0, 2).map((sp, idx) => {
+              const isPrimaryMatch = sp.toLowerCase() === displaySpecialty.toLowerCase();
+              return (
+                <View
+                  key={idx}
+                  style={[
+                    styles.cardBadge,
+                    {
+                      backgroundColor: isPrimaryMatch ? colors.primary + '20' : colors.surfaceAlt,
+                      borderColor: isPrimaryMatch ? colors.primary : colors.border,
+                    },
+                  ]}>
+                  <Text
+                    style={[
+                      styles.cardBadgeText,
+                      { color: isPrimaryMatch ? colors.primary : colors.textMuted },
+                    ]}
+                    numberOfLines={1}>
+                    {sp}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+        )}
 
         <View style={styles.metaRow}>
           <Icon source={starExtra} size={12} color={colors.primary} />
@@ -115,6 +155,15 @@ function RepairmanCard({
   );
 }
 
+const CATEGORY_CHIPS = [
+  { label: 'All', query: '' },
+  { label: 'Mobile', query: 'Mobile Repair' },
+  { label: 'Laptop', query: 'Laptop Repair' },
+  { label: 'Desktop', query: 'Desktop Repair' },
+  { label: 'Smartwatch', query: 'Smartwatch' },
+  { label: 'Software', query: 'Software' },
+];
+
 export default function ExpertRepairmenScreen({ navigation, route }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -128,13 +177,14 @@ export default function ExpertRepairmenScreen({ navigation, route }: any) {
   const [search, setSearch] = useState<string>(initialQuery);
   const [selectedRepairman, setSelectedRepairman] = useState<MobileRepairman | null>(null);
 
-  const searchTimer = useRef<any>(null);
-
-  useEffect(() => {
-    if (route?.params?.query) {
-      setSearch(route.params.query);
-    }
-  }, [route?.params?.query]);
+  useFocusEffect(
+    useCallback(() => {
+      const q = route?.params?.query ?? route?.params?.specialization ?? null;
+      if (q !== null && q !== undefined) {
+        setSearch(q);
+      }
+    }, [route?.params?.query, route?.params?.specialization, route?.params?.timestamp])
+  );
 
   const loadRepairmen = useCallback(async () => {
     try {
@@ -157,17 +207,233 @@ export default function ExpertRepairmenScreen({ navigation, route }: any) {
     loadRepairmen();
   };
 
-  // Filter repairmen by search query
+  const isChipActive = (chipQuery: string) => {
+    const s = search.trim().toLowerCase();
+    if (!chipQuery) return !s;
+    if (chipQuery === 'Mobile Repair') return s.includes('mobile') || s.includes('phone');
+    if (chipQuery === 'Laptop Repair') return s.includes('laptop');
+    if (chipQuery === 'Desktop Repair') return s.includes('desktop');
+    if (chipQuery === 'Smartwatch') return s.includes('watch');
+    if (chipQuery === 'Software') return s.includes('software');
+    return s.includes(chipQuery.toLowerCase());
+  };
+
+  // High-precision category & keyword matching
   const filteredRepairmen = repairmen.filter(r => {
-    if (!search.trim()) return true;
-    const q = search.toLowerCase();
-    return (
-      r.name.toLowerCase().includes(q) ||
-      r.shopName.toLowerCase().includes(q) ||
-      r.location.toLowerCase().includes(q) ||
-      r.specialty.toLowerCase().includes(q) ||
-      r.specializations.some(s => s.toLowerCase().includes(q))
-    );
+    const rawSearch = search.trim().toLowerCase();
+    if (!rawSearch) return true;
+
+    const specs = (r.specializations || []).map(s => s.toLowerCase());
+    const allText = [
+      r.name,
+      r.shopName,
+      r.location,
+      r.city,
+      r.state,
+      r.specialty,
+      r.description,
+      ...specs,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+
+    // 1. Direct whole-query match in full text (e.g. tech name, city, full phrase)
+    const isGenericOnly = [
+      'repair',
+      'repairing',
+      'repairman',
+      'repaiman',
+      'technician',
+      'service',
+      'services',
+      'expert',
+      'specialist',
+    ].includes(rawSearch);
+
+    if (allText.includes(rawSearch) && !isGenericOnly) {
+      return true;
+    }
+
+    // 2. High-priority Domain Category Keyword Matching
+    // Laptop
+    const isLaptop =
+      rawSearch.includes('laptop') ||
+      rawSearch.includes('notebook') ||
+      rawSearch.includes('macbook');
+    if (isLaptop) {
+      return (
+        specs.some(
+          s =>
+            s.includes('laptop') ||
+            s.includes('notebook') ||
+            s.includes('macbook'),
+        ) ||
+        allText.includes('laptop') ||
+        allText.includes('notebook') ||
+        allText.includes('macbook')
+      );
+    }
+
+    // Mobile / Smartphone
+    const isMobile =
+      rawSearch.includes('mobile') ||
+      rawSearch.includes('phone') ||
+      rawSearch.includes('cell') ||
+      rawSearch.includes('smartphone');
+    if (isMobile) {
+      return (
+        specs.some(
+          s =>
+            s.includes('mobile') ||
+            s.includes('phone') ||
+            s.includes('cell') ||
+            s.includes('smartphone'),
+        ) ||
+        allText.includes('mobile') ||
+        allText.includes('phone') ||
+        allText.includes('smartphone')
+      );
+    }
+
+    // Desktop / Computer
+    const isDesktop =
+      rawSearch.includes('desktop') ||
+      rawSearch.includes('pc') ||
+      rawSearch.includes('computer');
+    if (isDesktop) {
+      return (
+        specs.some(
+          s =>
+            s.includes('desktop') ||
+            s.includes('computer') ||
+            s.includes('pc'),
+        ) ||
+        allText.includes('desktop') ||
+        allText.includes('pc')
+      );
+    }
+
+    // Software
+    const isSoftware =
+      rawSearch.includes('software') ||
+      rawSearch.includes('flashing') ||
+      rawSearch.includes('windows') ||
+      rawSearch.includes('os');
+    if (isSoftware) {
+      return (
+        specs.some(
+          s =>
+            s.includes('software') ||
+            s.includes('flashing') ||
+            s.includes('os') ||
+            s.includes('windows'),
+        ) ||
+        allText.includes('software') ||
+        allText.includes('flashing')
+      );
+    }
+
+    // Motherboard / Logic Board / IC
+    const isMotherboard =
+      rawSearch.includes('mother') ||
+      rawSearch.includes('board') ||
+      rawSearch.includes('chip') ||
+      rawSearch.includes('ic');
+    if (isMotherboard) {
+      return (
+        specs.some(
+          s =>
+            s.includes('motherboard') ||
+            s.includes('board') ||
+            s.includes('chip') ||
+            s.includes('circuit'),
+        ) ||
+        allText.includes('motherboard')
+      );
+    }
+
+    // Panel / Screen / Display
+    const isPanel =
+      rawSearch.includes('panel') ||
+      rawSearch.includes('screen') ||
+      rawSearch.includes('display') ||
+      rawSearch.includes('lcd') ||
+      rawSearch.includes('glass');
+    if (isPanel) {
+      return (
+        specs.some(
+          s =>
+            s.includes('screen') ||
+            s.includes('display') ||
+            s.includes('panel') ||
+            s.includes('lcd'),
+        ) ||
+        allText.includes('panel') ||
+        allText.includes('screen') ||
+        allText.includes('display') ||
+        allText.includes('lcd')
+      );
+    }
+
+    // Smartwatch / Wearables
+    const isSmartwatch =
+      rawSearch.includes('watch') ||
+      rawSearch.includes('smartwatch') ||
+      rawSearch.includes('wearable');
+    if (isSmartwatch) {
+      return (
+        specs.some(s => s.includes('watch') || s.includes('wearable')) ||
+        allText.includes('watch') ||
+        allText.includes('smartwatch')
+      );
+    }
+
+    // Audio / Sound / Headphones
+    const isAudio =
+      rawSearch.includes('audio') ||
+      rawSearch.includes('sound') ||
+      rawSearch.includes('headphone') ||
+      rawSearch.includes('speaker');
+    if (isAudio) {
+      return (
+        specs.some(s => s.includes('audio') || s.includes('sound') || s.includes('speaker')) ||
+        allText.includes('audio')
+      );
+    }
+
+    // Camera
+    const isCamera = rawSearch.includes('camera') || rawSearch.includes('lens');
+    if (isCamera) {
+      return (
+        specs.some(s => s.includes('camera') || s.includes('lens')) ||
+        allText.includes('camera')
+      );
+    }
+
+    // 3. Fallback: tokenize non-stop words (name search, city search, etc.)
+    const tokens = rawSearch
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter(
+        t =>
+          t.length > 2 &&
+          ![
+            'repair',
+            'repairing',
+            'repairman',
+            'repaiman',
+            'technician',
+            'service',
+            'services',
+            'expert',
+            'specialist',
+          ].includes(t),
+      );
+
+    if (tokens.length === 0) return true;
+
+    return tokens.some(t => allText.includes(t));
   });
 
   return (
@@ -236,7 +502,47 @@ export default function ExpertRepairmenScreen({ navigation, route }: any) {
             placeholderTextColor={colors.textMuted}
             style={[styles.searchInput, { color: colors.text }]}
           />
+          {search.length > 0 && (
+            <TouchableOpacity
+              onPress={() => setSearch('')}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Icon source={closeIcon} size={16} color={colors.textMuted} />
+            </TouchableOpacity>
+          )}
         </View>
+
+        {/* Category Filter Chips */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.categoryChipsRow}
+          style={{ marginBottom: 12 }}>
+          {CATEGORY_CHIPS.map(chip => {
+            const active = isChipActive(chip.query);
+            return (
+              <TouchableOpacity
+                key={chip.label}
+                activeOpacity={0.7}
+                onPress={() => setSearch(active && chip.query ? '' : chip.query)}
+                style={[
+                  styles.categoryChip,
+                  {
+                    backgroundColor: active ? colors.primary : colors.surface,
+                    borderColor: active ? colors.primary : colors.border,
+                  },
+                ]}>
+                <Text
+                  style={[
+                    styles.categoryChipText,
+                    { color: active ? '#FFFFFF' : colors.textMuted },
+                  ]}>
+                  {chip.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
 
         {loading && !refreshing ? (
           <CtiLoader
@@ -252,9 +558,18 @@ export default function ExpertRepairmenScreen({ navigation, route }: any) {
             </Text>
             <Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>
               {search.trim()
-                ? 'Try searching with different keywords.'
+                ? `No registered technicians currently specialize in "${search.trim()}".`
                 : 'No registered repair specialists match current criteria.'}
             </Text>
+            {search.trim().length > 0 && (
+              <Button
+                title="View All Repairmen"
+                variant="outline"
+                size="sm"
+                onPress={() => setSearch('')}
+                style={{ marginTop: 14 }}
+              />
+            )}
           </View>
         ) : (
           <View style={styles.grid}>
@@ -268,6 +583,7 @@ export default function ExpertRepairmenScreen({ navigation, route }: any) {
                   repairman={repairman}
                   navigation={navigation}
                   onViewProfile={r => setSelectedRepairman(r)}
+                  searchQuery={search}
                 />
               </FadeUp>
             ))}
@@ -438,6 +754,22 @@ const styles = StyleSheet.create({
   },
   searchInput: { flex: 1, fontFamily: fonts.regular, fontSize: 14, padding: 0 },
 
+  categoryChipsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingVertical: 4,
+  },
+  categoryChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  categoryChipText: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+  },
+
   emptyWrap: { paddingVertical: 60, alignItems: 'center', gap: 10 },
   emptyTitle: { fontFamily: fonts.bold, fontSize: 18, marginTop: 10 },
   emptySubtitle: { fontFamily: fonts.regular, fontSize: 13, textAlign: 'center', paddingHorizontal: 30 },
@@ -463,6 +795,23 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
   },
   locationText: { fontFamily: fonts.regular, fontSize: 10 },
+  cardBadgesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginVertical: 2,
+  },
+  cardBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 0.5,
+    maxWidth: '100%',
+  },
+  cardBadgeText: {
+    fontSize: 10,
+    fontFamily: fonts.medium,
+  },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   metaText: { fontFamily: fonts.regular, fontSize: 11 },
   actions: { gap: 8, marginTop: 4 },

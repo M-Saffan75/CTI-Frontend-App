@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   addToCartApi,
   getCartApi,
@@ -46,7 +46,7 @@ interface CartContextType {
   cartCount: number;
   subtotal: number;
   loading: boolean;
-  refreshCart: () => Promise<void>;
+  refreshCart: (opts?: { silent?: boolean }) => Promise<void>;
   addToCart: (productId: string, variantId?: string, quantity?: number) => Promise<boolean>;
   updateQuantity: (item: MobileCartItem, delta: number) => Promise<boolean>;
   removeItem: (item: MobileCartItem) => Promise<boolean>;
@@ -56,15 +56,38 @@ const CartContext = createContext<CartContextType | null>(null);
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const [cartItems, setCartItems] = useState<MobileCartItem[]>([]);
-  const [subtotal, setSubtotal] = useState(0);
   const [loading, setLoading] = useState(false);
+
+  // Derived subtotal: always pure and updated synchronously with cartItems in 0ms
+  const subtotal = useMemo(() => {
+    return cartItems.reduce(
+      (sum, it) => sum + (Number(it.price) || 0) * (it.quantity || 1),
+      0
+    );
+  }, [cartItems]);
+
+  // Track pending debounced updates per item so rapid clicks accumulate cleanly
+  const pendingUpdatesRef = useRef<
+    Record<
+      string,
+      {
+        accumulatedDelta: number;
+        targetQty: number;
+        initialQty: number;
+        timer: any;
+        item: MobileCartItem;
+      }
+    >
+  >({});
 
   // Count of distinct products/items in the cart (sum of standard + refurbished, matching Next.js)
   const cartCount = cartItems.length;
 
-  const refreshCart = useCallback(async () => {
+  const refreshCart = useCallback(async (opts?: { silent?: boolean }) => {
     try {
-      setLoading(true);
+      if (!opts?.silent) {
+        setLoading(true);
+      }
       const [res, refurbRaw] = await Promise.all([
         getCartApi().catch(() => null),
         getRefurbishedCart().catch(() => []),
@@ -74,27 +97,37 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       const refurbItems = mapRefurbishedCartItems(refurbRaw);
       const allItems = [...standardItems, ...refurbItems];
 
-      const standardSub = res?.subtotal || 0;
-      const refurbSub = refurbItems.reduce((acc, it) => acc + (it.price * it.quantity), 0);
-
-      setCartItems(allItems);
-      setSubtotal(standardSub + refurbSub);
+      // Prevent slow network response from clobbering active optimistic clicks
+      const hasPending = Object.keys(pendingUpdatesRef.current).length > 0;
+      if (!hasPending) {
+        setCartItems(allItems);
+      }
     } catch {
       // Fallback
     } finally {
-      setLoading(false);
+      if (!opts?.silent) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
     refreshCart();
+
+    return () => {
+      // Cleanup all pending timers on unmount
+      Object.values(pendingUpdatesRef.current).forEach(up => {
+        if (up.timer) clearTimeout(up.timer);
+      });
+      pendingUpdatesRef.current = {};
+    };
   }, [refreshCart]);
 
   const addToCart = useCallback(
     async (productId: string, variantId?: string, quantity = 1): Promise<boolean> => {
       try {
         await addToCartApi(productId, variantId, quantity);
-        await refreshCart();
+        await refreshCart({ silent: true });
         return true;
       } catch (err) {
         if (__DEV__) console.warn('[CartContext] addToCart failed:', err);
@@ -106,33 +139,75 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   const updateQuantity = useCallback(
     async (item: MobileCartItem, delta: number): Promise<boolean> => {
-      const newQty = item.quantity + delta;
-      if (newQty < 1) return false;
+      const pending = pendingUpdatesRef.current[item.id];
+      const initialQty = pending ? pending.initialQty : item.quantity;
+      const accumulatedDelta = (pending ? pending.accumulatedDelta : 0) + delta;
+      const targetQty = initialQty + accumulatedDelta;
 
-      // Optimistic update
-      const previousItems = [...cartItems];
+      if (targetQty < 1) return false;
+
+      // 1. Immediately update cartItems in local state - pure function, 0ms latency
       setCartItems(current =>
-        current.map(it => (it.id === item.id ? { ...it, quantity: newQty } : it))
+        current.map(it => (it.id === item.id ? { ...it, quantity: targetQty } : it))
       );
 
-      try {
-        if (item.isRefurbished) {
-          await updateRefurbishedCartItem(item.productId, item.variantId, delta);
-        } else {
-          await updateCartItemApi(item.productId, item.variantId, newQty, delta);
-        }
-        await refreshCart();
-        return true;
-      } catch (err) {
-        setCartItems(previousItems);
-        throw err;
+      // 2. Clear previous debounce timer
+      if (pending?.timer) {
+        clearTimeout(pending.timer);
       }
+
+      // 3. Debounce backend sync by 400ms to accumulate rapid clicks
+      pendingUpdatesRef.current[item.id] = {
+        accumulatedDelta,
+        targetQty,
+        initialQty,
+        item,
+        timer: setTimeout(async () => {
+          const updateInfo = pendingUpdatesRef.current[item.id];
+          delete pendingUpdatesRef.current[item.id];
+          if (!updateInfo || updateInfo.accumulatedDelta === 0) return;
+
+          try {
+            if (updateInfo.item.isRefurbished) {
+              await updateRefurbishedCartItem(
+                updateInfo.item.productId,
+                updateInfo.item.variantId,
+                updateInfo.accumulatedDelta
+              );
+            } else {
+              await updateCartItemApi(
+                updateInfo.item.productId,
+                updateInfo.item.variantId,
+                updateInfo.targetQty,
+                updateInfo.accumulatedDelta
+              );
+            }
+            // Update confirmed by backend. Local state is already 100% accurate!
+          } catch (err) {
+            // Revert local state on network error
+            setCartItems(current =>
+              current.map(it =>
+                it.id === item.id ? { ...it, quantity: updateInfo.initialQty } : it
+              )
+            );
+            console.warn('[CartContext] Failed to update quantity on server:', err);
+          }
+        }, 400),
+      };
+
+      return true;
     },
-    [cartItems, refreshCart]
+    []
   );
 
   const removeItem = useCallback(
     async (item: MobileCartItem): Promise<boolean> => {
+      // Clear pending timer if any
+      if (pendingUpdatesRef.current[item.id]?.timer) {
+        clearTimeout(pendingUpdatesRef.current[item.id].timer);
+        delete pendingUpdatesRef.current[item.id];
+      }
+
       const previousItems = [...cartItems];
       setCartItems(current => current.filter(it => it.id !== item.id));
 
@@ -142,14 +217,13 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         } else {
           await removeCartItemApi(item.productId, item.variantId);
         }
-        await refreshCart();
         return true;
       } catch (err) {
         setCartItems(previousItems);
         throw err;
       }
     },
-    [cartItems, refreshCart]
+    [cartItems]
   );
 
   return (

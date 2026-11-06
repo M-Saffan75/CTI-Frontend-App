@@ -101,6 +101,7 @@ function ProductCard({ product, navigation }: { product: MobileEcomProduct; navi
 }
 
 interface ProductFilters {
+  categoryIds: string[];
   categories: string[];
   color: string | null;
   storage: string | null;
@@ -110,6 +111,7 @@ interface ProductFilters {
 }
 
 const DEFAULT_FILTERS: ProductFilters = {
+  categoryIds: [],
   categories: [],
   color: null,
   storage: null,
@@ -148,10 +150,24 @@ export default function ProductScreen({ navigation }: any) {
 
     try {
       const queryParams: Record<string, any> = {};
-      if (currentFilters.minPrice > 0) queryParams.minPrice = currentFilters.minPrice;
-      if (currentFilters.maxPrice < 2000) queryParams.maxPrice = currentFilters.maxPrice;
-      if (currentFilters.minRating > 0) queryParams.rating = currentFilters.minRating;
-      if (currentFilters.categories.length > 0) queryParams.category = currentFilters.categories[0];
+      if (currentFilters.categoryIds && currentFilters.categoryIds.length > 0) {
+        queryParams.categoryIds = currentFilters.categoryIds.join(',');
+      }
+      if (currentFilters.color) {
+        queryParams.colors = currentFilters.color;
+      }
+      if (currentFilters.storage) {
+        queryParams.dynamicFilters = JSON.stringify({ Storage: [currentFilters.storage] });
+      }
+      if (currentFilters.minPrice > 0) {
+        queryParams.minPrice = currentFilters.minPrice;
+      }
+      if (currentFilters.maxPrice < 2000) {
+        queryParams.maxPrice = currentFilters.maxPrice;
+      }
+      if (currentFilters.minRating > 0) {
+        queryParams.rating = currentFilters.minRating;
+      }
 
       const [fetchedProducts] = await Promise.all([
         getEcomProducts(queryParams),
@@ -189,22 +205,40 @@ export default function ProductScreen({ navigation }: any) {
     if (filters.minPrice > 0 && price < filters.minPrice) return false;
     if (filters.maxPrice < 2000 && price > filters.maxPrice) return false;
     if (filters.minRating > 0 && Number(p.rating || 0) < filters.minRating) return false;
-    if (filters.categories.length > 0) {
+
+    if (filters.categoryIds.length > 0 || filters.categories.length > 0) {
+      const idMatch = p.categoryId && filters.categoryIds.includes(p.categoryId);
       const catLower = (p.category || '').toLowerCase();
-      const matchCat = filters.categories.some(c => catLower.includes(c.toLowerCase()));
-      if (!matchCat) return false;
+      const titleMatch = filters.categories.some(c => catLower.includes(c.toLowerCase()));
+      if (!idMatch && !titleMatch) return false;
     }
+
+    if (filters.color) {
+      const colorLower = filters.color.toLowerCase();
+      const hasColor = (p.colors || []).some(
+        c => c.name.toLowerCase().includes(colorLower) || (c.hex && c.hex.toLowerCase() === colorLower)
+      );
+      if (!hasColor) return false;
+    }
+
     if (filters.storage) {
       const titleLower = (p.title || '').toLowerCase();
       const storageLower = (p.storage || '').toLowerCase();
       const target = filters.storage.toLowerCase();
-      if (!titleLower.includes(target) && !storageLower.includes(target)) return false;
+      const inSpecs = Object.values(p.attrOptions || {}).some(opts =>
+        opts.some(o => o.value.toLowerCase() === target)
+      );
+      if (!titleLower.includes(target) && !storageLower.includes(target) && !inSpecs) {
+        return false;
+      }
     }
+
     return true;
   });
 
   const hasActiveFilters =
     filters.categories.length > 0 ||
+    filters.categoryIds.length > 0 ||
     filters.color !== null ||
     filters.storage !== null ||
     filters.minPrice > 0 ||
@@ -213,6 +247,7 @@ export default function ProductScreen({ navigation }: any) {
 
   let activeFilterCount = 0;
   if (filters.categories.length > 0) activeFilterCount += filters.categories.length;
+  else if (filters.categoryIds.length > 0) activeFilterCount += filters.categoryIds.length;
   if (filters.color) activeFilterCount += 1;
   if (filters.storage) activeFilterCount += 1;
   if (filters.minPrice > 0 || filters.maxPrice < 2000) activeFilterCount += 1;
@@ -229,7 +264,16 @@ export default function ProductScreen({ navigation }: any) {
   };
 
   const removeCategory = (cat: string) => {
-    const next = { ...filters, categories: filters.categories.filter(c => c !== cat) };
+    const idx = filters.categories.indexOf(cat);
+    const nextCategories = filters.categories.filter((_, i) => i !== idx);
+    const nextCategoryIds = filters.categoryIds.filter((_, i) => i !== idx);
+    const next = { ...filters, categories: nextCategories, categoryIds: nextCategoryIds };
+    setFilters(next);
+    loadData(false, next);
+  };
+
+  const resetColor = () => {
+    const next = { ...filters, color: null };
     setFilters(next);
     loadData(false, next);
   };
@@ -324,6 +368,14 @@ export default function ProductScreen({ navigation }: any) {
               <View style={[styles.filterChip, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                 <Text style={[styles.filterChipText, { color: colors.text }]}>{filters.minRating}+ Stars</Text>
                 <TouchableOpacity onPress={resetRating} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Icon source={closeIcon} size={11} color={colors.textMuted} />
+                </TouchableOpacity>
+              </View>
+            )}
+            {filters.color && (
+              <View style={[styles.filterChip, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <Text style={[styles.filterChipText, { color: colors.text }]}>{filters.color}</Text>
+                <TouchableOpacity onPress={resetColor} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                   <Icon source={closeIcon} size={11} color={colors.textMuted} />
                 </TouchableOpacity>
               </View>

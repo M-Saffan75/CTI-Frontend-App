@@ -10,7 +10,6 @@ import { FadeUp } from '@/animations';
 import {
   calendarBold,
   checkCircleIcon,
-  chevronDownBold,
   clockBold,
   exclamationCircleBold,
   inboxBold,
@@ -33,12 +32,11 @@ import { useCart } from '@/roles/Customer/context/CartContext';
 const PAGE_SIZE = 6;
 const DESCRIPTION_PREVIEW = 120;
 
-// The Figma file reused one icon everywhere as a placeholder ("put an icon
-// here") — these are picked per tab instead of copying that.
+// Tabs aligned with Next.js web application (/my-account)
 const TABS = [
   { key: 'all', label: 'All Jobs', icon: menuBold },
   { key: 'open', label: 'Open', icon: clockBold },
-  { key: 'offer_received', label: 'Offer Received', icon: inboxBold },
+  { key: 'offers_received', label: 'Offer Received', icon: inboxBold },
   { key: 'booked', label: 'Booked', icon: calendarBold },
   { key: 'in_progress', label: 'In Progress', icon: settingsBold },
   { key: 'completed', label: 'Completed', icon: checkCircleIcon },
@@ -68,7 +66,7 @@ function JobCard({ job, onPress }) {
 
   const tagBadge = job.tag === 'job_posting' ? badges.booked : badges.inProgress;
   const tagLabel = job.tag === 'job_posting' ? 'Job Posting' : 'Direct Message';
-  const offerBadge = job.offerLabel === 'Confirmed' ? badges.pending : badges.dispute;
+  const offerBadge = job.offerLabel === 'Confirmed' ? badges.accepted : badges.pending;
 
   return (
     <Squeeze
@@ -216,18 +214,84 @@ function ReviewCard({ item }) {
   );
 }
 
-function EmptyState({ label }) {
+function EmptyState({
+  activeTab,
+  onAction,
+}: {
+  activeTab: string;
+  onAction?: () => void;
+}) {
   const { colors } = useTheme();
+
+  const getEmptyDetails = () => {
+    switch (activeTab) {
+      case 'open':
+        return {
+          title: 'No Open Repair Requests',
+          desc: 'Open jobs are requests you have posted that are waiting for offers from certified repair technicians.',
+          btnText: 'Find Expert Repairmen',
+        };
+      case 'offers_received':
+      case 'offer_received':
+        return {
+          title: 'No Offers Received Yet',
+          desc: 'When technicians send quotes for your open repair jobs, they will appear here so you can compare and accept.',
+          btnText: 'Explore Repair Services',
+        };
+      case 'booked':
+        return {
+          title: 'No Booked Repairs',
+          desc: 'Repairs where you have accepted an offer and scheduled a technician will be listed here.',
+          btnText: 'Find Expert Repairmen',
+        };
+      case 'in_progress':
+        return {
+          title: 'No Repairs In Progress',
+          desc: 'Devices currently being diagnosed or repaired by technicians appear here.',
+          btnText: undefined,
+        };
+      case 'completed':
+        return {
+          title: 'No Completed Repairs',
+          desc: 'Repairs that have been successfully finished and delivered will appear here.',
+          btnText: undefined,
+        };
+      case 'disputed':
+        return {
+          title: 'No Disputed Jobs',
+          desc: 'Any jobs with active dispute cases or mediation will appear here.',
+          btnText: undefined,
+        };
+      case 'reviews':
+        return {
+          title: 'No Reviews Pending',
+          desc: 'Completed jobs eligible for feedback and ratings will appear here.',
+          btnText: undefined,
+        };
+      default:
+        return {
+          title: 'No Repair Jobs Found',
+          desc: 'Try adjusting your search or switching to a different tab.',
+          btnText: 'Explore Repair Services',
+        };
+    }
+  };
+
+  const details = getEmptyDetails();
 
   return (
     <View style={[styles.empty, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-      <Icon source={toolExtra} size={30} color={colors.textMuted} />
-      <Text style={[styles.emptyTitle, { color: colors.text }]}>
-        No {label ? `${label} ` : ''}jobs found
-      </Text>
-      <Text style={[styles.emptyText, { color: colors.textMuted }]}>
-        Try adjusting your search or switching to a different tab.
-      </Text>
+      <Icon source={toolExtra} size={34} color={colors.textMuted} />
+      <Text style={[styles.emptyTitle, { color: colors.text }]}>{details.title}</Text>
+      <Text style={[styles.emptyText, { color: colors.textMuted }]}>{details.desc}</Text>
+      {details.btnText && (
+        <Button
+          title={details.btnText}
+          size="sm"
+          onPress={onAction}
+          style={{ marginTop: 14, minWidth: 180 }}
+        />
+      )}
     </View>
   );
 }
@@ -287,16 +351,33 @@ export default function JobsScreen({ navigation }: any) {
   const jobCounts: Record<string, number> = {
     all: jobs.length,
     open: jobs.filter(j => j.status === 'open').length,
-    offer_received: jobs.filter(j => j.status === 'offer_received').length,
-    booked: jobs.filter(j => j.status === 'booked').length,
-    in_progress: jobs.filter(j => j.status === 'in_progress').length,
-    completed: jobs.filter(j => j.status === 'completed').length,
+    offers_received: jobs.filter(
+      j =>
+        j.status === 'offers_received' ||
+        j.status === 'offer_received' ||
+        (j.status === 'open' && j.offersCount > 0),
+    ).length,
+    booked: jobs.filter(
+      j => j.status === 'booked' || j.status === 'confirmed' || j.status === 'scheduled',
+    ).length,
+    in_progress: jobs.filter(
+      j => j.status === 'in_progress' || j.status === 'parts_needed' || j.status === 'quality_check',
+    ).length,
+    completed: jobs.filter(
+      j => j.status === 'completed' || j.status === 'delivered' || j.status === 'closed',
+    ).length,
     disputed: jobs.filter(j => j.status === 'disputed').length,
-    reviews: jobs.filter(j => j.status === 'completed').length,
+    reviews: jobs.filter(
+      j => j.status === 'completed' || j.status === 'delivered' || j.status === 'closed',
+    ).length,
   };
 
   if (activeTab === 'reviews') {
-    const completedJobs = jobs.filter(j => j.status === 'completed' && matches(j));
+    const completedJobs = jobs.filter(
+      j =>
+        (j.status === 'completed' || j.status === 'delivered' || j.status === 'closed') &&
+        matches(j),
+    );
 
     return (
       <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -330,7 +411,10 @@ export default function JobsScreen({ navigation }: any) {
               style={{ paddingVertical: 45 }}
             />
           ) : completedJobs.length === 0 ? (
-            <EmptyState label="review" />
+            <EmptyState
+              activeTab="reviews"
+              onAction={() => navigation.navigate('ExpertRepairmen')}
+            />
           ) : (
             completedJobs.map((item, index) => (
               <FadeUp key={item.id} delay={80 + index * 60} duration={500} style={styles.cardWrap}>
@@ -346,13 +430,38 @@ export default function JobsScreen({ navigation }: any) {
     );
   }
 
-  const filtered = jobs.filter(
-    job => (activeTab === 'all' || job.status === activeTab) && matches(job),
-  );
+  const filtered = jobs.filter(job => {
+    if (!matches(job)) return false;
+    if (activeTab === 'all') return true;
+    if (activeTab === 'open') return job.status === 'open';
+    if (activeTab === 'offers_received' || activeTab === 'offer_received') {
+      return (
+        job.status === 'offers_received' ||
+        job.status === 'offer_received' ||
+        (job.status === 'open' && job.offersCount > 0)
+      );
+    }
+    if (activeTab === 'booked') {
+      return job.status === 'booked' || job.status === 'confirmed' || job.status === 'scheduled';
+    }
+    if (activeTab === 'in_progress') {
+      return (
+        job.status === 'in_progress' ||
+        job.status === 'parts_needed' ||
+        job.status === 'quality_check'
+      );
+    }
+    if (activeTab === 'completed') {
+      return job.status === 'completed' || job.status === 'delivered' || job.status === 'closed';
+    }
+    if (activeTab === 'disputed') {
+      return job.status === 'disputed';
+    }
+    return job.status === activeTab;
+  });
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageItems = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const isEmpty = filtered.length === 0;
-  const tabLabel = TABS.find(tab => tab.key === activeTab)?.label.toLowerCase();
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -388,22 +497,14 @@ export default function JobsScreen({ navigation }: any) {
                   Showing {(page - 1) * PAGE_SIZE + 1} to{' '}
                   {Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length} jobs
                 </Text>
-                <View style={styles.perPage}>
-                  <Text style={[styles.metaText, { color: colors.textMuted }]}>
-                    Jobs per page: {PAGE_SIZE}
-                  </Text>
-                  <Icon source={chevronDownBold} size={12} color={colors.textMuted} />
-                </View>
               </View>
             )}
 
             {isEmpty ? (
-              <>
-                <EmptyState label={activeTab === 'all' ? '' : tabLabel} />
-                <Text style={[styles.helperText, { color: colors.textMuted }]}>
-                  If you want to upload a new request then you can do it from the website
-                </Text>
-              </>
+              <EmptyState
+                activeTab={activeTab}
+                onAction={() => navigation.navigate('ExpertRepairmen')}
+              />
             ) : (
               <>
                 {pageItems.map((job, index) => (
@@ -623,12 +724,10 @@ const styles = StyleSheet.create({
 
   metaRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     marginTop: 16,
   },
   metaText: { fontFamily: fonts.regular, fontSize: 12 },
-  perPage: { flexDirection: 'row', alignItems: 'center', gap: 4 },
 
   cardWrap: { marginTop: 14 },
   card: { borderRadius: 14, borderWidth: 1, padding: 16 },

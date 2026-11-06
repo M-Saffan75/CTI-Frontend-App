@@ -1,22 +1,73 @@
 import { Platform } from 'react-native';
 import apiClient from '@/services/apiClient';
 import { demoProductPhoto } from '@/assets/images';
-import { COLORS, STORAGE_OPTIONS } from '../data/products';
+
+export const COLOR_HEX_MAP: Record<string, string> = {
+  black: '#18181b',
+  white: '#f5f5f5',
+  gray: '#6b7280',
+  grey: '#6b7280',
+  blue: '#3b82f6',
+  pink: '#ec4899',
+  green: '#22c55e',
+  gold: '#d4a017',
+  red: '#ef4444',
+  navy: '#1e3a5f',
+  purple: '#a855f7',
+  orange: '#f97316',
+  brown: '#92400e',
+  teal: '#14b8a6',
+  yellow: '#eab308',
+  beige: '#d4b896',
+  silver: '#c0c0c0',
+  platinum: '#e5e4e2',
+  obsidian: '#0b0b0b',
+  midnight: '#191970',
+  starlight: '#f8f9fa',
+  graphite: '#41424c',
+  emerald: '#10b981',
+  lilac: '#d8b4e2',
+  iceblue: '#bae6fd',
+  bay: '#60a5fa',
+  floral: '#fbcfe8',
+  natural: '#99958f',
+  titanium: '#707070',
+};
+
+export function getColorHex(name?: string | null): string {
+  if (!name) return '#6B7280';
+  const lower = name.trim().toLowerCase();
+  if (COLOR_HEX_MAP[lower]) return COLOR_HEX_MAP[lower];
+  for (const [key, hex] of Object.entries(COLOR_HEX_MAP)) {
+    if (lower.includes(key)) return hex;
+  }
+  let hash = 0;
+  for (let i = 0; i < lower.length; i++) {
+    hash = lower.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const c = (hash & 0x00ffffff).toString(16).toUpperCase();
+  return '#' + '00000'.substring(0, 6 - c.length) + c;
+}
 
 export interface MobileEcomProduct {
   id: string;
   slug?: string;
   brand: string;
+  brandId?: string;
   title: string;
   description: string;
   price: number;
   originalPrice: number;
   discountPercent: number;
   inStock: boolean;
+  stock: number;
   rating: number;
   reviewCount: number;
   category: string;
-  colors: string[];
+  categoryId?: string;
+  colors: Array<{ name: string; hex?: string | null }>;
+  attrTypes: string[];
+  attrOptions: Record<string, Array<{ value: string; hex?: string | null; count: number }>>;
   storage: string;
   image: any;
   images: any[];
@@ -25,6 +76,9 @@ export interface MobileEcomProduct {
     name: string;
     location: string;
     avatar: string;
+    isApproved?: boolean;
+    isOnline?: boolean;
+    storeAddress?: string;
   };
   specs: {
     brand: string;
@@ -35,15 +89,23 @@ export interface MobileEcomProduct {
     priceRange: string;
     warranty: string;
   };
+  warranty?: {
+    type?: string;
+    months?: number;
+  };
   variants: Array<{
     id: string;
     label: string;
+    sku?: string;
     price: number;
     originalPrice?: number;
+    discountPercent?: number;
     verified: boolean;
     stockLeft: number;
+    isDefault?: boolean;
     image: any;
-    attributes?: any[];
+    attributes?: Array<{ name: string; value: string; colorHex?: string | null }>;
+    specs?: any[];
   }>;
   reviewBreakdown: Array<{ stars: number; percent: number }>;
   raw?: any;
@@ -80,10 +142,13 @@ export function mapBackendToEcomProduct(raw: any): MobileEcomProduct {
       originalPrice: 0,
       discountPercent: 0,
       inStock: false,
+      stock: 0,
       rating: 0,
       reviewCount: 0,
       category: '',
       colors: [],
+      attrTypes: [],
+      attrOptions: {},
       storage: '',
       image: demoProductPhoto,
       images: [demoProductPhoto],
@@ -114,44 +179,77 @@ export function mapBackendToEcomProduct(raw: any): MobileEcomProduct {
 
   const price = Number(
     defaultVar?.discountPrice ||
+    defaultVar?.sellingPrice ||
     defaultVar?.price ||
     raw.sellingPrice ||
     raw.price ||
-    495,
+    0,
   );
 
   const originalPrice = Number(
+    defaultVar?.sellingPrice ||
     defaultVar?.price ||
     raw.originalPrice ||
     raw.regularPrice ||
-    Math.round(price * 1.2),
+    price,
   );
 
   const discountPercent = Number(
+    defaultVar?.discountPercentage ??
     raw.discountPercentage ??
     raw.discountPercent ??
-    (originalPrice > price ? Math.round(((originalPrice - price) / originalPrice) * 100) : 10),
+    (originalPrice > price ? Math.round(((originalPrice - price) / originalPrice) * 100) : 0),
   );
 
-  const stock = Number(defaultVar?.stock || raw.quantity || raw.stock || 10);
+  // Extract all attribute types and their options (matching Next.js web app)
+  const attrTypes: string[] = Array.from(
+    new Set(variants.flatMap((v: any) => (v.attributes || []).map((a: any) => a.name)).filter(Boolean))
+  );
+
+  const attrOptions: Record<string, Array<{ value: string; hex?: string | null; count: number }>> = {};
+  attrTypes.forEach(type => {
+    const map = new Map<string, { value: string; hex?: string | null; count: number }>();
+    variants.forEach((v: any) => {
+      const a = (v.attributes || []).find((att: any) => att.name === type);
+      if (a && a.value) {
+        const val = String(a.value).trim();
+        const hex = a.colorHex || COLOR_HEX_MAP[val.toLowerCase()] || null;
+        const existing = map.get(val) || { value: val, hex, count: 0 };
+        existing.count += 1;
+        map.set(val, existing);
+      }
+    });
+    attrOptions[type] = Array.from(map.values());
+  });
+
+  const colors = attrOptions['Color'] || attrOptions['Colour'] || [];
+  const storageList = attrOptions['Storage'] || [];
+  const storageDefault = storageList[0]?.value || '';
+
+  const totalStock = variants.length > 0
+    ? variants.reduce((s: number, v: any) => s + (Number(v.stock) || 0), 0)
+    : Number(raw.stock ?? raw.quantity ?? 0);
+  const defaultStock = Number(defaultVar?.stock ?? (variants.length === 0 ? totalStock : 0));
 
   const cleanDescription = typeof raw.description === 'string'
     ? raw.description.replace(/<[^>]+>/g, '').trim()
-    : raw.shortDescription || 'High quality device with guaranteed warranty and support.';
+    : raw.shortDescription || '';
 
-  const sellerObj = raw.sellerId && typeof raw.sellerId === 'object' ? raw.sellerId : {};
-  const sellerName = sellerObj.storeName || sellerObj.name || raw.sellerName || 'Verified Seller';
-  const sellerLoc = sellerObj.address || sellerObj.city || 'Karachi, Pakistan';
-  const sellerAvatar = sellerObj.avatar || `https://picsum.photos/seed/${raw._id || 'seller'}/200/200`;
+  const sellerObj = raw.seller || (raw.sellerId && typeof raw.sellerId === 'object' ? raw.sellerId : {});
+  const sellerName = sellerObj.businessName || sellerObj.storeName || sellerObj.name || raw.sellerName || 'Verified Store';
+  const sellerLoc = sellerObj.storeAddress || sellerObj.address || sellerObj.city || 'Pakistan';
+  const sellerAvatar = sellerObj.profilePictureOrLogo || sellerObj.avatar || `https://picsum.photos/seed/${raw._id || 'seller'}/200/200`;
+  const rawSellerId = sellerObj._id || sellerObj.id || sellerObj.userId || (typeof raw.sellerId === 'string' ? raw.sellerId : '');
 
   const mappedVariants = variants.map((v: any, idx: number) => {
     const attrLabel = Array.isArray(v.attributes) && v.attributes.length > 0
-      ? v.attributes.map((a: any) => a.value || a.name).filter(Boolean).join(' • ')
+      ? v.attributes.map((a: any) => a.value || a.name).filter(Boolean).join(' / ')
       : '';
-    const label = v.title || v.name || attrLabel || v.label || `Variant ${idx + 1}`;
+    const label = v.title || v.name || attrLabel || v.label || `Option ${idx + 1}`;
     const vPrice = Number(v.discountPrice || v.sellingPrice || v.price || price);
     const vOrigPrice = Number(v.sellingPrice || v.price || originalPrice);
-    const vStock = Number(v.stock ?? 5);
+    const vDiscount = Number(v.discountPercentage ?? (vOrigPrice > vPrice ? Math.round(((vOrigPrice - vPrice) / vOrigPrice) * 100) : 0));
+    const vStock = Number(v.stock ?? 0);
     const vImage = v.images?.[0]?.url
       ? { uri: v.images[0].url }
       : (v.image ? resolveImageSource(v.image, mainImage) : mainImage);
@@ -159,44 +257,103 @@ export function mapBackendToEcomProduct(raw: any): MobileEcomProduct {
     return {
       id: String(v._id || v.id || `var-${idx}`),
       label,
+      sku: v.sku || '',
       price: vPrice,
       originalPrice: vOrigPrice,
+      discountPercent: vDiscount,
       verified: true,
       stockLeft: vStock,
+      isDefault: Boolean(v.isDefault),
       image: vImage,
       attributes: v.attributes || [],
+      specs: v.specs || [],
     };
   });
 
-  const safeString = (val: any, fallback = ''): string => {
-    if (typeof val === 'string') return val;
-    if (val && typeof val === 'object') {
-      return val.name || val.title || val.storeName || fallback;
-    }
-    return fallback;
+  const isMongoId = (val: any): boolean => {
+    return typeof val === 'string' && /^[0-9a-fA-F]{24}$/.test(val.trim());
   };
 
-  const finalBrand = safeString(raw.brand, safeString(raw.brandName, safeString(raw.category, 'CTI Store')));
-  const finalTitle = safeString(raw.title, safeString(raw.name, 'Electronic Gadget'));
-  const finalCategory = safeString(raw.category, safeString(raw.productCategoryId, safeString(raw.productSubCategoryId, 'Electronics')));
+  const resolveDisplayName = (val: any): string | null => {
+    if (!val) return null;
+    if (typeof val === 'object') {
+      const candidate = val.title || val.name || val.storeName || val.label;
+      if (candidate && typeof candidate === 'string' && !isMongoId(candidate)) {
+        return candidate.trim();
+      }
+      return null;
+    }
+    if (typeof val === 'string' && !isMongoId(val)) {
+      return val.trim();
+    }
+    return null;
+  };
 
-  const rawSellerId = sellerObj._id || sellerObj.id || (typeof raw.sellerId === 'string' ? raw.sellerId : (raw.sellerId?._id || ''));
+  // 1. Resolve Brand (strictly never an ObjectId string)
+  const brandFromObj = resolveDisplayName(raw.brand);
+  const brandFromName = resolveDisplayName(raw.brandName);
+  let finalBrand = brandFromObj || brandFromName;
+
+  if (!finalBrand) {
+    const rawTitle = typeof raw.title === 'string' ? raw.title : (typeof raw.name === 'string' ? raw.name : '');
+    const knownBrands = [
+      'Lenovo', 'Samsung', 'Apple', 'Dell', 'HP', 'Sony', 'Asus', 'Acer',
+      'Xiaomi', 'Google', 'OnePlus', 'Logitech', 'Microsoft', 'Huawei', 'Oppo', 'Vivo', 'Realme',
+    ];
+    const matched = knownBrands.find(b => new RegExp(`\\b${b}\\b`, 'i').test(rawTitle));
+    finalBrand = matched || 'CTI Store';
+  }
+
+  // 2. Resolve Category (strictly never an ObjectId string)
+  const catFromObj = resolveDisplayName(raw.category);
+  const catFromName = resolveDisplayName(raw.categoryName);
+  const subcatFromObj = resolveDisplayName(raw.subcategory || raw.subCategory);
+  const finalCategory = catFromObj || catFromName || subcatFromObj || 'Electronics';
+
+  const finalTitle = resolveDisplayName(raw.title) || resolveDisplayName(raw.name) || 'Electronic Gadget';
+  const rawCategoryId = String(raw.category?._id || (isMongoId(raw.categoryId) ? raw.categoryId : raw.categoryId?._id || ''));
+  const rawBrandId = String(raw.brand?._id || (isMongoId(raw.brandId) ? raw.brandId : raw.brandId?._id || ''));
+
+  // Real warranty format matching Next.js
+  let warrantyText = 'No Warranty';
+  if (typeof raw.warranty === 'string') {
+    warrantyText = raw.warranty;
+  } else if (raw.warranty?.type === 'yes') {
+    const m = Number(raw.warranty.months || 0);
+    if (m >= 12) {
+      const yrs = Math.floor(m / 12);
+      warrantyText = `${yrs} Year${yrs > 1 ? 's' : ''} Official Warranty Included`;
+    } else if (m > 0) {
+      warrantyText = `${m} Month${m > 1 ? 's' : ''} Official Warranty Included`;
+    } else {
+      warrantyText = 'Official Warranty Included';
+    }
+  }
+
+  const minPrice = mappedVariants.length > 0 ? Math.min(...mappedVariants.map(v => v.price)) : price;
+  const maxPrice = mappedVariants.length > 0 ? Math.max(...mappedVariants.map(v => v.originalPrice || v.price)) : originalPrice;
+  const priceRange = minPrice === maxPrice ? `$${minPrice.toFixed(2)}` : `$${minPrice.toFixed(2)} - $${maxPrice.toFixed(2)}`;
 
   return {
     id: String(raw._id || raw.id || Math.random().toString()),
     slug: raw.slug || String(raw._id || raw.id || ''),
     brand: finalBrand,
+    brandId: rawBrandId,
     title: finalTitle,
     description: cleanDescription,
     price,
     originalPrice,
     discountPercent,
-    inStock: stock > 0,
-    rating: Number(raw.averageRating || raw.rating || 4.5),
-    reviewCount: Number(raw.numReviews || raw.reviewCount || 0),
+    inStock: defaultStock > 0,
+    stock: defaultStock,
+    rating: Number(raw.ratings?.average || raw.averageRating || raw.rating || 0),
+    reviewCount: Number(raw.ratings?.count || raw.numReviews || raw.reviewCount || 0),
     category: finalCategory,
-    colors: COLORS,
-    storage: STORAGE_OPTIONS[0],
+    categoryId: rawCategoryId,
+    colors: colors.map((c: any) => ({ name: c.value, hex: c.hex })),
+    attrTypes,
+    attrOptions,
+    storage: storageDefault,
     image: mainImage,
     images: gallery,
     seller: {
@@ -204,16 +361,20 @@ export function mapBackendToEcomProduct(raw: any): MobileEcomProduct {
       name: sellerName,
       location: sellerLoc,
       avatar: sellerAvatar,
+      isApproved: Boolean(sellerObj.isApproved),
+      isOnline: Boolean(sellerObj.isOnline),
+      storeAddress: sellerLoc,
     },
     specs: {
       brand: finalBrand,
-      sku: typeof raw.sku === 'string' ? raw.sku : `SKU-${String(raw._id || 'CTI-V1').slice(-8)}`,
+      sku: typeof raw.sku === 'string' ? raw.sku : (defaultVar?.sku || `SKU-${String(raw._id || 'CTI-V1').slice(-8)}`),
       category: finalCategory,
       totalVariants: mappedVariants.length || 1,
-      totalStock: stock,
-      priceRange: `$${price} - $${originalPrice}`,
-      warranty: typeof raw.warranty === 'string' ? raw.warranty : '1 Year Official Warranty',
+      totalStock,
+      priceRange,
+      warranty: warrantyText,
     },
+    warranty: raw.warranty,
     variants: mappedVariants,
     reviewBreakdown: [
       { stars: 5, percent: 80 },
@@ -235,6 +396,46 @@ export async function getHomeFeed(): Promise<any> {
     return res.data?.data || null;
   } catch (err: any) {
     console.warn('getHomeFeed error fallback:', err?.message);
+    return null;
+  }
+}
+
+export interface EcomFilterCategory {
+  _id: string;
+  title: string;
+  count: number;
+}
+
+export interface EcomFilterColor {
+  name: string;
+  hex?: string | null;
+}
+
+export interface EcomFilterDynamicAttr {
+  name: string;
+  values: string[];
+}
+
+export interface EcomFilterData {
+  categories: EcomFilterCategory[];
+  colors: EcomFilterColor[];
+  dynamicAttributes: EcomFilterDynamicAttr[];
+  stockStatus?: { inStock: number; outOfStock: number };
+  warrantyOptions?: Array<{ type: string; months: number; count: number; label: string }>;
+}
+
+/**
+ * 2a. Fetch E-Commerce Filter Options (/e-commerce/products/filters)
+ */
+export async function getEcomProductFiltersApi(): Promise<EcomFilterData | null> {
+  try {
+    const res = await apiClient.get('/e-commerce/products/filters');
+    if (res.data?.success && res.data?.data) {
+      return res.data.data;
+    }
+    return null;
+  } catch (err: any) {
+    if (__DEV__) console.warn('getEcomProductFiltersApi error:', err?.message);
     return null;
   }
 }

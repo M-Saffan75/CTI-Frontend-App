@@ -696,7 +696,8 @@ function OurServices({ liveServices, navigation }: { liveServices?: any[]; navig
   }));
 
   const handleServicePress = (service: any) => {
-    const label = (service.label || '').toLowerCase();
+    const rawLabel = service.label || service.name || '';
+    const label = rawLabel.toLowerCase();
     if (label.includes('sell') && label.includes('gadget')) {
       navigation?.navigate('SellRefurbished', { mode: 'gadget' });
     } else if (label.includes('sell')) {
@@ -704,8 +705,23 @@ function OurServices({ liveServices, navigation }: { liveServices?: any[]; navig
     } else if (label.includes('accessori') || label.includes('refurbish')) {
       navigation?.navigate('BuyRefurbished');
     } else {
-      // Repair / Tech service e.g. "Mobile Repairing", "Repair Laptop", "Panel", "Mother Board", "software"
-      navigation?.navigate('ExpertRepairmen', { query: service.label });
+      // Clean query mapping for ExpertRepairmen search
+      let displayQuery = rawLabel;
+      if (label.includes('mobile') || label.includes('phone')) {
+        displayQuery = 'Mobile Repair';
+      } else if (label.includes('laptop')) {
+        displayQuery = 'Laptop Repair';
+      } else if (label.includes('mother')) {
+        displayQuery = 'Motherboard';
+      } else if (label.includes('panel') || label.includes('screen')) {
+        displayQuery = 'Panel / Screen';
+      } else if (label.includes('software')) {
+        displayQuery = 'Software';
+      }
+      navigation?.navigate('ExpertRepairmen', {
+        query: displayQuery,
+        timestamp: Date.now(),
+      });
     }
   };
 
@@ -857,10 +873,30 @@ function OurSpecialists({ liveRepairmen, navigation }: { liveRepairmen?: any[]; 
   );
 }
 
-function OurBlogs({ navigation, refreshing }: { navigation: any; refreshing?: boolean }) {
+function OurBlogs({
+  liveBlogs,
+  navigation,
+  refreshing,
+}: {
+  liveBlogs?: any[];
+  navigation: any;
+  refreshing?: boolean;
+}) {
   const { colors } = useTheme();
-  const [blogs, setBlogs] = useState<MobileBlog[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [blogs, setBlogs] = useState<MobileBlog[]>(() => {
+    if (Array.isArray(liveBlogs) && liveBlogs.length > 0) {
+      return liveBlogs.map(mapBackendToBlog);
+    }
+    return [];
+  });
+  const [loading, setLoading] = useState(blogs.length === 0);
+
+  useEffect(() => {
+    if (Array.isArray(liveBlogs) && liveBlogs.length > 0) {
+      setBlogs(liveBlogs.map(mapBackendToBlog));
+      setLoading(false);
+    }
+  }, [liveBlogs]);
 
   const fetchBlogs = useCallback(async () => {
     try {
@@ -876,8 +912,10 @@ function OurBlogs({ navigation, refreshing }: { navigation: any; refreshing?: bo
   }, []);
 
   useEffect(() => {
-    fetchBlogs();
-  }, [fetchBlogs, refreshing]);
+    if (!liveBlogs || liveBlogs.length === 0) {
+      fetchBlogs();
+    }
+  }, [fetchBlogs, liveBlogs, refreshing]);
 
   if (loading && blogs.length === 0) {
     return (
@@ -1061,7 +1099,10 @@ export default function HomeScreen({ navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (isUserRetry = false) => {
+    if (isUserRetry) {
+      setLoading(true);
+    }
     try {
       const data = await homeApi.getHomeData();
       if (data) setHomeData(data);
@@ -1073,7 +1114,20 @@ export default function HomeScreen({ navigation }: any) {
   }, []);
 
   useEffect(() => {
-    loadData();
+    let isMounted = true;
+    (async () => {
+      // Fast paint: load cached home data immediately if available
+      const cached = await homeApi.getCachedHomeData();
+      if (cached && isMounted) {
+        setHomeData(cached);
+        setLoading(false);
+      }
+      // Revalidate in background
+      await loadData();
+    })();
+    return () => {
+      isMounted = false;
+    };
   }, [loadData]);
 
   const onRefresh = async () => {
@@ -1104,7 +1158,7 @@ export default function HomeScreen({ navigation }: any) {
             <Text style={{ fontFamily: fonts.regular, fontSize: 13, color: colors.textMuted, marginTop: 6, textAlign: 'center' }}>
               Please check your connection and pull down to refresh.
             </Text>
-            <Button title="Retry" size="sm" onPress={loadData} style={{ marginTop: 16 }} />
+            <Button title="Retry" size="sm" onPress={() => loadData(true)} style={{ marginTop: 16 }} />
           </View>
         ) : (
           <>
@@ -1121,7 +1175,7 @@ export default function HomeScreen({ navigation }: any) {
               <OurSpecialists liveRepairmen={homeData?.repairmen} navigation={navigation} />
             </FadeUp>
             <FadeUp duration={500} delay={180}>
-              <OurBlogs navigation={navigation} refreshing={refreshing} />
+              <OurBlogs liveBlogs={homeData?.blogs} navigation={navigation} refreshing={refreshing} />
             </FadeUp>
             <FadeUp duration={500} delay={220}>
               <RatingsSlider liveReviews={homeData?.reviews} />

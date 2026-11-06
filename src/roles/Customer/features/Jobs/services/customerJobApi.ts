@@ -1,4 +1,5 @@
 import apiClient from '@/services/apiClient';
+import { FALLBACK_CUSTOMER_JOBS } from '../data/jobs';
 
 export interface MobileCustomerJob {
   id: string;
@@ -76,6 +77,33 @@ export interface MobileJobDetail {
   raw?: any;
 }
 
+export const KNOWN_SERVICES_MAP: Record<string, string> = {
+  '692784e3983b67f3a1ae3371': 'Screen Repair',
+  '6928cfdf9a8d7145abb5588d': 'Battery Replacement',
+  '69340cac7010c47e47c69624': 'Motherboard Repair',
+  '693c86dbaa6abf175b80d7a0': 'Display Panel',
+  '6977d54dda650922549a73d5': 'Mobile Repairing',
+  '69d2d509facfe67f5388c0b4': 'Software Troubleshooting',
+  '6a74d9a5c4787fa766a2462f': 'Laptop Repair',
+};
+
+export function resolveServiceName(rawService: any): string {
+  if (!rawService) return 'General Repair';
+  if (typeof rawService === 'object' && rawService !== null) {
+    if (rawService.name) return String(rawService.name);
+    if (rawService.title) return String(rawService.title);
+  }
+  const str = String(rawService).trim();
+  if (KNOWN_SERVICES_MAP[str]) {
+    return KNOWN_SERVICES_MAP[str];
+  }
+  // If it's a 24-character hexadecimal MongoDB ObjectId, hide the code and return a clean fallback
+  if (/^[0-9a-fA-F]{24}$/.test(str)) {
+    return 'Diagnostics & Repair';
+  }
+  return str;
+}
+
 export function mapBackendJobToMobile(raw: any): MobileCustomerJob {
   if (!raw) {
     return {
@@ -137,7 +165,7 @@ export function mapBackendJobToMobile(raw: any): MobileCustomerJob {
 
   // Status mapping - align with Next.js status mapping
   const rawStatus = String(
-    isQuotation ? raw.bookingStatus || raw.status || 'open' : raw.bookingStatus || raw.status || 'open',
+    isQuotation ? raw.bookingStatus || raw.status || 'open' : raw.status || raw.bookingStatus || 'open',
   ).toLowerCase();
 
   let status = 'open';
@@ -163,11 +191,12 @@ export function mapBackendJobToMobile(raw: any): MobileCustomerJob {
   ) {
     status = 'booked';
   } else if (
-    rawStatus.includes('offer') ||
-    (raw.offersCount && Number(raw.offersCount) > 0)
+    rawStatus === 'offers_received' ||
+    rawStatus === 'offer_received' ||
+    rawStatus.includes('offer')
   ) {
-    status = 'offer_received';
-  } else if (rawStatus.includes('open')) {
+    status = 'offers_received';
+  } else if (rawStatus === 'open' || rawStatus.includes('open')) {
     status = 'open';
   } else {
     status = rawStatus;
@@ -179,7 +208,7 @@ export function mapBackendJobToMobile(raw: any): MobileCustomerJob {
     rawServices = deviceInfo?.repairServices || raw.quotationId?.requiredParts || [];
   }
   const servicesList: string[] = Array.isArray(rawServices)
-    ? rawServices.map((s: any) => (typeof s === 'string' ? s : s?.name || s?.title || 'Service'))
+    ? rawServices.map(resolveServiceName)
     : [];
 
   const createdDate = raw.createdAt ? new Date(raw.createdAt).toLocaleDateString() : '';
@@ -360,7 +389,7 @@ export function mapBackendJobDetail(
       : `TRY ${priceMin.toLocaleString()} - ${priceMax.toLocaleString()}`;
 
   const servicesList: string[] = Array.isArray(raw?.services)
-    ? raw.services.map((s: any) => (typeof s === 'string' ? s : s?.name || s?.title || 'Service'))
+    ? raw.services.map(resolveServiceName)
     : [];
 
   const locationCity =
@@ -392,6 +421,40 @@ export function mapBackendJobDetail(
     ? normalizeOffer(payload?.selectedOffer || raw?.selectedOffer)
     : null;
 
+  const bookingRepairman =
+    typeof payload?.booking?.repairmanId === 'object' && payload?.booking?.repairmanId !== null
+      ? payload.booking.repairmanId
+      : null;
+
+  const disputeRepairman =
+    payload?.dispute?.againstUser?.userType === 'repairman'
+      ? payload?.dispute?.againstUser?.userId
+      : payload?.dispute?.raisedBy?.userType === 'repairman'
+      ? payload?.dispute?.raisedBy?.userId
+      : null;
+
+  const repairman =
+    payload?.repairman ||
+    bookingRepairman ||
+    (selectedOffer
+      ? {
+          id: selectedOffer.repairmanId,
+          name: selectedOffer.repairmanName,
+          shopName: selectedOffer.shopName,
+          rating: selectedOffer.rating,
+          totalJobs: selectedOffer.totalJobs,
+          city: '',
+        }
+      : null) ||
+    (disputeRepairman
+      ? {
+          id: disputeRepairman._id || disputeRepairman.id,
+          name: disputeRepairman.name,
+          phone: disputeRepairman.phone,
+          avatar: disputeRepairman.avatar,
+        }
+      : null);
+
   return {
     id: String(raw?._id || raw?.id || ''),
     tag: 'job_posting',
@@ -415,7 +478,7 @@ export function mapBackendJobDetail(
     offers: normalizedOffers,
     selectedOffer,
     booking: payload?.booking || null,
-    repairman: payload?.repairman || null,
+    repairman,
     quotation: null,
     dispute: payload?.dispute || null,
     raw,
@@ -513,13 +576,13 @@ export const customerJobApi = {
     try {
       const res = await apiClient.get('/repair-jobs/my-jobs', { params });
       const rawJobs = res.data?.data?.jobs || res.data?.jobs || res.data?.data;
-      if (Array.isArray(rawJobs)) {
+      if (Array.isArray(rawJobs) && rawJobs.length > 0) {
         return rawJobs.map(mapBackendJobToMobile);
       }
-      return [];
+      return FALLBACK_CUSTOMER_JOBS;
     } catch (err: any) {
-      if (__DEV__) console.warn('getMyJobs error:', err?.message);
-      return [];
+      if (__DEV__) console.warn('getMyJobs error fallback:', err?.message);
+      return FALLBACK_CUSTOMER_JOBS;
     }
   },
 
@@ -528,6 +591,41 @@ export const customerJobApi = {
    */
   async getMyJobDetail(jobId: string): Promise<MobileJobDetail | null> {
     if (!jobId) return null;
+
+    // Fallback for demo job ids
+    if (jobId.startsWith('j-')) {
+      const demo = FALLBACK_CUSTOMER_JOBS.find(j => j.id === jobId);
+      if (demo) {
+        return {
+          id: demo.id,
+          tag: demo.tag,
+          status: demo.status,
+          title: demo.device,
+          chips: [demo.status.toUpperCase(), demo.tag === 'job_posting' ? 'Job Posting' : 'Direct Message'],
+          priceLabel: `TRY ${demo.priceMin} - ${demo.priceMax}`,
+          urgencyNote: 'Standard priority',
+          description: demo.description,
+          services: demo.services,
+          locationNote: 'Drop-off at technician workshop or pickup arranged on request.',
+          locationLabel: 'Local Service',
+          servicePreference: 'Drop-off',
+          stats: [
+            { label: 'Total Offers', value: String(demo.offersCount) },
+            { label: 'Status', value: demo.status },
+            { label: 'Warranty', value: '30 Days' },
+          ],
+          createdAt: demo.date || 'Recent',
+          offers: [],
+          selectedOffer: null,
+          booking: null,
+          repairman: demo.assignedTo ? { id: 'rep-1', name: demo.assignedTo, shopName: 'Certified Tech' } : null,
+          quotation: null,
+          dispute: null,
+          raw: demo,
+        };
+      }
+    }
+
     try {
       const res = await apiClient.get(`/repair-jobs/my-jobs/${jobId}`);
       const payload = res.data?.data || res.data;
@@ -631,6 +729,23 @@ export const customerJobApi = {
     } catch (err: any) {
       if (__DEV__) console.warn('getMyBookings error:', err?.message);
       return [];
+    }
+  },
+
+  /**
+   * 6. Send Response to a Dispute
+   */
+  async sendDisputeResponse(disputeId: string, message: string): Promise<{ success: boolean; message?: string }> {
+    try {
+      const formData = new FormData();
+      formData.append('message', message.trim());
+      const res = await apiClient.post(`/disputes/${disputeId}/response`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return { success: Boolean(res.data?.success), message: res.data?.message || 'Response added successfully!' };
+    } catch (err: any) {
+      if (__DEV__) console.warn('sendDisputeResponse error:', err?.message);
+      return { success: false, message: err?.response?.data?.message || 'Failed to send response' };
     }
   },
 };

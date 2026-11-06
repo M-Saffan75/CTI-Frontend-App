@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Image,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -36,17 +37,17 @@ import {
 
 const SHIPPING_FEE = 10;
 
-function CartRow({
+interface CartRowProps {
+  item: MobileCartItem;
+  onQuantity: (item: MobileCartItem, delta: number) => void;
+  onRemove: (item: MobileCartItem) => void;
+}
+
+const CartRow = memo(function CartRow({
   item,
   onQuantity,
   onRemove,
-  updating,
-}: {
-  item: MobileCartItem;
-  onQuantity: (delta: number) => void;
-  onRemove: () => void;
-  updating?: boolean;
-}) {
+}: CartRowProps) {
   const { colors } = useTheme();
 
   const imageSource =
@@ -70,8 +71,24 @@ function CartRow({
           </Text>
         )}
         {item.isRefurbished && (
-          <View style={{ backgroundColor: '#FEF3C7', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, alignSelf: 'flex-start', marginVertical: 2 }}>
-            <Text style={{ fontFamily: fonts.bold, fontSize: 9, color: '#92400E', textTransform: 'uppercase' }}>Refurbished</Text>
+          <View
+            style={{
+              backgroundColor: '#FEF3C7',
+              paddingHorizontal: 6,
+              paddingVertical: 2,
+              borderRadius: 4,
+              alignSelf: 'flex-start',
+              marginVertical: 2,
+            }}>
+            <Text
+              style={{
+                fontFamily: fonts.bold,
+                fontSize: 9,
+                color: '#92400E',
+                textTransform: 'uppercase',
+              }}>
+              Refurbished
+            </Text>
           </View>
         )}
         <Text style={[styles.rowPrice, { color: colors.primary }]}>
@@ -80,34 +97,53 @@ function CartRow({
 
         <View style={styles.rowFoot}>
           <View style={styles.qtyControls}>
-            <Squeeze
-              onPress={() => onQuantity(-1)}
-              disabled={updating || item.quantity <= 1}
+            <TouchableOpacity
+              activeOpacity={0.6}
+              onPress={() => onQuantity(item, -1)}
+              disabled={item.quantity <= 1}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               style={[
                 styles.qtyBtn,
-                { borderColor: colors.border, opacity: item.quantity <= 1 ? 0.4 : 1 },
+                {
+                  borderColor: colors.border,
+                  backgroundColor: colors.surfaceAlt,
+                  opacity: item.quantity <= 1 ? 0.35 : 1,
+                },
               ]}>
-              <Icon source={minusSquareBold} size={16} color={colors.text} />
-            </Squeeze>
+              <Icon source={minusSquareBold} size={15} color={colors.text} />
+            </TouchableOpacity>
+
             <Text style={[styles.qtyValue, { color: colors.text }]}>
-              {updating ? '...' : item.quantity}
+              {item.quantity}
             </Text>
-            <Squeeze
-              onPress={() => onQuantity(1)}
-              disabled={updating}
-              style={[styles.qtyBtn, { borderColor: colors.border }]}>
-              <Icon source={plusSquareBold} size={16} color={colors.text} />
-            </Squeeze>
+
+            <TouchableOpacity
+              activeOpacity={0.6}
+              onPress={() => onQuantity(item, 1)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              style={[
+                styles.qtyBtn,
+                {
+                  borderColor: colors.border,
+                  backgroundColor: colors.surfaceAlt,
+                },
+              ]}>
+              <Icon source={plusSquareBold} size={15} color={colors.text} />
+            </TouchableOpacity>
           </View>
 
-          <Squeeze onPress={onRemove} scale={0.85} disabled={updating}>
+          <TouchableOpacity
+            activeOpacity={0.6}
+            onPress={() => onRemove(item)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={styles.deleteBtn}>
             <Icon source={trashBold} size={18} color={colors.error} />
-          </Squeeze>
+          </TouchableOpacity>
         </View>
       </View>
     </View>
   );
-}
+});
 
 export default function CartScreen({ navigation }: any) {
   const { colors } = useTheme();
@@ -122,7 +158,6 @@ export default function CartScreen({ navigation }: any) {
   } = useCart();
 
   const [refreshing, setRefreshing] = useState(false);
-  const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [itemToDelete, setItemToDelete] = useState<MobileCartItem | null>(null);
 
   // AlertModal State
@@ -147,21 +182,16 @@ export default function CartScreen({ navigation }: any) {
     }
   };
 
-  const handleQuantity = async (item: MobileCartItem, delta: number) => {
-    setUpdatingId(item.id);
-    try {
-      await updateQuantity(item, delta);
-    } catch (err: any) {
-      setModal({
-        visible: true,
-        type: 'error',
-        title: 'Update Failed',
-        message: err?.message || 'Could not update item quantity.',
-      });
-    } finally {
-      setUpdatingId(null);
-    }
-  };
+  const handleQuantity = useCallback(
+    (item: MobileCartItem, delta: number) => {
+      updateQuantity(item, delta);
+    },
+    [updateQuantity]
+  );
+
+  const handleRemove = useCallback((item: MobileCartItem) => {
+    setItemToDelete(item);
+  }, []);
 
   const handleConfirmDelete = async () => {
     if (!itemToDelete) return;
@@ -180,7 +210,10 @@ export default function CartScreen({ navigation }: any) {
     }
   };
 
-  const subtotal = items.reduce((sum, item) => sum + (Number(item.price) || 0) * (item.quantity || 1), 0);
+  const subtotal = useMemo(
+    () => items.reduce((sum, item) => sum + (Number(item.price) || 0) * (item.quantity || 1), 0),
+    [items]
+  );
   const shipping = items.length ? SHIPPING_FEE : 0;
   const total = subtotal + shipping;
 
@@ -224,7 +257,7 @@ export default function CartScreen({ navigation }: any) {
 
         <Text style={[styles.title, { color: colors.text }]}>My Cart</Text>
 
-        {loading && !refreshing ? (
+        {loading && !refreshing && items.length === 0 ? (
           <CtiLoader
             size="md"
             text="Loading your cart..."
@@ -244,15 +277,14 @@ export default function CartScreen({ navigation }: any) {
             />
           </View>
         ) : (
-          items.map((item, index) => (
-            <FadeUp key={item.id} delay={Math.min(300, 40 + index * 40)} duration={450} style={styles.spaced}>
+          items.map(item => (
+            <View key={item.id} style={styles.spaced}>
               <CartRow
                 item={item}
-                updating={updatingId === item.id}
-                onQuantity={delta => handleQuantity(item, delta)}
-                onRemove={() => setItemToDelete(item)}
+                onQuantity={handleQuantity}
+                onRemove={handleRemove}
               />
-            </FadeUp>
+            </View>
           ))
         )}
 
@@ -359,9 +391,22 @@ const styles = StyleSheet.create({
   rowTitle: { fontFamily: fonts.bold, fontSize: 14 },
   rowPrice: { fontFamily: fonts.bold, fontSize: 14 },
   rowFoot: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 },
-  qtyControls: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  qtyBtn: { width: 26, height: 26, borderRadius: 7, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  qtyValue: { fontFamily: fonts.bold, fontSize: 13, minWidth: 14, textAlign: 'center' },
+  qtyControls: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  qtyBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  qtyValue: { fontFamily: fonts.bold, fontSize: 14, minWidth: 26, textAlign: 'center' },
+  deleteBtn: {
+    padding: 6,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
   summary: { borderRadius: 16, borderWidth: 1, padding: 18, marginTop: 24 },
   summaryTitle: { fontFamily: fonts.bold, fontSize: 18, marginBottom: 14 },

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
@@ -9,19 +9,40 @@ import Button from '@/components/Button';
 import Checkbox from '@/components/Checkbox';
 import Squeeze from '@/components/Squeeze';
 import { FadeUp } from '@/animations';
-import { arrowLeftBold, chevronDownBold, chevronUpBold, starExtra } from '@/assets/icons';
+import { arrowLeftBold, checkCircleIcon, chevronDownBold, chevronUpBold, starExtra } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
-import { CATEGORIES, COLORS, STORAGE_OPTIONS } from '../data/products';
-
-// Demo counts — the API will send real per-category totals.
-const CATEGORY_COUNTS = { Electronics: 8, Fashion: 0, Home: 0, Sports: 0 };
+import {
+  EcomFilterCategory,
+  EcomFilterColor,
+  getColorHex,
+  getEcomProductFiltersApi,
+} from '../services/ecomApi';
 
 const PRICE_MIN = 0;
 const PRICE_MAX = 2000;
 const THUMB = 20;
 
-function FilterSection({ title, children }) {
+const DEFAULT_CATEGORIES: EcomFilterCategory[] = [
+  { _id: '6abcecea51d9ef55a9ced393', title: 'Electronics', count: 21 },
+  { _id: '6abcecef51d9ef55a9ced3b3', title: 'Fashion & Apparel', count: 10 },
+];
+
+const DEFAULT_COLORS: EcomFilterColor[] = [
+  { name: 'Black', hex: '#18181b' },
+  { name: 'Silver', hex: '#C0C0C0' },
+  { name: 'Titanium Gray', hex: '#6B7280' },
+  { name: 'Blue', hex: '#3B82F6' },
+  { name: 'White', hex: '#F9FAFB' },
+  { name: 'Red', hex: '#EF4444' },
+  { name: 'Navy', hex: '#1E3A5F' },
+  { name: 'Beige', hex: '#D4B896' },
+  { name: 'Gold', hex: '#D4A017' },
+];
+
+const DEFAULT_STORAGE = ['128GB', '256GB', '512GB', '1TB', '2TB SSD'];
+
+function FilterSection({ title, children }: { title: string; children: React.ReactNode }) {
   const { colors } = useTheme();
   const [open, setOpen] = useState(true);
 
@@ -37,13 +58,21 @@ function FilterSection({ title, children }) {
   );
 }
 
-// A draggable dual-thumb range slider. The two number fields below stay in
-// sync with it either way — type a number or drag a thumb, both update.
-function PriceRangeSlider({ minValue, maxValue, onChange }) {
+// Draggable dual-thumb range slider
+function PriceRangeSlider({
+  minValue,
+  maxValue,
+  onChange,
+}: {
+  minValue: number;
+  maxValue: number;
+  onChange: (min: number, max: number) => void;
+}) {
   const { colors } = useTheme();
   const [trackWidth, setTrackWidth] = useState(0);
 
-  const toX = value => (trackWidth ? ((value - PRICE_MIN) / (PRICE_MAX - PRICE_MIN)) * trackWidth : 0);
+  const toX = (value: number) =>
+    trackWidth > 0 ? ((value - PRICE_MIN) / (PRICE_MAX - PRICE_MIN)) * trackWidth : 0;
 
   const minX = useSharedValue(0);
   const maxX = useSharedValue(0);
@@ -56,19 +85,15 @@ function PriceRangeSlider({ minValue, maxValue, onChange }) {
     if (trackWidth > 0) maxX.value = toX(maxValue);
   }, [trackWidth, maxValue]);
 
-  const updateMin = value => onChange(value, maxValue);
-  const updateMax = value => onChange(minValue, value);
+  const updateMin = (value: number) => onChange(value, maxValue);
+  const updateMax = (value: number) => onChange(minValue, value);
 
-  // The thumb position updates every frame purely on the UI thread (fast).
-  // The number fields only need to know the final value, so that sync
-  // happens once on release instead of on every frame — otherwise each
-  // frame would re-render the whole filter screen and the drag stutters.
   const minPan = Gesture.Pan()
     .onChange(event => {
       minX.value = Math.min(Math.max(0, minX.value + event.changeX), maxX.value);
     })
     .onEnd(() => {
-      if (trackWidth) {
+      if (trackWidth > 0) {
         runOnJS(updateMin)(Math.round(PRICE_MIN + (minX.value / trackWidth) * (PRICE_MAX - PRICE_MIN)));
       }
     });
@@ -78,7 +103,7 @@ function PriceRangeSlider({ minValue, maxValue, onChange }) {
       maxX.value = Math.max(Math.min(trackWidth, maxX.value + event.changeX), minX.value);
     })
     .onEnd(() => {
-      if (trackWidth) {
+      if (trackWidth > 0) {
         runOnJS(updateMax)(Math.round(PRICE_MIN + (maxX.value / trackWidth) * (PRICE_MAX - PRICE_MIN)));
       }
     });
@@ -118,27 +143,88 @@ export default function FilterScreen({ navigation, route }: any) {
   const insets = useSafeAreaInsets();
   const initialFilters = route?.params?.currentFilters;
 
-  const [categories, setCategories] = useState<string[]>(initialFilters?.categories || []);
-  const [color, setColor] = useState<string | null>(initialFilters?.color || null);
-  const [storage, setStorage] = useState<string | null>(initialFilters?.storage || null);
+  const [categoriesList, setCategoriesList] = useState<EcomFilterCategory[]>(DEFAULT_CATEGORIES);
+  const [colorsList, setColorsList] = useState<EcomFilterColor[]>(DEFAULT_COLORS);
+  const [storageList, setStorageList] = useState<string[]>(DEFAULT_STORAGE);
+  const [loadingFilters, setLoadingFilters] = useState(true);
+
+  // Active user selections
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>(
+    initialFilters?.categoryIds || [],
+  );
+  const [selectedCategoryTitles, setSelectedCategoryTitles] = useState<string[]>(
+    initialFilters?.categories || [],
+  );
+  const [selectedColor, setSelectedColor] = useState<string | null>(initialFilters?.color || null);
+  const [selectedStorage, setSelectedStorage] = useState<string | null>(initialFilters?.storage || null);
   const [minPrice, setMinPrice] = useState<number>(initialFilters?.minPrice ?? PRICE_MIN);
   const [maxPrice, setMaxPrice] = useState<number>(initialFilters?.maxPrice ?? PRICE_MAX);
   const [minRating, setMinRating] = useState<number>(initialFilters?.minRating || 0);
 
-  const toggleCategory = (name: string) =>
-    setCategories(current =>
-      current.includes(name) ? current.filter(item => item !== name) : [...current, name],
+  // Fetch live filter options from backend
+  useEffect(() => {
+    let mounted = true;
+    getEcomProductFiltersApi().then(data => {
+      if (!mounted || !data) {
+        if (mounted) setLoadingFilters(false);
+        return;
+      }
+      if (Array.isArray(data.categories) && data.categories.length > 0) {
+        setCategoriesList(data.categories);
+        // Sync names if user came in with IDs
+        if (selectedCategoryIds.length > 0 && selectedCategoryTitles.length === 0) {
+          const matchedTitles = data.categories
+            .filter(c => selectedCategoryIds.includes(c._id))
+            .map(c => c.title);
+          setSelectedCategoryTitles(matchedTitles);
+        }
+      }
+      if (Array.isArray(data.colors) && data.colors.length > 0) {
+        const seen = new Set<string>();
+        const unique: EcomFilterColor[] = [];
+        data.colors.forEach(c => {
+          if (!c?.name) return;
+          const norm = c.name.trim().toLowerCase();
+          if (!seen.has(norm)) {
+            seen.add(norm);
+            unique.push({ name: c.name.trim(), hex: c.hex || getColorHex(c.name) });
+          }
+        });
+        setColorsList(unique);
+      }
+      if (Array.isArray(data.dynamicAttributes)) {
+        const storageAttr = data.dynamicAttributes.find(a => /storage/i.test(a.name));
+        if (storageAttr && Array.isArray(storageAttr.values) && storageAttr.values.length > 0) {
+          setStorageList(storageAttr.values);
+        }
+      }
+      setLoadingFilters(false);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const toggleCategory = (id: string, title: string) => {
+    setSelectedCategoryIds(prev =>
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id],
     );
+    setSelectedCategoryTitles(prev =>
+      prev.includes(title) ? prev.filter(item => item !== title) : [...prev, title],
+    );
+  };
 
   const clearAll = () => {
-    setCategories([]);
-    setColor(null);
-    setStorage(null);
+    setSelectedCategoryIds([]);
+    setSelectedCategoryTitles([]);
+    setSelectedColor(null);
+    setSelectedStorage(null);
     setMinPrice(PRICE_MIN);
     setMaxPrice(PRICE_MAX);
     setMinRating(0);
     if (typeof route?.params?.onApply === 'function') {
       route.params.onApply({
+        categoryIds: [],
         categories: [],
         color: null,
         storage: null,
@@ -151,9 +237,10 @@ export default function FilterScreen({ navigation, route }: any) {
 
   const handleApply = () => {
     const filters = {
-      categories,
-      color,
-      storage,
+      categoryIds: selectedCategoryIds,
+      categories: selectedCategoryTitles,
+      color: selectedColor,
+      storage: selectedStorage,
       minPrice,
       maxPrice,
       minRating,
@@ -164,17 +251,17 @@ export default function FilterScreen({ navigation, route }: any) {
     navigation.goBack();
   };
 
-  const changePrice = (nextMin, nextMax) => {
+  const changePrice = (nextMin: number, nextMax: number) => {
     setMinPrice(Math.round(nextMin));
     setMaxPrice(Math.round(nextMax));
   };
 
-  const onTypeMin = text => {
+  const onTypeMin = (text: string) => {
     const value = Math.min(Number(text.replace(/[^0-9]/g, '')) || 0, maxPrice);
     setMinPrice(value);
   };
 
-  const onTypeMax = text => {
+  const onTypeMax = (text: string) => {
     const value = Math.max(Number(text.replace(/[^0-9]/g, '')) || 0, minPrice);
     setMaxPrice(Math.min(value, PRICE_MAX));
   };
@@ -187,7 +274,7 @@ export default function FilterScreen({ navigation, route }: any) {
             <Icon source={arrowLeftBold} size={20} color={colors.onPrimary} />
           </View>
         </Squeeze>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Filter</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>Filter Products</Text>
         <View style={styles.back} />
       </View>
 
@@ -197,45 +284,75 @@ export default function FilterScreen({ navigation, route }: any) {
         keyboardShouldPersistTaps="handled">
         <FadeUp delay={60} duration={500}>
           <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            {/* Category Section with Live Backend Counts */}
             <FilterSection title="Category">
-              {CATEGORIES.map(name => (
-                <View key={name} style={styles.categoryRow}>
-                  <Checkbox
-                    checked={categories.includes(name)}
-                    onChange={() => toggleCategory(name)}
-                    label={name}
-                  />
-                  <Text style={[styles.categoryCount, { color: colors.textMuted }]}>
-                    {CATEGORY_COUNTS[name] ?? 0}
-                  </Text>
-                </View>
-              ))}
+              {loadingFilters && categoriesList.length === 0 ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                categoriesList.map(cat => {
+                  const isChecked =
+                    selectedCategoryIds.includes(cat._id) || selectedCategoryTitles.includes(cat.title);
+                  return (
+                    <View key={cat._id} style={styles.categoryRow}>
+                      <Checkbox
+                        checked={isChecked}
+                        onChange={() => toggleCategory(cat._id, cat.title)}
+                        label={cat.title}
+                      />
+                      <Text style={[styles.categoryCount, { color: colors.textMuted }]}>
+                        {cat.count ?? 0}
+                      </Text>
+                    </View>
+                  );
+                })
+              )}
             </FilterSection>
 
+            {/* Colors Section */}
             <FilterSection title="Colors">
+              {selectedColor && (
+                <Text style={[styles.selectedLabel, { color: colors.primary }]}>
+                  Selected: {selectedColor}
+                </Text>
+              )}
               <View style={styles.colorsGrid}>
-                {COLORS.map(hex => (
-                  <Squeeze key={hex} onPress={() => setColor(color === hex ? null : hex)} scale={0.9}>
-                    <View
-                      style={[
-                        styles.colorSwatch,
-                        { backgroundColor: hex },
-                        color === hex && { borderWidth: 3, borderColor: colors.primary },
-                      ]}
-                    />
-                  </Squeeze>
-                ))}
+                {colorsList.map(c => {
+                  const hex = c.hex || getColorHex(c.name);
+                  const active = selectedColor?.toLowerCase() === c.name.toLowerCase();
+                  return (
+                    <Squeeze
+                      key={c.name}
+                      onPress={() => setSelectedColor(active ? null : c.name)}
+                      scale={0.9}>
+                      <View
+                        style={[
+                          styles.colorSwatch,
+                          { backgroundColor: hex },
+                          active && { borderWidth: 3, borderColor: colors.primary },
+                        ]}>
+                        {active && (
+                          <Icon
+                            source={checkCircleIcon}
+                            size={16}
+                            color={hex.toLowerCase() === '#f9fafb' || hex.toLowerCase() === '#ffffff' ? '#18181b' : '#ffffff'}
+                          />
+                        )}
+                      </View>
+                    </Squeeze>
+                  );
+                })}
               </View>
             </FilterSection>
 
+            {/* Storage Section */}
             <FilterSection title="Storage">
               <View style={styles.storageRow}>
-                {STORAGE_OPTIONS.map(option => {
-                  const active = storage === option;
+                {storageList.map(option => {
+                  const active = selectedStorage === option;
                   return (
                     <Squeeze
                       key={option}
-                      onPress={() => setStorage(active ? null : option)}
+                      onPress={() => setSelectedStorage(active ? null : option)}
                       style={[
                         styles.storageChip,
                         { backgroundColor: active ? colors.primary : colors.surfaceAlt },
@@ -253,6 +370,7 @@ export default function FilterScreen({ navigation, route }: any) {
               </View>
             </FilterSection>
 
+            {/* Price Range Slider */}
             <FilterSection title="Price Range">
               <PriceRangeSlider minValue={minPrice} maxValue={maxPrice} onChange={changePrice} />
               <View style={styles.priceInputs}>
@@ -277,6 +395,7 @@ export default function FilterScreen({ navigation, route }: any) {
               </View>
             </FilterSection>
 
+            {/* Min Rating Section */}
             <FilterSection title="Min Rating">
               <View style={styles.stars}>
                 {[1, 2, 3, 4, 5].map(n => (
@@ -335,8 +454,20 @@ const styles = StyleSheet.create({
   categoryRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   categoryCount: { fontFamily: fonts.regular, fontSize: 13 },
 
-  colorsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
-  colorSwatch: { width: 40, height: 40, borderRadius: 20 },
+  selectedLabel: { fontFamily: fonts.medium, fontSize: 12, marginBottom: 4 },
+  colorsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  colorSwatch: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
 
   storageRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   storageChip: { borderRadius: 10, paddingHorizontal: 16, paddingVertical: 10 },
