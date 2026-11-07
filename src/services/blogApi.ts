@@ -40,7 +40,7 @@ export function mapBackendToBlog(raw: any): MobileBlog {
   const rawImage = raw.featuredImage || raw.image || raw.thumbnail;
   const imageUrl = typeof rawImage === 'string'
     ? rawImage
-    : rawImage?.url || 'https://picsum.photos/seed/blog/800/500';
+    : rawImage?.url || '';
 
   const wordCount = (cleanContent || cleanDesc).split(/\s+/).length;
   const minutes = Math.max(1, Math.ceil(wordCount / 180));

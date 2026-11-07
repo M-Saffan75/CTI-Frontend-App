@@ -1,10 +1,9 @@
 import apiClient, { API_BASE_URL } from '@/services/apiClient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getToken } from '@/services/tokenStorage';
 import { demoProductPhoto } from '@/assets/images';
 import {
   RefurbishedProduct,
-  REFURBISHED_PRODUCTS,
-  REFURBISHED_CATEGORIES,
 } from '../data/refurbishedData';
 
 /**
@@ -310,16 +309,7 @@ export async function submitSellDeviceApplication(
   formData: FormData,
 ): Promise<{ success: boolean; data?: any; message?: string }> {
   try {
-    let token = await AsyncStorage.getItem('token');
-    if (!token) {
-      const authData = await AsyncStorage.getItem('auth');
-      if (authData) {
-        try {
-          const parsed = JSON.parse(authData);
-          token = parsed?.token || parsed?.tokens?.accessToken;
-        } catch {}
-      }
-    }
+    const token = await getToken();
 
     // 120s timeout controller for large binary uploads (images + video) & AWS S3 processing
     const controller = new AbortController();
@@ -485,7 +475,7 @@ export async function getRefurbishedCart(): Promise<any[]> {
     if (res.data?.success && res.data?.data) {
       return res.data.data.items || [];
     }
-  } catch (error) {
+  } catch {
     // If not authenticated or network offline, use local storage fallback
   }
   try {
@@ -559,7 +549,7 @@ export async function updateRefurbishedCartItem(
     if (res.data?.success) {
       return { success: true, items: res.data?.data?.items };
     }
-  } catch (error) {
+  } catch {
     // Local fallback
   }
 
@@ -591,7 +581,7 @@ export async function removeRefurbishedCartItem(
     if (res.data?.success) {
       return { success: true, items: res.data?.data?.items };
     }
-  } catch (error) {
+  } catch {
     // Local fallback
   }
 
@@ -617,7 +607,7 @@ export async function getRefurbishedWishlist(): Promise<any[]> {
     if (res.data?.success && Array.isArray(res.data?.data?.items)) {
       return res.data.data.items;
     }
-  } catch (error) {
+  } catch {
     // Local fallback
   }
   try {

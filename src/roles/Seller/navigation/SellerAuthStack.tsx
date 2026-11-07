@@ -6,6 +6,8 @@ import ForgotPasswordScreen from '../features/Auth/screens/ForgotPasswordScreen'
 import VerifyOtpScreen from '../features/Auth/screens/VerifyOtpScreen';
 import ResetPasswordScreen from '../features/Auth/screens/ResetPasswordScreen';
 import ResetSuccessScreen from '../features/Auth/screens/ResetSuccessScreen';
+import KycHandoffScreen from '@/features/Kyc/screens/KycHandoffScreen';
+import KycStatusScreen from '@/features/Kyc/screens/KycStatusScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -28,6 +30,10 @@ export default function SellerAuthStack({ onLoggedIn }) {
         component={ResetSuccessScreen}
         options={{ animation: 'fade', animationDuration: 400 }}
       />
+      <Stack.Screen name="KycHandoff" component={KycHandoffScreen} />
+      <Stack.Screen name="KycStatus">
+        {props => <KycStatusScreen {...props} onApproved={onLoggedIn} />}
+      </Stack.Screen>
     </Stack.Navigator>
   );
 }

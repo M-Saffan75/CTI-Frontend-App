@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text } from 'react-native';
 
 import AuthLayout from '@/components/AuthLayout';
@@ -11,7 +11,7 @@ import { fonts } from '@/theme/fonts';
 import { validateOtp } from '@/utils/validators';
 import { resendOtp, verifyOtp } from '../api/authApi';
 
-export default function VerifyOtpScreen({ navigation, route, onLoggedIn }: any) {
+export default function VerifyOtpScreen({ navigation, route, onLoggedIn: _onLoggedIn }: any) {
   const { colors } = useTheme();
   const next = route?.params?.next;
   const email = route?.params?.email || '';
@@ -60,7 +60,7 @@ export default function VerifyOtpScreen({ navigation, route, onLoggedIn }: any) 
     }
   };
 
-  const onSubmit = async () => {
+  const onSubmit = useCallback(async () => {
     const message = validateOtp(otp, 6);
     setError(message);
     if (message) return;
@@ -71,7 +71,7 @@ export default function VerifyOtpScreen({ navigation, route, onLoggedIn }: any) 
         navigation.navigate('ResetPassword', { email, otp });
       } else {
         await verifyOtp({ email, otp });
-        onLoggedIn?.();
+        navigation.navigate('KycHandoff', { role: 'seller', email });
       }
     } catch (err: any) {
       const msg = err.message || 'Invalid or expired OTP';
@@ -85,14 +85,14 @@ export default function VerifyOtpScreen({ navigation, route, onLoggedIn }: any) 
     } finally {
       setLoading(false);
     }
-  };
+  }, [email, navigation, next, otp]);
 
   // Auto-submit once all 6 digits are entered
   useEffect(() => {
     if (otp.length === 6 && !loading) {
       onSubmit();
     }
-  }, [otp]);
+  }, [otp, loading, onSubmit]);
 
   return (
     <AuthLayout

@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { launchImageLibrary } from 'react-native-image-picker';
 
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
@@ -23,6 +24,7 @@ import {
   checkCircleBold,
   chevronDownBold,
   creditCardBold,
+  dummyProfileExtra,
   fileBold,
   mapPinBold,
   menuBold,
@@ -48,6 +50,7 @@ import AddEducationModal from '../components/AddEducationModal';
 import AddExperienceModal from '../components/AddExperienceModal';
 import AddCertificateModal from '../components/AddCertificateModal';
 import { updateUserProfileApi } from '../services/profileApi';
+import AuthService from '@/services/authService';
 
 const GENDER_OPTIONS = ['Male', 'Female', 'Other'];
 const WEEK_DAYS = [
@@ -64,49 +67,53 @@ export default function EditProfileScreen({ navigation, route }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
-  const [profile, setProfile] = useState<ProfileData>(
+  const cachedUser = AuthService.getCachedUser();
+  const [profile] = useState<ProfileData>(
     route?.params?.profileData || INITIAL_PROFILE_DATA,
   );
 
-  // Form States
-  const [firstName, setFirstName] = useState((profile?.name || '').split(' ')[0] || 'Malik');
-  const [fatherName, setFatherName] = useState('Malik Nadeem');
+  const effectiveRole = (
+    profile?.role ||
+    AuthService.getCachedRole() ||
+    cachedUser?.role ||
+    'customer'
+  ).toLowerCase();
+  const isCustomer = effectiveRole === 'customer';
+
+  // Customer & Common Form States
+  const [fullName, setFullName] = useState(
+    profile?.name || cachedUser?.name || 'Customer',
+  );
+  const [selectedPhoto, setSelectedPhoto] = useState<any>(null);
+  const [phone, setPhone] = useState(profile?.phone || cachedUser?.phone || '');
+  const [whatsapp, setWhatsapp] = useState(profile?.whatsapp || profile?.phone || cachedUser?.phone || '');
+  const [email] = useState(profile?.email || cachedUser?.email || '');
+  const [country, setCountry] = useState(profile?.city ? 'Turkey' : 'Turkey');
+  const [city, setCity] = useState(profile?.city || '');
+  const [address, setAddress] = useState(profile?.address || '');
+  const [zipCode, setZipCode] = useState(profile?.zipCode || '');
+  const [aboutBio, setAboutBio] = useState(profile?.aboutMe || '');
+
+  // Provider Form States (Preserved for Repairman / Seller)
+  const [firstName, setFirstName] = useState((profile?.name || '').split(' ')[0] || '');
+  const [fatherName, setFatherName] = useState('');
   const [gender, setGender] = useState('Male');
   const [showGenderDropdown, setShowGenderDropdown] = useState(false);
-  const [dob, setDob] = useState('03/08/1999');
-  const [cnic, setCnic] = useState('1469643963');
-  const [taxNumber, setTaxNumber] = useState('22334');
-
-  // Contact
-  const [phone, setPhone] = useState(profile?.phone || '');
-  const [whatsapp, setWhatsapp] = useState(profile?.whatsapp || '');
-  const [email, setEmail] = useState(profile?.email || '');
+  const [dob, setDob] = useState('01/01/1995');
+  const [cnic, setCnic] = useState('');
+  const [taxNumber, setTaxNumber] = useState('');
   const [emergencyPhone, setEmergencyPhone] = useState(profile?.emergencyPhone || '');
   const [emergencyPerson, setEmergencyPerson] = useState(profile?.emergencyPerson || '');
-
-  // Location
-  const [country, setCountry] = useState('Pakistan');
-  const [stateName, setStateName] = useState('Sindh');
-  const [city, setCity] = useState(
-    profile?.city === 'City Not Set' ? 'Karachi' : profile?.city || 'Karachi',
-  );
+  const [stateName, setStateName] = useState('');
   const [district, setDistrict] = useState('');
-  const [zipCode, setZipCode] = useState(profile?.zipCode || '');
-  const [address, setAddress] = useState(profile?.address || '');
-
-  // Shop Info
-  const [shopName, setShopName] = useState('Suggest');
+  const [shopName, setShopName] = useState('');
   const [shopDesc, setShopDesc] = useState(profile?.aboutMe || '');
   const [offerPickup, setOfferPickup] = useState(Boolean(profile?.pickupServiceAvailable));
-
-  // Professional Info
   const [yearsExperience, setYearsExperience] = useState('2');
   const [specializations, setSpecializations] = useState<string[]>(
     profile?.specialization || [],
   );
   const [newSpec, setNewSpec] = useState('');
-
-  // Schedule
   const [startTime, setStartTime] = useState('09:00 AM');
   const [endTime, setEndTime] = useState('21:00 PM');
   const [selectedDays, setSelectedDays] = useState<string[]>([
@@ -117,23 +124,28 @@ export default function EditProfileScreen({ navigation, route }: any) {
     'Friday',
     'Saturday',
   ]);
-
-  // Banking
-  const [accountTitle, setAccountTitle] = useState('Malik Zubair');
-  const [accountNumber, setAccountNumber] = useState('012345678901');
-  const [bankName, setBankName] = useState('Meezan Bank');
-  const [branchName, setBranchName] = useState('Latifabad Branch');
-  const [iban, setIban] = useState('PK36MEZN0001234567890101');
+  const [accountTitle, setAccountTitle] = useState('');
+  const [accountNumber, setAccountNumber] = useState('');
+  const [bankName, setBankName] = useState('');
+  const [branchName, setBranchName] = useState('');
+  const [iban, setIban] = useState('');
 
   // Modals
   const [showEduModal, setShowEduModal] = useState(false);
   const [editingEdu, setEditingEdu] = useState<EducationItem | null>(null);
-
   const [showExpModal, setShowExpModal] = useState(false);
   const [editingExp, setEditingExp] = useState<ExperienceItem | null>(null);
-
   const [showCertModal, setShowCertModal] = useState(false);
   const [editingCert, setEditingCert] = useState<CertificateItem | null>(null);
+
+  const handlePickAvatar = () => {
+    launchImageLibrary({ mediaType: 'photo', quality: 0.8 }, response => {
+      if (response.didCancel || response.errorCode) return;
+      if (response.assets && response.assets.length > 0) {
+        setSelectedPhoto(response.assets[0]);
+      }
+    });
+  };
 
   const handleAddSpec = () => {
     if (!newSpec.trim()) return;
@@ -170,63 +182,116 @@ export default function EditProfileScreen({ navigation, route }: any) {
   });
 
   const handleSave = async () => {
-    const updated: ProfileData = {
-      ...profile,
-      name: `${firstName.trim()} ${fatherName.trim()}`.trim() || profile.name,
-      phone,
-      whatsapp,
-      email,
-      emergencyPerson,
-      emergencyPhone,
-      city,
-      address,
-      zipCode,
-      aboutMe: shopDesc,
-      pickupServiceAvailable: offerPickup,
-      specialization: specializations,
-      workingHours: `${startTime} - ${endTime}`,
-      workingDays: selectedDays.map(d => d.slice(0, 3)),
-      bankDetailsCompleted: Boolean(accountNumber && bankName),
-    };
-
     setIsSaving(true);
     try {
-      await updateUserProfileApi({
-        fullName: updated.name,
-        phone: updated.phone,
-        email: updated.email,
-        city: updated.city,
-        address: updated.address,
-        zipCode: updated.zipCode,
-        description: updated.aboutMe,
-        workingHours: { start: startTime, end: endTime },
-        workingDays: selectedDays,
-        bankDetails: {
-          accountTitle,
-          accountNumber,
-          bankName,
-          branchName,
-          iban,
-        },
-      });
+      if (isCustomer) {
+        if (!fullName.trim()) {
+          setAlertConfig({
+            visible: true,
+            type: 'error',
+            title: 'Validation Error',
+            message: 'Full Name is required.',
+          });
+          setIsSaving(false);
+          return;
+        }
 
-      route?.params?.onSaveProfile?.(updated);
-      setAlertConfig({
-        visible: true,
-        type: 'success',
-        title: 'Profile Updated',
-        message: 'Your profile details have been saved successfully!',
-        onOk: () => navigation?.goBack(),
-      });
+        const payload: any = {
+          name: fullName.trim(),
+          phone: phone.trim(),
+          whatsapp: whatsapp.trim(),
+          country: country.trim(),
+          city: city.trim(),
+          address: address.trim(),
+          zipCode: zipCode.trim(),
+          aboutMe: aboutBio.trim(),
+        };
+
+        if (selectedPhoto) {
+          payload.profilePhoto = {
+            uri: selectedPhoto.uri,
+            type: selectedPhoto.type || 'image/jpeg',
+            fileName: selectedPhoto.fileName || 'profile.jpg',
+          };
+        }
+
+        const res = await updateUserProfileApi(payload);
+
+        const updated: ProfileData = {
+          ...profile,
+          name: fullName.trim(),
+          phone: phone.trim(),
+          whatsapp: whatsapp.trim(),
+          country: country.trim(),
+          city: city.trim(),
+          address: address.trim(),
+          zipCode: zipCode.trim(),
+          aboutMe: aboutBio.trim(),
+          avatarUri: res?.data?.user?.profileImage || (selectedPhoto?.uri || profile.avatarUri),
+        };
+
+        route?.params?.onSaveProfile?.(updated);
+        setAlertConfig({
+          visible: true,
+          type: 'success',
+          title: 'Profile Updated',
+          message: 'Your profile details have been saved successfully!',
+          onOk: () => navigation?.goBack(),
+        });
+      } else {
+        const updated: ProfileData = {
+          ...profile,
+          name: `${firstName.trim()} ${fatherName.trim()}`.trim() || profile.name,
+          phone,
+          whatsapp,
+          email,
+          emergencyPerson,
+          emergencyPhone,
+          city,
+          address,
+          zipCode,
+          aboutMe: shopDesc,
+          pickupServiceAvailable: offerPickup,
+          specialization: specializations,
+          workingHours: `${startTime} - ${endTime}`,
+          workingDays: selectedDays.map(d => d.slice(0, 3)),
+          bankDetailsCompleted: Boolean(accountNumber && bankName),
+        };
+
+        await updateUserProfileApi({
+          fullName: updated.name,
+          phone: updated.phone,
+          email: updated.email,
+          city: updated.city,
+          address: updated.address,
+          zipCode: updated.zipCode,
+          description: updated.aboutMe,
+          workingHours: { start: startTime, end: endTime },
+          workingDays: selectedDays,
+          bankDetails: {
+            accountTitle,
+            accountNumber,
+            bankName,
+            branchName,
+            iban,
+          },
+        });
+
+        route?.params?.onSaveProfile?.(updated);
+        setAlertConfig({
+          visible: true,
+          type: 'success',
+          title: 'Profile Updated',
+          message: 'Your profile details have been saved successfully!',
+          onOk: () => navigation?.goBack(),
+        });
+      }
     } catch (err: any) {
-      route?.params?.onSaveProfile?.(updated);
-      const msg = err?.response?.data?.message || 'Profile saved locally. Syncing with backend server.';
       setAlertConfig({
         visible: true,
-        type: 'success',
-        title: 'Profile Saved',
-        message: msg,
-        onOk: () => navigation?.goBack(),
+        type: 'error',
+        title: 'Update Failed',
+        message: err?.message || 'Could not update profile. Please try again.',
       });
     } finally {
       setIsSaving(false);
@@ -265,6 +330,264 @@ export default function EditProfileScreen({ navigation, route }: any) {
           </Text>
         </View>
 
+        {isCustomer ? (
+          <>
+            {/* Customer Photo Card */}
+            <FadeUp delay={15} duration={300}>
+              <View
+                style={[
+                  styles.card,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: colors.border,
+                    alignItems: 'center',
+                  },
+                ]}>
+                <View style={styles.avatarWrap}>
+                  <Image
+                    source={
+                      selectedPhoto?.uri
+                        ? { uri: selectedPhoto.uri }
+                        : (profile.avatarUri ? { uri: profile.avatarUri } : dummyProfileExtra)
+                    }
+                    style={[styles.avatarPreview, { borderColor: colors.primary }]}
+                  />
+                </View>
+                <Squeeze onPress={handlePickAvatar} style={{ marginTop: 12 }}>
+                  <View style={[styles.uploadPhotoBtn, { backgroundColor: colors.primary }]}>
+                    <Icon source={uploadBold} size={16} color={colors.onPrimary} />
+                    <Text style={[styles.uploadPhotoBtnText, { color: colors.onPrimary }]}>
+                      {selectedPhoto ? 'Change Photo' : 'Upload Profile Photo'}
+                    </Text>
+                  </View>
+                </Squeeze>
+              </View>
+            </FadeUp>
+
+            {/* Customer Basic Info Card */}
+            <FadeUp delay={30} duration={300}>
+              <View
+                style={[
+                  styles.card,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                ]}>
+                <View style={styles.cardHeader}>
+                  <Icon source={userBold} size={18} color={colors.primary} />
+                  <Text style={[styles.cardTitle, { color: colors.text }]}>Basic Information</Text>
+                </View>
+
+                <View style={styles.formGroup}>
+                  <Text style={[styles.label, { color: colors.text }]}>Full Name *</Text>
+                  <TextInput
+                    value={fullName}
+                    onChangeText={setFullName}
+                    placeholder="Enter your full name"
+                    placeholderTextColor={colors.textMuted}
+                    style={[
+                      styles.input,
+                      {
+                        backgroundColor: colors.surfaceAlt,
+                        color: colors.text,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  />
+                </View>
+
+                <View style={styles.formGroup}>
+                  <Text style={[styles.label, { color: colors.text }]}>Email Address (Read-only)</Text>
+                  <TextInput
+                    value={email}
+                    editable={false}
+                    style={[
+                      styles.input,
+                      {
+                        backgroundColor: colors.surfaceAlt,
+                        color: colors.textMuted,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  />
+                </View>
+              </View>
+            </FadeUp>
+
+            {/* Customer Contact Card */}
+            <FadeUp delay={60} duration={300}>
+              <View
+                style={[
+                  styles.card,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                ]}>
+                <View style={styles.cardHeader}>
+                  <Icon source={phoneBold} size={18} color={colors.primary} />
+                  <Text style={[styles.cardTitle, { color: colors.text }]}>Contact Information</Text>
+                </View>
+
+                <View style={styles.formGroup}>
+                  <Text style={[styles.label, { color: colors.text }]}>Mobile Number</Text>
+                  <TextInput
+                    value={phone}
+                    onChangeText={setPhone}
+                    placeholder="+90 5XX XXX XXXX"
+                    placeholderTextColor={colors.textMuted}
+                    keyboardType="phone-pad"
+                    style={[
+                      styles.input,
+                      {
+                        backgroundColor: colors.surfaceAlt,
+                        color: colors.text,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  />
+                </View>
+
+                <View style={styles.formGroup}>
+                  <Text style={[styles.label, { color: colors.text }]}>WhatsApp Number</Text>
+                  <TextInput
+                    value={whatsapp}
+                    onChangeText={setWhatsapp}
+                    placeholder="+90 5XX XXX XXXX"
+                    placeholderTextColor={colors.textMuted}
+                    keyboardType="phone-pad"
+                    style={[
+                      styles.input,
+                      {
+                        backgroundColor: colors.surfaceAlt,
+                        color: colors.text,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  />
+                </View>
+              </View>
+            </FadeUp>
+
+            {/* Customer Location & Delivery Address */}
+            <FadeUp delay={90} duration={300}>
+              <View
+                style={[
+                  styles.card,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                ]}>
+                <View style={styles.cardHeader}>
+                  <Icon source={mapPinBold} size={18} color={colors.primary} />
+                  <Text style={[styles.cardTitle, { color: colors.text }]}>Address & Delivery</Text>
+                </View>
+
+                <View style={styles.formGroup}>
+                  <Text style={[styles.label, { color: colors.text }]}>Country</Text>
+                  <TextInput
+                    value={country}
+                    onChangeText={setCountry}
+                    placeholder="Country"
+                    placeholderTextColor={colors.textMuted}
+                    style={[
+                      styles.input,
+                      {
+                        backgroundColor: colors.surfaceAlt,
+                        color: colors.text,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  />
+                </View>
+
+                <View style={styles.formGroup}>
+                  <Text style={[styles.label, { color: colors.text }]}>City</Text>
+                  <TextInput
+                    value={city}
+                    onChangeText={setCity}
+                    placeholder="City"
+                    placeholderTextColor={colors.textMuted}
+                    style={[
+                      styles.input,
+                      {
+                        backgroundColor: colors.surfaceAlt,
+                        color: colors.text,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  />
+                </View>
+
+                <View style={styles.formGroup}>
+                  <Text style={[styles.label, { color: colors.text }]}>Delivery Address</Text>
+                  <TextInput
+                    value={address}
+                    onChangeText={setAddress}
+                    placeholder="Street, building, apartment..."
+                    placeholderTextColor={colors.textMuted}
+                    multiline
+                    numberOfLines={3}
+                    style={[
+                      styles.textArea,
+                      {
+                        backgroundColor: colors.surfaceAlt,
+                        color: colors.text,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  />
+                </View>
+
+                <View style={styles.formGroup}>
+                  <Text style={[styles.label, { color: colors.text }]}>Zip Code</Text>
+                  <TextInput
+                    value={zipCode}
+                    onChangeText={setZipCode}
+                    placeholder="Postal / Zip code"
+                    placeholderTextColor={colors.textMuted}
+                    keyboardType="numeric"
+                    style={[
+                      styles.input,
+                      {
+                        backgroundColor: colors.surfaceAlt,
+                        color: colors.text,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  />
+                </View>
+              </View>
+            </FadeUp>
+
+            {/* Customer About Bio */}
+            <FadeUp delay={120} duration={300}>
+              <View
+                style={[
+                  styles.card,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                ]}>
+                <View style={styles.cardHeader}>
+                  <Icon source={penBold} size={18} color={colors.primary} />
+                  <Text style={[styles.cardTitle, { color: colors.text }]}>About Me (Optional)</Text>
+                </View>
+
+                <View style={styles.formGroup}>
+                  <TextInput
+                    value={aboutBio}
+                    onChangeText={setAboutBio}
+                    placeholder="Tell us a bit about yourself..."
+                    placeholderTextColor={colors.textMuted}
+                    multiline
+                    numberOfLines={3}
+                    style={[
+                      styles.textArea,
+                      {
+                        backgroundColor: colors.surfaceAlt,
+                        color: colors.text,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  />
+                </View>
+              </View>
+            </FadeUp>
+          </>
+        ) : (
+          <>
         {/* 1. Basic Information */}
         <FadeUp delay={30} duration={300}>
           <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -1003,6 +1326,8 @@ export default function EditProfileScreen({ navigation, route }: any) {
             </View>
           </View>
         </FadeUp>
+        </>
+        )}
 
         {/* Action Buttons: Save Profile & Cancel */}
         <View style={styles.bottomButtonsSection}>
@@ -1026,65 +1351,67 @@ export default function EditProfileScreen({ navigation, route }: any) {
         </View>
       </ScrollView>
 
-      {/* Add Education Modal */}
-      <AddEducationModal
-        visible={showEduModal}
-        itemToEdit={editingEdu}
-        onClose={() => setShowEduModal(false)}
-        onSave={item => {
-          if (editingEdu) {
-            setProfile(prev => ({
-              ...prev,
-              education: prev.education.map(e => (e.id === item.id ? item : e)),
-            }));
-          } else {
-            setProfile(prev => ({
-              ...prev,
-              education: [...prev.education, item],
-            }));
-          }
-        }}
-      />
+      {/* Provider-only Modals */}
+      {!isCustomer && (
+        <>
+          <AddEducationModal
+            visible={showEduModal}
+            itemToEdit={editingEdu}
+            onClose={() => setShowEduModal(false)}
+            onSave={item => {
+              if (editingEdu) {
+                setProfile(prev => ({
+                  ...prev,
+                  education: prev.education.map(e => (e.id === item.id ? item : e)),
+                }));
+              } else {
+                setProfile(prev => ({
+                  ...prev,
+                  education: [...prev.education, item],
+                }));
+              }
+            }}
+          />
 
-      {/* Add Experience Modal */}
-      <AddExperienceModal
-        visible={showExpModal}
-        itemToEdit={editingExp}
-        onClose={() => setShowExpModal(false)}
-        onSave={item => {
-          if (editingExp) {
-            setProfile(prev => ({
-              ...prev,
-              experience: prev.experience.map(e => (e.id === item.id ? item : e)),
-            }));
-          } else {
-            setProfile(prev => ({
-              ...prev,
-              experience: [...prev.experience, item],
-            }));
-          }
-        }}
-      />
+          <AddExperienceModal
+            visible={showExpModal}
+            itemToEdit={editingExp}
+            onClose={() => setShowExpModal(false)}
+            onSave={item => {
+              if (editingExp) {
+                setProfile(prev => ({
+                  ...prev,
+                  experience: prev.experience.map(e => (e.id === item.id ? item : e)),
+                }));
+              } else {
+                setProfile(prev => ({
+                  ...prev,
+                  experience: [...prev.experience, item],
+                }));
+              }
+            }}
+          />
 
-      {/* Add Certificate Modal */}
-      <AddCertificateModal
-        visible={showCertModal}
-        itemToEdit={editingCert}
-        onClose={() => setShowCertModal(false)}
-        onSave={item => {
-          if (editingCert) {
-            setProfile(prev => ({
-              ...prev,
-              certificates: prev.certificates.map(c => (c.id === item.id ? item : c)),
-            }));
-          } else {
-            setProfile(prev => ({
-              ...prev,
-              certificates: [...prev.certificates, item],
-            }));
-          }
-        }}
-      />
+          <AddCertificateModal
+            visible={showCertModal}
+            itemToEdit={editingCert}
+            onClose={() => setShowCertModal(false)}
+            onSave={item => {
+              if (editingCert) {
+                setProfile(prev => ({
+                  ...prev,
+                  certificates: prev.certificates.map(c => (c.id === item.id ? item : c)),
+                }));
+              } else {
+                setProfile(prev => ({
+                  ...prev,
+                  certificates: [...prev.certificates, item],
+                }));
+              }
+            }}
+          />
+        </>
+      )}
 
       {/* Alert Modal */}
       <AlertModal
@@ -1418,5 +1745,28 @@ const styles = StyleSheet.create({
   cancelBtnText: {
     fontFamily: fonts.medium,
     fontSize: 15,
+  },
+  avatarWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 8,
+  },
+  avatarPreview: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    borderWidth: 2,
+  },
+  uploadPhotoBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  uploadPhotoBtnText: {
+    fontFamily: fonts.bold,
+    fontSize: 13,
   },
 });

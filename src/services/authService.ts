@@ -1,5 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiClient from './apiClient';
+import { tokenStorage } from './tokenStorage';
+import { triggerCleanLogout } from './authEvents';
+import { normalizeApiError, ApiError } from './apiError';
 
 export interface AuthUser {
   id?: string;
@@ -10,6 +13,8 @@ export interface AuthUser {
   role?: string;
   avatar?: string;
   isProfileComplete?: boolean;
+  isKycCompleted?: boolean;
+  kycStatus?: string;
   [key: string]: any;
 }
 
@@ -48,31 +53,6 @@ export interface ChangePasswordParams {
   role?: string;
 }
 
-function extractErrorMessage(error: any, fallback: string): string {
-  const status = error?.response?.status;
-  if (status === 502 || status === 503) {
-    return 'The server is currently waking up or busy. Please wait a moment and try again.';
-  }
-  if (status === 504 || error?.code === 'ECONNABORTED' || error?.message?.includes('timeout')) {
-    return 'Server request timed out. Please try again.';
-  }
-  if (error?.message === 'Network Error' || !error?.response) {
-    return 'Unable to reach the server. Please check your network connection.';
-  }
-  const data = error?.response?.data;
-  if (typeof data === 'string' && data.trim()) return data.trim();
-  if (data?.message && typeof data.message === 'string') return data.message;
-  if (data?.error && typeof data.error === 'string') return data.error;
-  if (Array.isArray(data?.errors) && data.errors.length > 0) {
-    const first = data.errors[0];
-    if (typeof first === 'string') return first;
-    if (first?.msg && typeof first.msg === 'string') return first.msg;
-    if (first?.message && typeof first.message === 'string') return first.message;
-  }
-  if (error?.message && typeof error.message === 'string') return error.message;
-  return fallback;
-}
-
 let memoryUser: AuthUser | null = null;
 let memoryRole: string | null = null;
 
@@ -106,34 +86,6 @@ export class AuthService {
     try {
       const cleanEmail = (email || '').trim().toLowerCase();
 
-      // Demo login support for testing all roles and screens
-      if (cleanEmail === 'demo@cti.com' || cleanEmail.startsWith('demo') || cleanEmail === 'guest@cti.com') {
-        const userRole = role || 'customer';
-        const demoUser = {
-          id: 'demo-user-101',
-          _id: 'demo-user-101',
-          name: userRole === 'seller' ? 'Shahid Tech Store' : userRole === 'repairman' ? 'Farhan Repair Tech' : 'Muhammad Zubair',
-          email: cleanEmail,
-          role: userRole,
-          avatar: '',
-          isProfileComplete: true,
-        };
-        const demoToken = 'demo-jwt-token-active';
-        await AsyncStorage.setItem('token', demoToken);
-        await AsyncStorage.setItem('user', JSON.stringify(demoUser));
-        await AsyncStorage.setItem('role', userRole);
-        await AsyncStorage.setItem('auth', JSON.stringify({ token: demoToken, user: demoUser, role: userRole }));
-        memoryUser = demoUser;
-        memoryRole = userRole;
-        return {
-          ok: true,
-          token: demoToken,
-          user: demoUser,
-          role: userRole,
-          message: 'Demo login successful',
-        };
-      }
-
       const response = await apiClient.post('/auth/login', {
         email: cleanEmail,
         password,
@@ -165,22 +117,25 @@ export class AuthService {
       const user = dataPayload?.user || dataPayload;
       const userRole = user?.role || role;
 
+      // Store tokens securely in Keychain (never in AsyncStorage)
       if (token) {
-        await AsyncStorage.setItem('token', token);
+        await tokenStorage.setToken(token);
       }
       if (refreshToken) {
-        await AsyncStorage.setItem('refreshToken', refreshToken);
+        await tokenStorage.setRefreshToken(refreshToken);
       }
+
+      // Store non-sensitive user info and preferences in AsyncStorage
       if (user) {
         await AsyncStorage.setItem('user', JSON.stringify(user));
       }
       if (userRole) {
         await AsyncStorage.setItem('role', userRole);
       }
-      if (token || user) {
+      if (user || userRole) {
         await AsyncStorage.setItem(
           'auth',
-          JSON.stringify({ token, refreshToken, user, role: userRole }),
+          JSON.stringify({ user, role: userRole }),
         );
       }
 
@@ -196,7 +151,8 @@ export class AuthService {
         message: resData?.message || 'Login successful',
       };
     } catch (error: any) {
-      throw new Error(extractErrorMessage(error, 'Login failed. Please check your credentials.'));
+      const normalized = normalizeApiError(error);
+      throw normalized;
     }
   }
 
@@ -219,7 +175,7 @@ export class AuthService {
         try {
           response = await apiClient.post('/seller/auth/register', payload);
         } catch (err: any) {
-          if (err?.response?.status === 404) {
+          if (err?.status === 404 || err?.response?.status === 404) {
             response = await apiClient.post('/auth/register', payload);
           } else {
             throw err;
@@ -238,7 +194,8 @@ export class AuthService {
         message: resData?.message || 'Registration successful. Please verify OTP.',
       };
     } catch (error: any) {
-      throw new Error(extractErrorMessage(error, 'Registration failed. Please try again.'));
+      const normalized = normalizeApiError(error);
+      throw normalized;
     }
   }
 
@@ -259,7 +216,8 @@ export class AuthService {
         message: response.data?.message || 'Verification code sent to your email.',
       };
     } catch (error: any) {
-      throw new Error(extractErrorMessage(error, 'Failed to process forgot password request.'));
+      const normalized = normalizeApiError(error);
+      throw normalized;
     }
   }
 
@@ -281,7 +239,7 @@ export class AuthService {
         try {
           response = await apiClient.post('/seller/auth/verify-otp', payload);
         } catch (err: any) {
-          if (err?.response?.status === 404) {
+          if (err?.status === 404 || err?.response?.status === 404) {
             response = await apiClient.post('/auth/verify-otp', payload);
           } else {
             throw err;
@@ -302,12 +260,15 @@ export class AuthService {
         dataPayload?.tokens?.refreshToken ||
         dataPayload?.refreshToken;
 
+      // Store tokens securely in Keychain (never in AsyncStorage)
       if (token) {
-        await AsyncStorage.setItem('token', token);
+        await tokenStorage.setToken(token);
       }
       if (refreshToken) {
-        await AsyncStorage.setItem('refreshToken', refreshToken);
+        await tokenStorage.setRefreshToken(refreshToken);
       }
+
+      // Store non-sensitive profile info in AsyncStorage
       if (dataPayload?.user) {
         await AsyncStorage.setItem('user', JSON.stringify(dataPayload.user));
       }
@@ -315,12 +276,10 @@ export class AuthService {
       if (verifiedRole) {
         await AsyncStorage.setItem('role', verifiedRole);
       }
-      if (token || dataPayload?.user) {
+      if (dataPayload?.user || verifiedRole) {
         await AsyncStorage.setItem(
           'auth',
           JSON.stringify({
-            token,
-            refreshToken,
             user: dataPayload?.user,
             role: verifiedRole,
           }),
@@ -335,7 +294,8 @@ export class AuthService {
         message: resData?.message || 'OTP verified successfully',
       };
     } catch (error: any) {
-      throw new Error(extractErrorMessage(error, 'OTP verification failed. Please check the code.'));
+      const normalized = normalizeApiError(error);
+      throw normalized;
     }
   }
 
@@ -352,7 +312,7 @@ export class AuthService {
         try {
           response = await apiClient.post('/seller/auth/resend-otp', payload);
         } catch (err: any) {
-          if (err?.response?.status === 404) {
+          if (err?.status === 404 || err?.response?.status === 404) {
             response = await apiClient.post('/auth/resend-otp', payload);
           } else {
             throw err;
@@ -367,7 +327,8 @@ export class AuthService {
         message: response.data?.message || 'OTP resent successfully.',
       };
     } catch (error: any) {
-      throw new Error(extractErrorMessage(error, 'Failed to resend OTP.'));
+      const normalized = normalizeApiError(error);
+      throw normalized;
     }
   }
 
@@ -395,7 +356,8 @@ export class AuthService {
         message: response.data?.message || 'Password reset successfully.',
       };
     } catch (error: any) {
-      throw new Error(extractErrorMessage(error, 'Failed to reset password.'));
+      const normalized = normalizeApiError(error);
+      throw normalized;
     }
   }
 
@@ -415,22 +377,29 @@ export class AuthService {
         confirmPassword: confirmPassword || newPassword,
       };
 
+      const effectiveRole = (
+        role ||
+        AuthService.getCachedRole() ||
+        (await AuthService.getStoredRole()) ||
+        ''
+      ).toLowerCase();
+
       let response;
-      if (role === 'seller') {
+      if (effectiveRole === 'seller') {
         try {
           response = await apiClient.post('/seller/auth/change-password', payload);
         } catch (err: any) {
-          if (err?.response?.status === 404) {
+          if (err?.status === 404 || err?.response?.status === 404) {
             response = await apiClient.post('/auth/change-password', payload);
           } else {
             throw err;
           }
         }
-      } else if (role === 'customer') {
+      } else if (effectiveRole === 'customer') {
         try {
           response = await apiClient.put('/customer/profile/change-password', payload);
         } catch (err: any) {
-          if (err?.response?.status === 404) {
+          if (err?.status === 404 || err?.response?.status === 404) {
             response = await apiClient.post('/auth/change-password', payload);
           } else {
             throw err;
@@ -445,32 +414,77 @@ export class AuthService {
         message: response.data?.message || 'Password changed successfully.',
       };
     } catch (error: any) {
-      throw new Error(extractErrorMessage(error, 'Failed to change password.'));
+      const normalized = normalizeApiError(error);
+      throw normalized;
     }
   }
 
   /**
-   * Get cached user session from storage
+   * Fetch latest user profile from backend (GET /auth/user-details)
+   * Updates cached user in memory and AsyncStorage with the latest kycStatus and isKycCompleted.
    */
-  static async getStoredSession() {
+  static async fetchUserProfile(): Promise<AuthUser | null> {
+    try {
+      const response = await apiClient.get('/auth/user-details');
+      const resData = response.data;
+      const rawUser = resData?.data || resData?.user || resData;
+      if (!rawUser) return null;
+
+      const isKycCompleted = Boolean(
+        rawUser.isKycCompleted ??
+        rawUser.repairmanProfile?.kycInfo?.isKycCompleted ??
+        rawUser.sellerProfile?.isKycCompleted ??
+        false
+      );
+
+      const kycStatus =
+        rawUser.kycStatus ||
+        rawUser.repairmanProfile?.kycInfo?.kycStatus ||
+        rawUser.sellerProfile?.kycStatus ||
+        (isKycCompleted ? 'approved' : 'incomplete');
+
+      const updatedUser: AuthUser = {
+        ...rawUser,
+        isKycCompleted,
+        kycStatus,
+      };
+
+      await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+      const currentRole = memoryRole || updatedUser.role;
+      if (currentRole) {
+        await AsyncStorage.setItem(
+          'auth',
+          JSON.stringify({ user: updatedUser, role: currentRole }),
+        );
+      }
+      memoryUser = updatedUser;
+      return updatedUser;
+    } catch (error: any) {
+      const normalized = normalizeApiError(error);
+      throw normalized;
+    }
+  }
+
+  /**
+   * Get cached user session from secure Keychain and AsyncStorage
+   */
+  static async getStoredSession(): Promise<{ token: string; user: AuthUser | null; role: string } | null> {
     try {
       const [token, userStr, role, authStr] = await Promise.all([
-        AsyncStorage.getItem('token'),
+        tokenStorage.getToken(),
         AsyncStorage.getItem('user'),
         AsyncStorage.getItem('role'),
         AsyncStorage.getItem('auth'),
       ]);
 
       const authObj = authStr ? JSON.parse(authStr) : null;
-      const finalToken =
-        token || authObj?.token || authObj?.tokens?.accessToken;
       const finalRole = role || authObj?.role || authObj?.user?.role;
       const user = userStr ? JSON.parse(userStr) : authObj?.user || null;
 
-      if (finalToken && finalRole) {
+      if (token && finalRole) {
         memoryUser = user || null;
         memoryRole = finalRole;
-        return { token: finalToken, user, role: finalRole };
+        return { token, user, role: finalRole };
       }
       return null;
     } catch {
@@ -479,18 +493,26 @@ export class AuthService {
   }
 
   /**
-   * Logout user and clear stored keys
+   * Clear local storage and memory
    */
-  static async logout() {
+  static async clearStoredAuth(): Promise<void> {
+    memoryUser = null;
+    memoryRole = null;
+    await Promise.all([
+      AsyncStorage.removeItem('user'),
+      AsyncStorage.removeItem('role'),
+      AsyncStorage.removeItem('auth'),
+    ]).catch(() => {});
+  }
+
+  /**
+   * Logout user cleanly: clear tokens from keychain, query cache, socket, FCM, and session keys
+   */
+  static async logout(): Promise<boolean> {
     try {
       memoryUser = null;
       memoryRole = null;
-      await Promise.all([
-        AsyncStorage.removeItem('token'),
-        AsyncStorage.removeItem('user'),
-        AsyncStorage.removeItem('role'),
-        AsyncStorage.removeItem('auth'),
-      ]);
+      await triggerCleanLogout();
       return true;
     } catch {
       return false;
@@ -498,4 +520,5 @@ export class AuthService {
   }
 }
 
+export { ApiError };
 export default AuthService;

@@ -9,7 +9,6 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import CtiLoader from '@/components/CtiLoader';
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
 import { FadeUp } from '@/animations';
@@ -17,14 +16,21 @@ import {
   arrowLeftBold,
   bellBold,
   bellFilled,
-  checkCircleBold,
-  clockBold,
   trashBold,
 } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import notificationApi, { NotificationItem } from '@/services/notificationApi';
 import socketService from '@/services/socketService';
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  OfflineBanner,
+  PaginationFooter,
+} from '@/components/states';
+
+const PAGE_SIZE = 20;
 
 function formatRelativeTime(dateStr?: string): string {
   if (!dateStr) return '';
@@ -42,26 +48,50 @@ export default function NotificationsScreen({ navigation }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const loadNotifications = useCallback(async (isRefresh = false) => {
-    if (isRefresh) setRefreshing(true);
-    else setLoading(true);
+  const loadNotifications = useCallback(
+    async (targetPage = 1, isRefresh = false) => {
+      if (isRefresh) {
+        setRefreshing(true);
+      } else if (targetPage === 1) {
+        setLoading(true);
+      } else {
+        setLoadingMore(true);
+      }
+      setError(null);
 
-    try {
-      const res = await notificationApi.getNotifications(1, 40);
-      setNotifications(res.notifications);
-    } catch {
-      // keep
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
+      try {
+        const res = await notificationApi.getNotifications(targetPage, PAGE_SIZE);
+        const incoming = res.notifications || [];
+
+        if (isRefresh || targetPage === 1) {
+          setNotifications(incoming);
+        } else {
+          setNotifications(prev => [...prev, ...incoming]);
+        }
+
+        setPage(targetPage);
+        setHasMore(incoming.length >= PAGE_SIZE);
+      } catch (err: any) {
+        const errMsg = err?.message || 'Could not load notifications. Please try again.';
+        setError(errMsg);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+        setLoadingMore(false);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
-    loadNotifications();
+    loadNotifications(1, false);
 
     // Listen to real-time notification broadcasts over socket
     const unsub = socketService.onNotification((newNotif: any) => {
@@ -99,6 +129,12 @@ export default function NotificationsScreen({ navigation }: any) {
     await notificationApi.deleteNotification(id);
   };
 
+  const handleEndReached = () => {
+    if (!loading && !loadingMore && !refreshing && hasMore) {
+      loadNotifications(page + 1, false);
+    }
+  };
+
   const unreadCount = notifications.filter(n => !n.isRead).length;
 
   return (
@@ -133,27 +169,46 @@ export default function NotificationsScreen({ navigation }: any) {
             <Text style={[styles.markAllText, { color: colors.primary }]}>Mark all</Text>
           </TouchableOpacity>
         ) : (
-          <View style={{ width: 60 }} />
+          <View style={styles.headerSpacer} />
         )}
       </View>
 
-      {/* Body */}
+      {/* Offline Status Bar */}
+      <OfflineBanner />
+
+      {/* Body States */}
       {loading && !refreshing ? (
-        <CtiLoader size="md" text="Loading notifications..." style={{ flex: 1 }} />
+        <LoadingState text="Loading notifications..." />
+      ) : error && notifications.length === 0 ? (
+        <ErrorState
+          error={error}
+          title="Unable to load notifications"
+          onRetry={() => loadNotifications(1, false)}
+        />
       ) : (
         <FlatList
           data={notifications}
           keyExtractor={item => item._id}
-          contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 30 }]}
+          contentContainerStyle={[
+            styles.list,
+            notifications.length === 0 && styles.emptyListContent,
+            { paddingBottom: insets.bottom + 30 },
+          ]}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
-              onRefresh={() => loadNotifications(true)}
+              onRefresh={() => loadNotifications(1, true)}
               colors={[colors.primary]}
+              tintColor={colors.primary}
             />
           }
+          onEndReached={handleEndReached}
+          onEndReachedThreshold={0.3}
+          ListFooterComponent={
+            <PaginationFooter loading={loadingMore} hasMore={hasMore} />
+          }
           renderItem={({ item, index }) => (
-            <FadeUp key={item._id} delay={30 + index * 25} duration={300}>
+            <FadeUp key={item._id} delay={30 + Math.min(index, 10) * 20} duration={300}>
               <TouchableOpacity
                 onPress={() => handleMarkAsRead(item)}
                 activeOpacity={0.8}
@@ -211,13 +266,12 @@ export default function NotificationsScreen({ navigation }: any) {
             </FadeUp>
           )}
           ListEmptyComponent={
-            <View style={styles.emptyWrap}>
-              <Icon source={bellBold} size={40} color={colors.textMuted} />
-              <Text style={[styles.emptyTitle, { color: colors.text }]}>No notifications</Text>
-              <Text style={[styles.emptySub, { color: colors.textMuted }]}>
-                You're completely caught up. Updates on jobs, orders, and chats will appear here.
-              </Text>
-            </View>
+            <EmptyState
+              title="No notifications"
+              message="You're completely caught up. Updates on jobs, orders, and chats will appear here."
+              icon={bellBold}
+              fullScreen={false}
+            />
           }
         />
       )}
@@ -247,25 +301,45 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  headerTitle: { fontFamily: fonts.bold, fontSize: 18 },
+  headerTitle: {
+    fontSize: 18,
+    fontFamily: fonts.bold,
+  },
   unreadBadge: {
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 10,
-    alignItems: 'center',
+    borderRadius: 12,
+  },
+  unreadBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontFamily: fonts.bold,
+  },
+  markAllBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+  },
+  markAllText: {
+    fontSize: 13,
+    fontFamily: fonts.bold,
+  },
+  headerSpacer: {
+    width: 60,
+  },
+  list: {
+    padding: 16,
+  },
+  emptyListContent: {
+    flexGrow: 1,
     justifyContent: 'center',
   },
-  unreadBadgeText: { fontFamily: fonts.bold, fontSize: 11, color: '#fff' },
-  markAllBtn: { paddingVertical: 6, paddingHorizontal: 8 },
-  markAllText: { fontFamily: fonts.bold, fontSize: 13 },
-
-  list: { padding: 16, gap: 10 },
   card: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     padding: 14,
     borderRadius: 14,
     borderWidth: 1,
+    marginBottom: 10,
     gap: 12,
   },
   iconCircle: {
@@ -275,29 +349,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cardContent: { flex: 1, gap: 3 },
+  cardContent: {
+    flex: 1,
+  },
   cardHeader: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    marginBottom: 4,
   },
-  cardTitle: { fontFamily: fonts.medium, fontSize: 14 },
-  cardTime: { fontFamily: fonts.regular, fontSize: 11 },
-  cardBody: { fontFamily: fonts.regular, fontSize: 13, lineHeight: 18 },
-  deleteBtn: { padding: 4, alignSelf: 'center' },
-
-  emptyWrap: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 80,
-    paddingHorizontal: 30,
-    gap: 8,
+  cardTitle: {
+    fontSize: 14,
+    fontFamily: fonts.bold,
+    flex: 1,
+    marginRight: 8,
   },
-  emptyTitle: { fontFamily: fonts.bold, fontSize: 16 },
-  emptySub: {
+  cardTime: {
+    fontSize: 11,
     fontFamily: fonts.regular,
-    fontSize: 13,
-    textAlign: 'center',
-    lineHeight: 19,
+  },
+  cardBody: {
+    fontSize: 12,
+    fontFamily: fonts.regular,
+    lineHeight: 17,
+  },
+  deleteBtn: {
+    padding: 4,
   },
 });

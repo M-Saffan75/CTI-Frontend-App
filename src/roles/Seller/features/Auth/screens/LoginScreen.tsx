@@ -59,8 +59,20 @@ export default function LoginScreen({ navigation, onLoggedIn }: any) {
         });
         return;
       }
-      onLoggedIn?.();
+      onLoggedIn?.(res?.user);
     } catch (err: any) {
+      // Handle Seller HTTP 410 (KYC incomplete, no token issued)
+      if (err?.status === 410) {
+        navigation.navigate('KycStatus', {
+          status: 'incomplete',
+          role: 'seller',
+          message: err.message || 'Please complete your KYC on the website.',
+          userId: err.data?.userId,
+          noToken: true,
+        });
+        return;
+      }
+
       setModal({
         visible: true,
         type: 'error',

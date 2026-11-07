@@ -1,78 +1,163 @@
 import apiClient from '@/services/apiClient';
+import AuthService from '@/services/authService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   CatalogServiceItem,
   INITIAL_CATALOG_SERVICES,
-  INITIAL_PROFILE_DATA,
   ProfileData,
 } from '../data/profileData';
+
+const EMPTY_CUSTOMER_PROFILE: ProfileData = {
+  name: '',
+  role: 'Customer',
+  avatarUri: undefined,
+  coverUri: undefined,
+  city: '',
+  experienceYears: '',
+  jobsCompleted: 0,
+  rating: '',
+  aboutMe: '',
+  specialization: [],
+  workingHours: '',
+  workingDays: [],
+  phone: '',
+  email: '',
+  whatsapp: '',
+  address: '',
+  zipCode: '',
+  emergencyPerson: '',
+  emergencyPhone: '',
+  pickupServiceAvailable: false,
+  memberSince: '',
+  lastUpdate: 'Today',
+  emailVerified: true,
+  profileCompleted: true,
+  bankDetailsCompleted: false,
+  education: [],
+  experience: [],
+  certificates: [],
+};
 
 /**
  * Fetch current user profile from backend (supports Customer, Seller, Repairman)
  */
 export async function fetchUserProfileApi(): Promise<ProfileData> {
   try {
-    let role = 'Customer';
-    let savedUser: any = null;
+    const cachedRole = AuthService.getCachedRole();
+    const storedRole = cachedRole || (await AuthService.getStoredRole()) || 'customer';
+    const roleLower = storedRole.toLowerCase();
 
-    try {
-      const [authStr, roleStr, userStr] = await Promise.all([
-        AsyncStorage.getItem('auth'),
-        AsyncStorage.getItem('role'),
-        AsyncStorage.getItem('user'),
-      ]);
-      const authParsed = authStr ? JSON.parse(authStr) : null;
-      const userParsed = userStr ? JSON.parse(userStr) : null;
-      role = roleStr || authParsed?.role || authParsed?.user?.role || userParsed?.role || 'Customer';
-      savedUser = userParsed || authParsed?.user;
-    } catch {
-      // ignore
-    }
+    const storedUser = AuthService.getCachedUser() || (await AuthService.getStoredUser());
 
     let res: any = null;
-    if (role?.toLowerCase() === 'customer') {
-      res = await apiClient.get('/customer/profile');
+    let userDetails: any = null;
+
+    if (roleLower === 'customer') {
+      try {
+        res = await apiClient.get('/customer/profile');
+      } catch (err) {
+        // fallback to auth/user-details if customer/profile fails
+      }
+
+      // Also get rich user details (address, country object, etc.)
+      try {
+        const detailsRes = await apiClient.get('/auth/user-details');
+        userDetails = detailsRes?.data?.data || detailsRes?.data?.user || detailsRes?.data;
+      } catch {
+        // ignore
+      }
     } else {
       res = await apiClient.get('/repairman/profile');
     }
 
-    const data = res?.data?.data || res?.data?.user || res?.data || savedUser;
+    const customerData = res?.data?.data?.user || res?.data?.user || res?.data?.data || res?.data;
+    const merged = {
+      ...(storedUser || {}),
+      ...(userDetails || {}),
+      ...(customerData || {}),
+    };
 
-    if (!data) return INITIAL_PROFILE_DATA;
+    if (roleLower === 'customer') {
+      const countryName = typeof merged.country === 'object' && merged.country?.name
+        ? merged.country.name
+        : (typeof merged.country === 'string' ? merged.country : '');
 
+      const cityName = typeof merged.city === 'object' && merged.city?.name
+        ? merged.city.name
+        : (typeof merged.city === 'string' ? merged.city : '');
+
+      return {
+        ...EMPTY_CUSTOMER_PROFILE,
+        name: merged.name || merged.fullName || (merged.firstName ? `${merged.firstName} ${merged.lastName || ''}`.trim() : 'Customer'),
+        role: 'Customer',
+        avatarUri: merged.profileImage || merged.avatar || merged.image || undefined,
+        city: cityName || merged.address?.city || '',
+        aboutMe: merged.aboutMe || merged.bio || merged.description || '',
+        phone: merged.phone || merged.mobileNumber || '',
+        email: merged.email || '',
+        whatsapp: merged.whatsapp || merged.phone || '',
+        address: typeof merged.address === 'string' ? merged.address : (merged.address?.street || ''),
+        zipCode: merged.zipCode || merged.address?.zipCode || '',
+        memberSince: merged.createdAt ? new Date(merged.createdAt).toLocaleDateString([], { month: 'short', year: 'numeric' }) : 'Member',
+        lastUpdate: merged.profileLastUpdated || merged.updatedAt ? new Date(merged.profileLastUpdated || merged.updatedAt).toLocaleDateString() : 'Today',
+        emailVerified: Boolean(merged.isEmailVerified ?? true),
+        profileCompleted: Boolean(merged.isProfileComplete ?? true),
+        bankDetailsCompleted: false,
+        specialization: [],
+        workingHours: '',
+        workingDays: [],
+        education: [],
+        experience: [],
+        certificates: [],
+      };
+    }
+
+    // Provider / Repairman fallback
+    const data = merged;
     return {
-      name: data.fullName || data.name || (data.firstName ? `${data.firstName} ${data.lastName || ''}`.trim() : INITIAL_PROFILE_DATA.name),
-      role: role || INITIAL_PROFILE_DATA.role,
+      ...EMPTY_CUSTOMER_PROFILE,
+      name: data.fullName || data.name || 'Provider',
+      role: storedRole,
       avatarUri: data.avatar || data.profileImage || data.image,
       coverUri: data.coverImage,
-      city: data.city || data.address?.city || INITIAL_PROFILE_DATA.city,
-      experienceYears: data.yearsOfExperience ? `${data.yearsOfExperience} Years Experience` : INITIAL_PROFILE_DATA.experienceYears,
+      city: data.city || data.address?.city || '',
+      experienceYears: data.yearsOfExperience ? `${data.yearsOfExperience} Years Experience` : '',
       jobsCompleted: data.jobsCompleted || 0,
-      rating: data.rating ? `${data.rating} ★` : INITIAL_PROFILE_DATA.rating,
-      aboutMe: data.description || data.aboutMe || data.shopDescription || INITIAL_PROFILE_DATA.aboutMe,
-      specialization: Array.isArray(data.specializations) ? data.specializations : (Array.isArray(data.specialization) ? data.specialization : INITIAL_PROFILE_DATA.specialization),
-      workingHours: data.workingHours ? (typeof data.workingHours === 'string' ? data.workingHours : `${data.workingHours.start || '09:00'} - ${data.workingHours.end || '21:00'}`) : INITIAL_PROFILE_DATA.workingHours,
-      workingDays: data.workingDays || INITIAL_PROFILE_DATA.workingDays,
-      phone: data.phone || data.mobileNumber || data.contactNumber || INITIAL_PROFILE_DATA.phone,
-      email: data.email || data.emailAddress || INITIAL_PROFILE_DATA.email,
-      whatsapp: data.whatsapp || data.whatsappNumber || INITIAL_PROFILE_DATA.whatsapp,
-      address: data.address?.street || data.fullAddress || data.address || INITIAL_PROFILE_DATA.address,
-      zipCode: data.zipCode || data.address?.zipCode || INITIAL_PROFILE_DATA.zipCode,
-      emergencyPerson: data.emergencyContactPerson || INITIAL_PROFILE_DATA.emergencyPerson,
-      emergencyPhone: data.emergencyContactNumber || INITIAL_PROFILE_DATA.emergencyPhone,
+      rating: data.rating ? `${data.rating} ★` : 'No rating',
+      aboutMe: data.description || data.aboutMe || '',
+      specialization: Array.isArray(data.specializations) ? data.specializations : [],
+      workingHours: data.workingHours ? (typeof data.workingHours === 'string' ? data.workingHours : `${data.workingHours.start || '09:00'} - ${data.workingHours.end || '21:00'}`) : '',
+      workingDays: data.workingDays || [],
+      phone: data.phone || '',
+      email: data.email || '',
+      whatsapp: data.whatsapp || '',
+      address: data.address?.street || data.fullAddress || data.address || '',
+      zipCode: data.zipCode || data.address?.zipCode || '',
+      emergencyPerson: data.emergencyContactPerson || '',
+      emergencyPhone: data.emergencyContactNumber || '',
       pickupServiceAvailable: Boolean(data.pickupServiceAvailable),
-      memberSince: data.createdAt ? new Date(data.createdAt).toLocaleDateString() : INITIAL_PROFILE_DATA.memberSince,
+      memberSince: data.createdAt ? new Date(data.createdAt).toLocaleDateString() : 'Member',
       lastUpdate: data.updatedAt ? new Date(data.updatedAt).toLocaleDateString() : 'Today',
       emailVerified: Boolean(data.isEmailVerified ?? true),
       profileCompleted: Boolean(data.isProfileCompleted ?? true),
       bankDetailsCompleted: Boolean(data.bankDetails?.accountNumber || data.bankDetailsCompleted),
-      education: Array.isArray(data.education) ? data.education : INITIAL_PROFILE_DATA.education,
-      experience: Array.isArray(data.experience) ? data.experience : INITIAL_PROFILE_DATA.experience,
-      certificates: Array.isArray(data.certificates) ? data.certificates : INITIAL_PROFILE_DATA.certificates,
+      education: Array.isArray(data.education) ? data.education : [],
+      experience: Array.isArray(data.experience) ? data.experience : [],
+      certificates: Array.isArray(data.certificates) ? data.certificates : [],
     };
-  } catch (error) {
-    console.log('[profileApi] fetchUserProfileApi fallback:', error);
-    return INITIAL_PROFILE_DATA;
+  } catch {
+    const cached = AuthService.getCachedUser();
+    if (cached) {
+      return {
+        ...EMPTY_CUSTOMER_PROFILE,
+        name: cached.name || 'Customer',
+        email: cached.email || '',
+        phone: cached.phone || '',
+        avatarUri: cached.avatar || cached.profileImage,
+        role: cached.role || 'Customer',
+      };
+    }
+    return EMPTY_CUSTOMER_PROFILE;
   }
 }
 
@@ -80,21 +165,52 @@ export async function fetchUserProfileApi(): Promise<ProfileData> {
  * Update user profile
  */
 export async function updateUserProfileApi(payload: any): Promise<any> {
-  let role = 'Customer';
-  try {
-    const [authStr, roleStr] = await Promise.all([
-      AsyncStorage.getItem('auth'),
-      AsyncStorage.getItem('role'),
-    ]);
-    const authParsed = authStr ? JSON.parse(authStr) : null;
-    role = roleStr || authParsed?.role || authParsed?.user?.role || 'Customer';
-  } catch {
-    // ignore
-  }
+  const cachedRole = AuthService.getCachedRole();
+  const storedRole = cachedRole || (await AuthService.getStoredRole()) || 'customer';
+  const roleLower = storedRole.toLowerCase();
 
-  if (role?.toLowerCase() === 'customer') {
-    const res = await apiClient.put('/customer/profile/update-profile', payload);
-    return res.data;
+  let responseData: any = null;
+
+  if (roleLower === 'customer') {
+    // If a local image file is provided, use FormData
+    if (payload.profilePhoto && payload.profilePhoto.uri) {
+      const formData = new FormData();
+      formData.append('profilePhoto', {
+        uri: payload.profilePhoto.uri,
+        type: payload.profilePhoto.type || 'image/jpeg',
+        name: payload.profilePhoto.fileName || 'profile.jpg',
+      } as any);
+
+      if (payload.name) formData.append('name', payload.name);
+      if (payload.phone) formData.append('phone', payload.phone);
+      if (payload.country) formData.append('country', payload.country);
+      if (payload.address) formData.append('address', payload.address);
+
+      const res = await apiClient.put('/customer/profile/update-profile', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      responseData = res.data;
+    } else {
+      const body: any = {
+        name: payload.name || payload.fullName,
+        phone: payload.phone,
+        country: payload.country,
+        address: payload.address,
+      };
+      const res = await apiClient.put('/customer/profile/update-profile', body);
+      responseData = res.data;
+    }
+
+    // Keep AuthService memory and AsyncStorage in sync
+    const updatedUser = responseData?.data?.user || responseData?.user;
+    if (updatedUser) {
+      const currentUser = AuthService.getCachedUser() || {};
+      const merged = { ...currentUser, ...updatedUser };
+      AuthService.setCachedSession(merged, 'customer');
+      await AsyncStorage.setItem('user', JSON.stringify(merged));
+    }
+
+    return responseData;
   } else {
     const res = await apiClient.put('/repairman/profile', payload);
     return res.data;
@@ -102,7 +218,7 @@ export async function updateUserProfileApi(payload: any): Promise<any> {
 }
 
 /**
- * Fetch catalog services
+ * Fetch catalog services (for providers)
  */
 export async function fetchCatalogServicesApi(): Promise<CatalogServiceItem[]> {
   try {

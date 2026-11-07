@@ -10,11 +10,14 @@ import SellerAuthStack from '@/roles/Seller/navigation/SellerAuthStack';
 import SellerNavigator from '@/roles/Seller/navigation/SellerNavigator';
 import RepairmanAuthStack from '@/roles/Repairman/navigation/RepairmanAuthStack';
 import RepairmanNavigator from '@/roles/Repairman/navigation/RepairmanNavigator';
+import KycStatusScreen from '@/features/Kyc/screens/KycStatusScreen';
 import { useTheme } from '@/theme/ThemeContext';
 import { ROLES } from '@/constants/roles';
-import AuthService from '@/services/authService';
+import AuthService, { AuthUser } from '@/services/authService';
 import socketService from '@/services/socketService';
 import fcmService from '@/services/fcmService';
+import { warmupApiServer } from '@/services/apiClient';
+import { onAuthLogout } from '@/services/authEvents';
 
 const Stack = createNativeStackNavigator();
 
@@ -29,11 +32,15 @@ export default function RootNavigator() {
   const { colors } = useTheme();
   const [showSplash, setShowSplash] = useState(true);
   const [role, setRole] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [loggedIn, setLoggedIn] = useState(false);
   const [sessionChecked, setSessionChecked] = useState(false);
 
-  // Auto-login: Check if user already has an active session
+  // Auto-login & server warm-up: Check if user already has an active session
   useEffect(() => {
+    // Silent warm up request to wake Render cold start instance early
+    warmupApiServer().catch(() => {});
+
     // Initialize push notifications
     fcmService.initialize().catch(() => {});
 
@@ -42,11 +49,12 @@ export default function RootNavigator() {
         const session = await AuthService.getStoredSession();
         if (session?.token && session?.role && ROLE_STACKS[session.role]) {
           setRole(session.role);
+          setCurrentUser(session.user);
           setLoggedIn(true);
           socketService.connect().catch(() => {});
-          fcmService.syncTokenWithBackend().catch(() => {});
+          fcmService.registerTokenAfterLogin().catch(() => {});
         }
-      } catch (err) {
+      } catch {
         // Silently continue to login
       } finally {
         setSessionChecked(true);
@@ -54,12 +62,21 @@ export default function RootNavigator() {
     })();
   }, []);
 
+  // Subscribe to clean logout events triggered by 401 interceptor or manual logout
+  useEffect(() => {
+    const unsubscribe = onAuthLogout(() => {
+      setLoggedIn(false);
+      setRole(null);
+      setCurrentUser(null);
+    });
+    return unsubscribe;
+  }, []);
+
   const handleLogout = async () => {
-    socketService.disconnect();
-    await fcmService.deleteToken().catch(() => {});
     await AuthService.logout();
     setLoggedIn(false);
     setRole(null);
+    setCurrentUser(null);
   };
 
   // Giving React Navigation our colours stops the white flash between screens.
@@ -83,11 +100,36 @@ export default function RootNavigator() {
     return <SplashScreen onFinish={() => setShowSplash(false)} />;
   }
 
-  // Logged in: swap to that role's full app. No going back to auth from here.
+  // Check if provider KYC is required and approved
+  // Customer role has no KYC and goes straight to home
+  const isKycApproved =
+    role === ROLES.CUSTOMER ||
+    currentUser?.kycStatus === 'approved';
+
+  // Logged in: if KYC approved, show role app. If pending/incomplete/revision/rejected, show KycStatusScreen.
   if (loggedIn && stacks) {
+    if (isKycApproved) {
+      return (
+        <NavigationContainer theme={navigationTheme}>
+          <stacks.app onLogout={handleLogout} />
+        </NavigationContainer>
+      );
+    }
+
     return (
       <NavigationContainer theme={navigationTheme}>
-        <stacks.app onLogout={handleLogout} />
+        <KycStatusScreen
+          user={currentUser}
+          role={role || undefined}
+          status={
+            currentUser?.kycStatus ||
+            (currentUser?.isKycCompleted ? 'pending' : 'incomplete')
+          }
+          onApproved={(approvedUser: AuthUser) => {
+            setCurrentUser(approvedUser);
+          }}
+          onLogout={handleLogout}
+        />
       </NavigationContainer>
     );
   }
@@ -99,7 +141,7 @@ export default function RootNavigator() {
       <Stack.Navigator
         id="Root"
         screenOptions={{ headerShown: false, animation: 'simple_push', animationDuration: 380 }}>
-        <Stack.Screen name="RoleSelect">
+      <Stack.Screen name="RoleSelect">
           {props => (
             <RoleSelectScreen
               {...props}
@@ -114,10 +156,13 @@ export default function RootNavigator() {
           {() =>
             stacks?.auth ? (
               <stacks.auth
-                onLoggedIn={() => {
+                onLoggedIn={(user?: AuthUser) => {
+                  if (user) {
+                    setCurrentUser(user);
+                  }
                   setLoggedIn(true);
                   socketService.connect().catch(() => {});
-                  fcmService.syncTokenWithBackend().catch(() => {});
+                  fcmService.registerTokenAfterLogin().catch(() => {});
                 }}
               />
             ) : null

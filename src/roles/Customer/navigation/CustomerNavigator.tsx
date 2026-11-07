@@ -24,7 +24,6 @@ import { WishlistProvider } from '../context/WishlistContext';
 import { CartProvider } from '../context/CartContext';
 import ProfileScreen from '@/features/Profile/screens/ProfileScreen';
 import EditProfileScreen from '@/features/Profile/screens/EditProfileScreen';
-import ServiceCatalogScreen from '@/features/Profile/screens/ServiceCatalogScreen';
 import ChangePasswordScreen from '@/features/Profile/screens/ChangePasswordScreen';
 
 // Refurbished screens
@@ -87,7 +86,6 @@ export default function CustomerNavigator({ onLogout }) {
         <Stack.Screen name="Wishlist" component={WishlistScreen} />
         <Stack.Screen name="Profile" component={ProfileScreen} />
         <Stack.Screen name="EditProfile" component={EditProfileScreen} />
-        <Stack.Screen name="ServiceCatalog" component={ServiceCatalogScreen} />
         <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
 
         {/* Refurbished screens */}

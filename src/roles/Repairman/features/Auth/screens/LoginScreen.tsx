@@ -59,7 +59,7 @@ export default function LoginScreen({ navigation, onLoggedIn }: any) {
         });
         return;
       }
-      onLoggedIn?.();
+      onLoggedIn?.(res?.user);
     } catch (err: any) {
       setModal({
         visible: true,

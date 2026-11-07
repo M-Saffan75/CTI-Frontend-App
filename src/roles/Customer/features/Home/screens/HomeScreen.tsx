@@ -48,7 +48,7 @@ import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { useWishlist } from '@/roles/Customer/context/WishlistContext';
 import { useCart } from '@/roles/Customer/context/CartContext';
-import blogApi, { MobileBlog, mapBackendToBlog } from '@/services/blogApi';
+import { mapBackendToBlog } from '@/services/blogApi';
 import homeApi, { HomeData } from '@/services/homeApi';
 import { fetchUnreadChatCount, startChat } from '@/services/chatApi';
 import {
@@ -769,9 +769,9 @@ function SpecialistCard({ repairman, navigation }: { repairman: any; navigation?
     (Array.isArray(repairman.repairmanProfile?.specializations) && repairman.repairmanProfile.specializations[0]) ||
     (repairman.role && repairman.role !== 'repairman' ? repairman.role : 'Repair Specialist');
 
-  const photo = repairman.photo || repairman.repairmanProfile?.profilePhoto || 'https://picsum.photos/seed/repairman/400/400';
-  const location = repairman.shortLocation || repairman.city?.name || 'Lahore, Pakistan';
-  const description = repairman.description || repairman.repairmanProfile?.description || 'Certified repair technician.';
+  const photo = repairman.photo || repairman.repairmanProfile?.profilePhoto || repairman.profileImage || null;
+  const location = repairman.shortLocation || repairman.city?.name || repairman.repairmanProfile?.city?.name || '';
+  const description = repairman.description || repairman.repairmanProfile?.description || '';
 
   const handleOpenChat = async () => {
     const repairmanId = repairman._id || repairman.id;
@@ -797,24 +797,34 @@ function SpecialistCard({ repairman, navigation }: { repairman: any; navigation?
 
   return (
     <View style={[styles.specialistCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-      <Image source={{ uri: photo }} style={styles.specialistImage} />
+      {photo ? (
+        <Image source={{ uri: photo }} style={styles.specialistImage} />
+      ) : (
+        <View style={[styles.specialistImage, { backgroundColor: colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' }]}>
+          <Icon source={usersThreeBold} size={42} color={colors.textMuted} />
+        </View>
+      )}
 
       <View style={styles.specialistBody}>
         <Text style={[styles.specialistName, { color: colors.text }]} numberOfLines={1}>{displayName}</Text>
         <Text style={[styles.specialistRole, { color: colors.primary }]} numberOfLines={1}>{specialty}</Text>
 
-        <View style={styles.metaRow}>
-          <Icon source={mapPinBold} size={13} color={colors.textMuted} />
-          <Text style={[styles.metaText, { color: colors.textMuted }]}>
-            {location}
-          </Text>
-        </View>
+        {!!location && (
+          <View style={styles.metaRow}>
+            <Icon source={mapPinBold} size={13} color={colors.textMuted} />
+            <Text style={[styles.metaText, { color: colors.textMuted }]}>
+              {location}
+            </Text>
+          </View>
+        )}
 
         <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
-        <Text style={[styles.specialistDescription, { color: colors.textMuted }]} numberOfLines={3}>
-          {description}
-        </Text>
+        {!!description && (
+          <Text style={[styles.specialistDescription, { color: colors.textMuted }]} numberOfLines={3}>
+            {description}
+          </Text>
+        )}
 
         <View style={styles.socialRow}>
           <Squeeze onPress={() => repairman.social?.facebook && Linking.openURL(repairman.social.facebook)} scale={0.85}>
@@ -876,59 +886,14 @@ function OurSpecialists({ liveRepairmen, navigation }: { liveRepairmen?: any[]; 
 function OurBlogs({
   liveBlogs,
   navigation,
-  refreshing,
 }: {
   liveBlogs?: any[];
   navigation: any;
-  refreshing?: boolean;
 }) {
   const { colors } = useTheme();
-  const [blogs, setBlogs] = useState<MobileBlog[]>(() => {
-    if (Array.isArray(liveBlogs) && liveBlogs.length > 0) {
-      return liveBlogs.map(mapBackendToBlog);
-    }
-    return [];
-  });
-  const [loading, setLoading] = useState(blogs.length === 0);
+  if (!Array.isArray(liveBlogs) || liveBlogs.length === 0) return null;
 
-  useEffect(() => {
-    if (Array.isArray(liveBlogs) && liveBlogs.length > 0) {
-      setBlogs(liveBlogs.map(mapBackendToBlog));
-      setLoading(false);
-    }
-  }, [liveBlogs]);
-
-  const fetchBlogs = useCallback(async () => {
-    try {
-      const res = await blogApi.getBlogs({ limit: 3 });
-      if (Array.isArray(res)) {
-        setBlogs(res);
-      }
-    } catch (e) {
-      // ignore
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!liveBlogs || liveBlogs.length === 0) {
-      fetchBlogs();
-    }
-  }, [fetchBlogs, liveBlogs, refreshing]);
-
-  if (loading && blogs.length === 0) {
-    return (
-      <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>Our Blogs</Text>
-        <CtiLoader size="sm" text="Loading blogs..." style={{ paddingVertical: 20 }} />
-      </View>
-    );
-  }
-
-  if (blogs.length === 0) {
-    return null;
-  }
+  const blogs = liveBlogs.map(mapBackendToBlog);
 
   return (
     <View style={styles.section}>
@@ -958,14 +923,14 @@ function RatingsSlider({ liveReviews }: { liveReviews?: any[] }) {
   const [width, setWidth] = useState(0);
   const [index, setIndex] = useState(0);
 
-  if (!liveReviews || liveReviews.length === 0) return null;
+  if (!Array.isArray(liveReviews) || liveReviews.length === 0) return null;
 
   const reviewsList = liveReviews.map((review, i) => ({
     id: review._id || String(i),
-    photo: review.profilePhoto || 'https://picsum.photos/seed/customer/200/200',
-    name: review.username || 'Verified Customer',
-    text: review.reviewText || '',
-    date: review.createdAt ? new Date(review.createdAt).toLocaleDateString() : 'Recent',
+    photo: review.profilePhoto || review.avatar || review.image || null,
+    name: review.username || review.name || 'Verified Customer',
+    text: review.reviewText || review.comment || '',
+    date: review.createdAt ? new Date(review.createdAt).toLocaleDateString() : '',
   }));
 
   const onScrollEnd = (event: any) => {
@@ -991,13 +956,19 @@ function RatingsSlider({ liveReviews }: { liveReviews?: any[] }) {
                   { backgroundColor: colors.surface, borderColor: colors.border },
                 ]}>
                 <View style={styles.reviewHead}>
-                  <Image source={{ uri: review.photo }} style={styles.reviewAvatar} />
+                  {review.photo ? (
+                    <Image source={{ uri: review.photo }} style={styles.reviewAvatar} />
+                  ) : (
+                    <View style={[styles.reviewAvatar, { backgroundColor: colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' }]}>
+                      <Icon source={usersThreeBold} size={16} color={colors.textMuted} />
+                    </View>
+                  )}
                   <Text style={[styles.specialistName, { color: colors.text }]}>{review.name}</Text>
                 </View>
-                <Text style={[styles.reviewText, { color: colors.textMuted }]}>{review.text}</Text>
+                {!!review.text && <Text style={[styles.reviewText, { color: colors.textMuted }]}>{review.text}</Text>}
                 <View style={styles.reviewFoot}>
                   <Icon source={starExtra} size={16} color={colors.primary} />
-                  <Text style={[styles.metaText, { color: colors.textMuted }]}>{review.date}</Text>
+                  {!!review.date && <Text style={[styles.metaText, { color: colors.textMuted }]}>{review.date}</Text>}
                 </View>
               </View>
             </View>
@@ -1022,33 +993,43 @@ function RatingsSlider({ liveReviews }: { liveReviews?: any[] }) {
 
 function StoreCard({ store, navigation }: { store: any; navigation?: any }) {
   const { colors } = useTheme();
-  const name = store.name || store.businessName || 'Verified Store';
-  const tagline = store.tagline || (store.productCategories?.[0] ?? 'Top Electronics Seller');
-  const description = store.description || store.storeDescription || 'Official multi-category retailer.';
-  const address = store.address || (store.city?.name ?? 'Pakistan');
-  const image = store.image || store.profilePictureOrLogo || 'https://picsum.photos/seed/store/400/300';
+  const name = store.businessName || store.name || 'Verified Store';
+  const tagline = store.tagline || (Array.isArray(store.productCategories) && store.productCategories[0]) || '';
+  const description = store.description || store.storeDescription || '';
+  const address = store.address || store.city?.name || '';
+  const image = store.image || store.profilePictureOrLogo || null;
 
   return (
     <View style={[styles.storeCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
       <View style={styles.storeImageWrap}>
-        <Image source={{ uri: image }} style={styles.storeImage} />
+        {image ? (
+          <Image source={{ uri: image }} style={styles.storeImage} />
+        ) : (
+          <View style={[styles.storeImage, { backgroundColor: colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' }]}>
+            <Icon source={tagBold} size={36} color={colors.textMuted} />
+          </View>
+        )}
         <View style={[styles.sponsoredBadge, { backgroundColor: colors.text }]}>
           <Text style={[styles.sponsoredBadgeText, { color: colors.background }]}>Sponsored</Text>
         </View>
       </View>
 
       <Text style={[styles.storeName, { color: colors.text }]}>{name}</Text>
-      <Text style={[styles.storeTagline, { color: colors.primary }]}>{tagline}</Text>
-      <Text style={[styles.storeDescription, { color: colors.textMuted }]} numberOfLines={2}>
-        {description}
-      </Text>
-
-      <View style={styles.metaRow}>
-        <Icon source={mapPinBold} size={13} color={colors.textMuted} />
-        <Text style={[styles.metaText, { color: colors.textMuted }]} numberOfLines={1}>
-          {address}
+      {!!tagline && <Text style={[styles.storeTagline, { color: colors.primary }]}>{tagline}</Text>}
+      {!!description && (
+        <Text style={[styles.storeDescription, { color: colors.textMuted }]} numberOfLines={2}>
+          {description}
         </Text>
-      </View>
+      )}
+
+      {!!address && (
+        <View style={styles.metaRow}>
+          <Icon source={mapPinBold} size={13} color={colors.textMuted} />
+          <Text style={[styles.metaText, { color: colors.textMuted }]} numberOfLines={1}>
+            {address}
+          </Text>
+        </View>
+      )}
 
       <TouchableOpacity
         activeOpacity={0.7}
@@ -1098,36 +1079,32 @@ export default function HomeScreen({ navigation }: any) {
   const [homeData, setHomeData] = useState<HomeData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const loadData = useCallback(async (isUserRetry = false) => {
     if (isUserRetry) {
       setLoading(true);
+      setError(null);
     }
     try {
       const data = await homeApi.getHomeData();
-      if (data) setHomeData(data);
-    } catch (e) {
-      // Graceful fallback
+      if (data) {
+        setHomeData(data);
+        setError(null);
+      } else {
+        setHomeData(null);
+        setError('No data available from server.');
+      }
+    } catch (e: any) {
+      setHomeData(null);
+      setError('Server not reachable. Please try again.');
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    let isMounted = true;
-    (async () => {
-      // Fast paint: load cached home data immediately if available
-      const cached = await homeApi.getCachedHomeData();
-      if (cached && isMounted) {
-        setHomeData(cached);
-        setLoading(false);
-      }
-      // Revalidate in background
-      await loadData();
-    })();
-    return () => {
-      isMounted = false;
-    };
+    loadData();
   }, [loadData]);
 
   const onRefresh = async () => {
@@ -1140,52 +1117,73 @@ export default function HomeScreen({ navigation }: any) {
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <Header navigation={navigation} />
 
-      <ScrollView
-        contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />}>
-        {loading && !refreshing ? (
+      {loading && !refreshing ? (
+        <View style={styles.loaderContainer}>
           <CtiLoader
-            size="md"
-            text="Loading home..."
-            style={{ paddingVertical: 50 }}
+            size="lg"
+            text="Loading real-time home data..."
           />
-        ) : !homeData ? (
-          <View style={{ paddingVertical: 80, alignItems: 'center', paddingHorizontal: 24 }}>
-            <Text style={{ fontFamily: fonts.bold, fontSize: 16, color: colors.text }}>
-              Unable to load home content
+        </View>
+      ) : !homeData || error ? (
+        <ScrollView
+          contentContainerStyle={styles.centerContainer}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />}>
+          <View style={[styles.errorCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Icon source={closeIcon} size={36} color={colors.error} />
+            <Text style={[styles.errorTitle, { color: colors.text }]}>
+              Data Not Available
             </Text>
-            <Text style={{ fontFamily: fonts.regular, fontSize: 13, color: colors.textMuted, marginTop: 6, textAlign: 'center' }}>
-              Please check your connection and pull down to refresh.
+            <Text style={[styles.errorSubtitle, { color: colors.textMuted }]}>
+              {error || 'Server not reachable or no data returned. Please check your internet connection and try again.'}
             </Text>
-            <Button title="Retry" size="sm" onPress={() => loadData(true)} style={{ marginTop: 16 }} />
+            <Button
+              title="Try Again"
+              size="md"
+              onPress={() => loadData(true)}
+              style={styles.retryButton}
+            />
           </View>
-        ) : (
-          <>
+        </ScrollView>
+      ) : (
+        <ScrollView
+          contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />}>
+          {homeData.banners && homeData.banners.length > 0 && (
             <FadeUp duration={500}>
-              <Hero banners={homeData?.banners} navigation={navigation} />
+              <Hero banners={homeData.banners} navigation={navigation} />
             </FadeUp>
-            <FadeUp duration={500} delay={60}>
-              <ServiceFinder navigation={navigation} />
-            </FadeUp>
+          )}
+          <FadeUp duration={500} delay={60}>
+            <ServiceFinder navigation={navigation} />
+          </FadeUp>
+          {homeData.services && homeData.services.length > 0 && (
             <FadeUp duration={500} delay={100}>
-              <OurServices liveServices={homeData?.services} navigation={navigation} />
+              <OurServices liveServices={homeData.services} navigation={navigation} />
             </FadeUp>
+          )}
+          {homeData.repairmen && homeData.repairmen.length > 0 && (
             <FadeUp duration={500} delay={140}>
-              <OurSpecialists liveRepairmen={homeData?.repairmen} navigation={navigation} />
+              <OurSpecialists liveRepairmen={homeData.repairmen} navigation={navigation} />
             </FadeUp>
+          )}
+          {homeData.blogs && homeData.blogs.length > 0 && (
             <FadeUp duration={500} delay={180}>
-              <OurBlogs liveBlogs={homeData?.blogs} navigation={navigation} refreshing={refreshing} />
+              <OurBlogs liveBlogs={homeData.blogs} navigation={navigation} />
             </FadeUp>
+          )}
+          {homeData.reviews && homeData.reviews.length > 0 && (
             <FadeUp duration={500} delay={220}>
-              <RatingsSlider liveReviews={homeData?.reviews} />
+              <RatingsSlider liveReviews={homeData.reviews} />
             </FadeUp>
+          )}
+          {homeData.sellers && homeData.sellers.length > 0 && (
             <FadeUp duration={500} delay={260}>
-              <BestRatedStores liveSellers={homeData?.sellers} navigation={navigation} />
+              <BestRatedStores liveSellers={homeData.sellers} navigation={navigation} />
             </FadeUp>
-          </>
-        )}
-      </ScrollView>
+          )}
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -1548,5 +1546,42 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: 9,
     color: '#FFFFFF',
+  },
+  loaderContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 120,
+  },
+  centerContainer: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 60,
+  },
+  errorCard: {
+    width: '100%',
+    alignItems: 'center',
+    padding: 24,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 10,
+  },
+  errorTitle: {
+    fontFamily: fonts.bold,
+    fontSize: 18,
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  errorSubtitle: {
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 19,
+  },
+  retryButton: {
+    marginTop: 8,
+    minWidth: 140,
   },
 });

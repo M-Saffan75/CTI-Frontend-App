@@ -1,15 +1,49 @@
 import { io, Socket } from 'socket.io-client';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
+import { SOCKET_URL } from '@/constants/config';
+import { getToken } from './tokenStorage';
 
-// Base server URL (without /api path)
-export const SOCKET_URL = 'https://tbt-backend-hwu3.onrender.com';
+// Re-export SOCKET_URL for backward compatibility
+export { SOCKET_URL };
 
 class SocketService {
   private socket: Socket | null = null;
   private isConnecting: boolean = false;
+  private netInfoUnsubscribe: (() => void) | null = null;
+
+  // Single source of truth for listeners to prevent duplicate socket subscriptions
+  private listeners: Map<string, Set<Function>> = new Map();
+  private masterHandlers: Map<string, (...args: any[]) => void> = new Map();
+
+  constructor() {
+    this.initNetworkListener();
+  }
 
   /**
-   * Initialize and connect socket with user's stored auth token
+   * Monitor network state via NetInfo.
+   * When network transitions back online, automatically reconnect the socket if an auth token exists.
+   */
+  private initNetworkListener() {
+    if (this.netInfoUnsubscribe) return;
+    this.netInfoUnsubscribe = NetInfo.addEventListener(state => {
+      const isOnline = Boolean(state.isConnected && state.isInternetReachable !== false);
+      if (isOnline) {
+        getToken()
+          .then(token => {
+            if (token && (!this.socket || !this.socket.connected)) {
+              if (__DEV__) {
+                console.log('[Socket] Network restored; reconnecting socket...');
+              }
+              this.connect().catch(() => {});
+            }
+          })
+          .catch(() => {});
+      }
+    });
+  }
+
+  /**
+   * Initialize and connect socket with user's stored auth token from Keychain
    */
   async connect(): Promise<Socket | null> {
     if (this.socket && this.socket.connected) {
@@ -23,13 +57,13 @@ class SocketService {
     this.isConnecting = true;
 
     try {
-      let token = await AsyncStorage.getItem('token');
-      if (!token) {
-        const authData = await AsyncStorage.getItem('auth');
-        if (authData) {
-          const parsed = JSON.parse(authData);
-          token = parsed?.token || parsed?.tokens?.accessToken;
-        }
+      const token = await getToken();
+
+      // If a previous disconnected socket instance exists, clean its wire listeners first
+      if (this.socket) {
+        this.socket.removeAllListeners();
+        this.socket.disconnect();
+        this.socket = null;
       }
 
       this.socket = io(SOCKET_URL, {
@@ -47,6 +81,9 @@ class SocketService {
           'x-platform': 'mobile',
         },
       });
+
+      // Bind all registered master handlers to the new socket instance without duplicates
+      this.bindAllMasterHandlers();
 
       this.socket.on('connect', () => {
         if (__DEV__) {
@@ -81,10 +118,22 @@ class SocketService {
   }
 
   /**
-   * Disconnect and clear socket
+   * Attach master handlers for each registered event to the current socket
+   */
+  private bindAllMasterHandlers() {
+    if (!this.socket) return;
+    this.masterHandlers.forEach((handler, event) => {
+      this.socket?.off(event, handler);
+      this.socket?.on(event, handler);
+    });
+  }
+
+  /**
+   * Disconnect and clear socket on logout or cleanup
    */
   disconnect() {
     if (this.socket) {
+      this.socket.removeAllListeners();
       this.socket.disconnect();
       this.socket = null;
     }
@@ -105,19 +154,53 @@ class SocketService {
   }
 
   /**
-   * Listen to any event with auto-cleanup callback
+   * Listen to any event with deduplication and auto-cleanup callback.
+   * Guarantees at most ONE underlying socket wire subscription per event name.
    */
   on(event: string, callback: (...args: any[]) => void): () => void {
-    if (!this.socket) {
-      this.connect().then(sock => {
-        sock?.on(event, callback);
-      });
-    } else {
-      this.socket.on(event, callback);
+    let callbacks = this.listeners.get(event);
+    if (!callbacks) {
+      callbacks = new Set();
+      this.listeners.set(event, callbacks);
+    }
+    callbacks.add(callback);
+
+    // Create single master dispatcher on socket if not yet created
+    if (!this.masterHandlers.has(event)) {
+      const masterHandler = (...args: any[]) => {
+        const cbs = this.listeners.get(event);
+        if (cbs) {
+          cbs.forEach(cb => {
+            try {
+              cb(...args);
+            } catch (err) {
+              if (__DEV__) console.warn(`[Socket] Listener error on event '${event}':`, err);
+            }
+          });
+        }
+      };
+      this.masterHandlers.set(event, masterHandler);
+      this.socket?.on(event, masterHandler);
     }
 
+    if (!this.socket && !this.isConnecting) {
+      this.connect().catch(() => {});
+    }
+
+    // Return unsubscriber that safely unbinds and removes master wire listener when empty
     return () => {
-      this.socket?.off(event, callback);
+      const set = this.listeners.get(event);
+      if (set) {
+        set.delete(callback);
+        if (set.size === 0) {
+          this.listeners.delete(event);
+          const masterHandler = this.masterHandlers.get(event);
+          if (masterHandler) {
+            this.socket?.off(event, masterHandler);
+            this.masterHandlers.delete(event);
+          }
+        }
+      }
     };
   }
 

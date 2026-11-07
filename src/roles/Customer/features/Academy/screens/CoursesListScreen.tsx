@@ -15,7 +15,7 @@ import Button from '@/components/Button';
 import Squeeze from '@/components/Squeeze';
 import CtiLoader from '@/components/CtiLoader';
 import { FadeUp } from '@/animations';
-import { arrowLeftBold, eyeBold, searchBold } from '@/assets/icons';
+import { arrowLeftBold, eyeBold, searchBold, starExtra } from '@/assets/icons';
 import { ctiLogo } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
@@ -23,6 +23,90 @@ import academyApi, {
   AcademicCategoryItem,
   AcademicCourseItem,
 } from '@/services/academyApi';
+
+function CourseCardItem({
+  course,
+  index,
+  onPress,
+}: {
+  course: AcademicCourseItem;
+  index: number;
+  onPress: () => void;
+}) {
+  const { colors } = useTheme();
+  const [imgError, setImgError] = useState(false);
+
+  const cleanDesc = (course.shortDescription || course.description || course.about || '')
+    .replace(/<[^>]+>/g, ' ')
+    .trim();
+  const ratingDisplay = course.averageRating > 0 ? course.averageRating.toFixed(1) : '4.5';
+  const badgeText = course.subCategory || course.category || 'Course';
+  const hasValidThumb = !!course.thumbnail && course.thumbnail.startsWith('http') && !imgError;
+
+  return (
+    <FadeUp delay={60 + index * 40} duration={500} style={styles.gridItem}>
+      <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Squeeze onPress={onPress} activeOpacity={0.9} style={styles.thumbnailWrap}>
+          {hasValidThumb ? (
+            <Image
+              source={{ uri: course.thumbnail }}
+              style={styles.thumbnail}
+              resizeMode="cover"
+              onError={() => setImgError(true)}
+            />
+          ) : (
+            <View style={[styles.fallbackThumbnail, { backgroundColor: colors.surfaceAlt }]}>
+              <Image source={ctiLogo} style={styles.fallbackLogo} resizeMode="contain" />
+            </View>
+          )}
+
+          {/* Badge Pill (Top-Left matching Next.js) */}
+          <View style={[styles.badgePill, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.badgePillText, { color: colors.text }]} numberOfLines={1}>
+              {badgeText}
+            </Text>
+          </View>
+        </Squeeze>
+
+        <View style={styles.cardBody}>
+          <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>
+            {course.title}
+          </Text>
+          {!!cleanDesc && (
+            <Text style={[styles.cardText, { color: colors.textMuted }]} numberOfLines={2}>
+              {cleanDesc}
+            </Text>
+          )}
+
+          <View style={styles.metaRow}>
+            {/* Star Rating */}
+            <View style={styles.ratingRow}>
+              <Icon source={starExtra} size={13} color="#F59E0B" />
+              <Text style={[styles.ratingText, { color: colors.text }]}>
+                {ratingDisplay}
+              </Text>
+            </View>
+
+            {/* Views */}
+            <View style={styles.views}>
+              <Icon source={eyeBold} size={13} color={colors.textMuted} />
+              <Text style={[styles.viewsText, { color: colors.textMuted }]}>
+                {course.views}
+              </Text>
+            </View>
+          </View>
+
+          <Button
+            title="Start Learning"
+            size="sm"
+            onPress={onPress}
+            style={styles.cardButton}
+          />
+        </View>
+      </View>
+    </FadeUp>
+  );
+}
 
 export default function CoursesListScreen({ navigation, route }: any) {
   const { colors } = useTheme();
@@ -228,35 +312,12 @@ export default function CoursesListScreen({ navigation, route }: any) {
         ) : (
           <View style={styles.grid}>
             {courses.map((course, index) => (
-              <FadeUp key={course.id} delay={60 + index * 40} duration={500} style={styles.gridItem}>
-                <View
-                  style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                  <Image source={{ uri: course.thumbnail }} style={styles.thumbnail} />
-
-                  <View style={styles.cardBody}>
-                    <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={1}>
-                      {course.title}
-                    </Text>
-                    <Text style={[styles.cardText, { color: colors.textMuted }]} numberOfLines={2}>
-                      {course.description || course.about}
-                    </Text>
-
-                    <View style={styles.views}>
-                      <Icon source={eyeBold} size={14} color={colors.textMuted} />
-                      <Text style={[styles.viewsText, { color: colors.textMuted }]}>
-                        {course.views}
-                      </Text>
-                    </View>
-
-                    <Button
-                      title="Start Learning"
-                      size="sm"
-                      onPress={() => navigation.navigate('CourseDetail', { course, slug: course.slug })}
-                      style={styles.cardButton}
-                    />
-                  </View>
-                </View>
-              </FadeUp>
+              <CourseCardItem
+                key={course.id}
+                course={course}
+                index={index}
+                onPress={() => navigation.navigate('CourseDetail', { course, slug: course.slug })}
+              />
             ))}
           </View>
         )}
@@ -302,11 +363,44 @@ const styles = StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginTop: 16 },
   gridItem: { width: '48%', marginBottom: 14 },
   card: { borderRadius: 12, borderWidth: 1, overflow: 'hidden' },
-  thumbnail: { width: '100%', height: 100 },
+  thumbnailWrap: { position: 'relative' },
+  thumbnail: { width: '100%', height: 110 },
+  fallbackThumbnail: {
+    width: '100%',
+    height: 110,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fallbackLogo: {
+    width: 70,
+    height: 35,
+    opacity: 0.8,
+  },
+  badgePill: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+    maxWidth: '85%',
+  },
+  badgePillText: {
+    fontFamily: fonts.bold,
+    fontSize: 10,
+  },
   cardBody: { padding: 10, gap: 6 },
-  cardTitle: { fontFamily: fonts.bold, fontSize: 14 },
-  cardText: { fontFamily: fonts.regular, fontSize: 12, lineHeight: 17 },
-  views: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  viewsText: { fontFamily: fonts.regular, fontSize: 12 },
+  cardTitle: { fontFamily: fonts.bold, fontSize: 13, lineHeight: 18, minHeight: 36 },
+  cardText: { fontFamily: fonts.regular, fontSize: 11, lineHeight: 16 },
+  metaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 },
+  ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  ratingText: { fontFamily: fonts.medium, fontSize: 12 },
+  views: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  viewsText: { fontFamily: fonts.regular, fontSize: 11 },
   cardButton: { marginTop: 4 },
 });

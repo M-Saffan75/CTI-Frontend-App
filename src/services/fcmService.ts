@@ -120,13 +120,35 @@ class FCMService {
   }
 
   /**
-   * Delete FCM token on logout
+   * Register device token after login: requests permissions safely without crashing,
+   * retrieves token, and updates backend via POST /api/update-fcm-token.
+   */
+  async registerTokenAfterLogin(): Promise<string | null> {
+    try {
+      const token = await this.getDeviceToken();
+      if (token) {
+        await this.syncTokenWithBackend(token);
+      }
+      return token;
+    } catch (error) {
+      if (__DEV__) console.warn('[FCMService] registerTokenAfterLogin failed gracefully:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Delete FCM token on logout:
+   * 1. Unlinks and revokes the instance token from Firebase Messaging SDK so no further pushes reach this device.
+   * 2. Clears locally cached FCM token from storage.
    */
   async deleteToken(): Promise<void> {
     try {
+      // 1. Delete instance token from Firebase servers
       const messaging = this.getMessagingInstance();
-      await deleteToken(messaging);
-      await AsyncStorage.removeItem(FCM_TOKEN_STORAGE_KEY);
+      await deleteToken(messaging).catch(() => {});
+
+      // 2. Clear local storage
+      await AsyncStorage.removeItem(FCM_TOKEN_STORAGE_KEY).catch(() => {});
       if (__DEV__) console.log('[FCMService] FCM token removed locally and unlinked from FCM.');
     } catch (error) {
       if (__DEV__) console.warn('[FCMService] deleteToken failed:', error);

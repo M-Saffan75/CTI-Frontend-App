@@ -14,6 +14,7 @@ export interface AcademicCourseItem {
   title: string;
   category: string;
   categoryId?: string;
+  subCategory?: string;
   description: string;
   shortDescription?: string;
   articleContent?: string;
@@ -64,7 +65,9 @@ export function mapBackendToCourse(raw: any): AcademicCourseItem {
   const rawThumb = raw.thumbnail || raw.image;
   const thumbUrl = typeof rawThumb === 'string' && rawThumb.startsWith('http')
     ? rawThumb
-    : 'https://picsum.photos/seed/course/800/450';
+    : (typeof rawThumb === 'string' ? rawThumb : '');
+
+  const subCatTitle = raw.subCategory?.title || (typeof raw.subCategory === 'string' ? raw.subCategory : undefined);
 
   return {
     id: String(raw._id || raw.id || raw.slug || Math.random().toString()),
@@ -72,14 +75,15 @@ export function mapBackendToCourse(raw: any): AcademicCourseItem {
     title: raw.title || 'Course',
     category: categoryName,
     categoryId: categoryId ? String(categoryId) : undefined,
+    subCategory: subCatTitle,
     description: cleanDesc,
     shortDescription: raw.shortDescription || cleanDesc,
     articleContent: cleanArticle,
-    about: cleanArticle || cleanDesc || 'Comprehensive hands-on training module provided by CTI Academy.',
-    video: raw.video,
+    about: cleanArticle || cleanDesc,
+    video: raw.video || undefined,
     thumbnail: thumbUrl,
     views: Number(raw.views || 0),
-    averageRating: Number(raw.averageRating || 4.8),
+    averageRating: Number(raw.averageRating || raw.rating || 0),
     reviewCount: Number(raw.reviewCount || 0),
     duration: raw.duration || '25 mins',
     lessons: raw.lessons || 6,
@@ -164,6 +168,18 @@ export const academyApi = {
     } catch (error) {
       if (__DEV__) console.warn(`[academyApi] getCourseBySlug(${slug}) error:`, error);
       return null;
+    }
+  },
+
+  /**
+   * Increment course views count
+   * Endpoint: PATCH /academic/:slug/views
+   */
+  async patchCourseViews(slug: string): Promise<void> {
+    try {
+      await apiClient.patch(`/academic/${slug}/views`);
+    } catch (e) {
+      // Ignore views tracking error
     }
   },
 };

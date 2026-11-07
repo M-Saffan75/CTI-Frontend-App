@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Image,
   Platform,
@@ -45,6 +45,7 @@ import {
 } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import AuthService, { AuthUser } from '@/services/authService';
 
 // The designer used the same gear icon on every row, so these are picked to match
 // what each row actually does.
@@ -149,11 +150,22 @@ function MenuRow({ item, depth = 0, navigation }) {
   );
 }
 
-export default function SettingsScreen({ navigation, onLogout }) {
+export default function SettingsScreen({ navigation, onLogout }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
   const [confirmLogout, setConfirmLogout] = useState(false);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => AuthService.getCachedUser());
+
+  useEffect(() => {
+    let mounted = true;
+    AuthService.getStoredUser().then(u => {
+      if (mounted && u) setCurrentUser(u);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const query = (search || '').trim().toLowerCase();
   const menu = query
@@ -163,6 +175,11 @@ export default function SettingsScreen({ navigation, onLogout }) {
           item?.children?.some((c: any) => c?.label?.toLowerCase()?.includes(query)),
       )
     : (MENU || []);
+
+  const avatarSource =
+    currentUser?.avatar || currentUser?.profileImage
+      ? { uri: currentUser.avatar || currentUser.profileImage }
+      : dummyProfileExtra;
 
   return (
     <View
@@ -208,11 +225,13 @@ export default function SettingsScreen({ navigation, onLogout }) {
           activeOpacity={0.7}
           onPress={() => navigation?.navigate('Profile')}
           style={styles.profileBtn}>
-          <Image source={dummyProfileExtra} style={styles.avatar} />
+          <Image source={avatarSource} style={styles.avatar} />
 
           <View style={styles.profileText}>
-            <Text style={[styles.name, { color: colors.text }]}>Zubair Malik</Text>
-            <Text style={[styles.role, { color: colors.primary }]}>Owner</Text>
+            <Text style={[styles.name, { color: colors.text }]}>
+              {currentUser?.name || 'Customer'}
+            </Text>
+            <Text style={[styles.role, { color: colors.primary }]}>Customer</Text>
           </View>
         </TouchableOpacity>
 

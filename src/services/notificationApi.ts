@@ -23,22 +23,17 @@ export const notificationApi = {
    * Fetch paginated list of notifications
    */
   async getNotifications(page = 1, limit = 20, type?: string): Promise<{ notifications: NotificationItem[]; total: number }> {
-    try {
-      const params: Record<string, any> = { page, limit };
-      if (type) params.type = type;
+    const params: Record<string, any> = { page, limit };
+    if (type) params.type = type;
 
-      const res = await apiClient.get('/notifications', { params });
-      if (res.data?.success) {
-        return {
-          notifications: res.data?.data?.notifications || [],
-          total: res.data?.data?.total || 0,
-        };
-      }
-      return { notifications: [], total: 0 };
-    } catch (error) {
-      if (__DEV__) console.warn('[notificationApi] getNotifications failed:', error);
-      return { notifications: [], total: 0 };
+    const res = await apiClient.get('/notifications', { params });
+    if (res.data?.success) {
+      return {
+        notifications: res.data?.data?.notifications || [],
+        total: res.data?.data?.total || 0,
+      };
     }
+    return { notifications: [], total: 0 };
   },
 
   /**

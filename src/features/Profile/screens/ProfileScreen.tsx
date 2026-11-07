@@ -51,6 +51,7 @@ import AddEducationModal from '../components/AddEducationModal';
 import AddExperienceModal from '../components/AddExperienceModal';
 import AddCertificateModal from '../components/AddCertificateModal';
 import { fetchUserProfileApi } from '../services/profileApi';
+import AuthService from '@/services/authService';
 
 const CATALOG_FILTER_TABS = ['All 1', 'Approved 0', 'Pending 1', 'Rejected 0'];
 
@@ -58,9 +59,36 @@ export default function ProfileScreen({ navigation }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
-  const [profile, setProfile] = useState<ProfileData>(INITIAL_PROFILE_DATA);
+  const cachedUser = AuthService.getCachedUser();
+  const cachedRole = AuthService.getCachedRole() || cachedUser?.role || 'customer';
+  const isCustomerRole = (cachedRole || '').toLowerCase() === 'customer';
+
+  const [profile, setProfile] = useState<ProfileData>(() => {
+    if (isCustomerRole) {
+      return {
+        ...INITIAL_PROFILE_DATA,
+        name: cachedUser?.name || 'Customer',
+        role: 'Customer',
+        phone: cachedUser?.phone || '',
+        email: cachedUser?.email || '',
+        avatarUri: cachedUser?.avatar || cachedUser?.profileImage,
+        city: '',
+        address: '',
+        aboutMe: '',
+        specialization: [],
+        workingDays: [],
+        workingHours: '',
+        education: [],
+        experience: [],
+        certificates: [],
+      };
+    }
+    return INITIAL_PROFILE_DATA;
+  });
   const [refreshing, setRefreshing] = useState(false);
   const [activeCatalogFilter, setActiveCatalogFilter] = useState('All 1');
+
+  const isCustomer = (profile?.role || cachedRole || '').toLowerCase() === 'customer';
 
   const loadProfile = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -136,14 +164,16 @@ export default function ProfileScreen({ navigation }: any) {
             <Text style={styles.atpText}>ATP</Text>
           </View>
 
-          {/* Floating Back Button */}
-          <Squeeze
-            onPress={() => navigation?.goBack()}
-            style={[styles.floatingBack, { top: insets.top + 8 }]}>
-            <View style={[styles.backBtnCircle, { backgroundColor: colors.primary }]}>
-              <Icon source={arrowLeftBold} size={18} color={colors.onPrimary} />
-            </View>
-          </Squeeze>
+          {/* Floating Back Button - Only render if stack can go back */}
+          {navigation?.canGoBack() && (
+            <Squeeze
+              onPress={() => navigation?.goBack()}
+              style={[styles.floatingBack, { top: insets.top + 8 }]}>
+              <View style={[styles.backBtnCircle, { backgroundColor: colors.primary }]}>
+                <Icon source={arrowLeftBold} size={18} color={colors.onPrimary} />
+              </View>
+            </Squeeze>
+          )}
 
           {/* Floating Edit Button */}
           <Squeeze
@@ -165,7 +195,7 @@ export default function ProfileScreen({ navigation }: any) {
           {/* Avatar with Edit Badge */}
           <View style={styles.avatarWrap}>
             <Image
-              source={dummyProfileExtra}
+              source={profile.avatarUri ? { uri: profile.avatarUri } : dummyProfileExtra}
               style={[styles.avatarImage, { borderColor: colors.surface }]}
             />
             <TouchableOpacity
@@ -181,35 +211,73 @@ export default function ProfileScreen({ navigation }: any) {
           </View>
 
           {/* Name */}
-          <Text style={[styles.profileName, { color: colors.text }]}>{profile.name}</Text>
+          <Text style={[styles.profileName, { color: colors.text }]}>
+            {profile.name || 'Customer'}
+          </Text>
 
           {/* Sub Meta Row */}
           <View style={styles.metaRow}>
-            <View style={styles.metaBadge}>
-              <Icon source={mapPinBold} size={14} color={colors.textMuted} />
-              <Text style={[styles.metaBadgeText, { color: colors.textMuted }]}>
-                {profile.city}
-              </Text>
-            </View>
+            {Boolean(profile.city) && (
+              <View style={styles.metaBadge}>
+                <Icon source={mapPinBold} size={14} color={colors.textMuted} />
+                <Text style={[styles.metaBadgeText, { color: colors.textMuted }]}>
+                  {profile.city}
+                </Text>
+              </View>
+            )}
 
-            <View style={styles.metaBadge}>
-              <Icon source={clockBold} size={14} color={colors.textMuted} />
-              <Text style={[styles.metaBadgeText, { color: colors.textMuted }]}>
-                {profile.experienceYears}
-              </Text>
-            </View>
+            {isCustomer ? (
+              <>
+                <View
+                  style={[
+                    styles.metaBadge,
+                    {
+                      backgroundColor: colors.primary + '18',
+                      borderColor: colors.primary,
+                      borderWidth: 1,
+                      paddingHorizontal: 8,
+                      paddingVertical: 2,
+                      borderRadius: 10,
+                    },
+                  ]}>
+                  <Text style={[styles.metaBadgeText, { color: colors.primary, fontFamily: fonts.bold }]}>
+                    Customer
+                  </Text>
+                </View>
 
-            <View style={styles.metaBadge}>
-              <Icon source={packageBold} size={14} color={colors.textMuted} />
-              <Text style={[styles.metaBadgeText, { color: colors.textMuted }]}>
-                {profile.jobsCompleted} Job Completed
-              </Text>
-            </View>
+                {Boolean(profile.memberSince) && (
+                  <View style={styles.metaBadge}>
+                    <Icon source={calendarBold} size={14} color={colors.textMuted} />
+                    <Text style={[styles.metaBadgeText, { color: colors.textMuted }]}>
+                      Member since {profile.memberSince}
+                    </Text>
+                  </View>
+                )}
+              </>
+            ) : (
+              <>
+                {Boolean(profile.experienceYears) && (
+                  <View style={styles.metaBadge}>
+                    <Icon source={clockBold} size={14} color={colors.textMuted} />
+                    <Text style={[styles.metaBadgeText, { color: colors.textMuted }]}>
+                      {profile.experienceYears}
+                    </Text>
+                  </View>
+                )}
+
+                <View style={styles.metaBadge}>
+                  <Icon source={packageBold} size={14} color={colors.textMuted} />
+                  <Text style={[styles.metaBadgeText, { color: colors.textMuted }]}>
+                    {profile.jobsCompleted} Job Completed
+                  </Text>
+                </View>
+              </>
+            )}
           </View>
         </View>
 
         {/* Complete Bank Details Alert Card */}
-        {!profile.bankDetailsCompleted && (
+        {!isCustomer && !profile.bankDetailsCompleted && (
           <FadeUp delay={30} duration={300}>
             <View
               style={[
@@ -248,56 +316,62 @@ export default function ProfileScreen({ navigation }: any) {
         )}
 
         {/* Stats Row */}
-        <FadeUp delay={60} duration={300}>
-          <View style={styles.statsRow}>
-            <View
-              style={[
-                styles.statCard,
-                { backgroundColor: colors.surface, borderColor: colors.border },
-              ]}>
-              <Icon source={starBold} size={18} color="#F59E0B" />
-              <Text style={[styles.statLabel, { color: colors.textMuted }]}>Rating</Text>
-              <Text style={[styles.statValue, { color: colors.text }]}>{profile.rating}</Text>
-            </View>
+        {!isCustomer && (
+          <FadeUp delay={60} duration={300}>
+            <View style={styles.statsRow}>
+              <View
+                style={[
+                  styles.statCard,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                ]}>
+                <Icon source={starBold} size={18} color="#F59E0B" />
+                <Text style={[styles.statLabel, { color: colors.textMuted }]}>Rating</Text>
+                <Text style={[styles.statValue, { color: colors.text }]}>{profile.rating}</Text>
+              </View>
 
-            <View
-              style={[
-                styles.statCard,
-                { backgroundColor: colors.surface, borderColor: colors.border },
-              ]}>
-              <Icon source={packageBold} size={18} color={colors.primary} />
-              <Text style={[styles.statLabel, { color: colors.textMuted }]}>Jobs Completed</Text>
-              <Text style={[styles.statValue, { color: colors.text }]}>N/A</Text>
-            </View>
+              <View
+                style={[
+                  styles.statCard,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                ]}>
+                <Icon source={packageBold} size={18} color={colors.primary} />
+                <Text style={[styles.statLabel, { color: colors.textMuted }]}>Jobs Completed</Text>
+                <Text style={[styles.statValue, { color: colors.text }]}>N/A</Text>
+              </View>
 
-            <View
-              style={[
-                styles.statCard,
-                { backgroundColor: colors.surface, borderColor: colors.border },
-              ]}>
-              <Icon source={clockBold} size={18} color={colors.primary} />
-              <Text style={[styles.statLabel, { color: colors.textMuted }]}>Hours</Text>
-              <Text style={[styles.statValue, { color: colors.text }]}>09:00 - 21:00</Text>
+              <View
+                style={[
+                  styles.statCard,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                ]}>
+                <Icon source={clockBold} size={18} color={colors.primary} />
+                <Text style={[styles.statLabel, { color: colors.textMuted }]}>Hours</Text>
+                <Text style={[styles.statValue, { color: colors.text }]}>09:00 - 21:00</Text>
+              </View>
             </View>
-          </View>
-        </FadeUp>
+          </FadeUp>
+        )}
 
         {/* 1. About me */}
-        <FadeUp delay={90} duration={300}>
-          <View
-            style={[
-              styles.sectionCard,
-              { backgroundColor: colors.surface, borderColor: colors.border },
-            ]}>
-            <View style={styles.sectionHeader}>
-              <Icon source={infoCircleBold} size={18} color={colors.primary} />
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>About me</Text>
+        {Boolean(profile.aboutMe) && (
+          <FadeUp delay={90} duration={300}>
+            <View
+              style={[
+                styles.sectionCard,
+                { backgroundColor: colors.surface, borderColor: colors.border },
+              ]}>
+              <View style={styles.sectionHeader}>
+                <Icon source={infoCircleBold} size={18} color={colors.primary} />
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>About me</Text>
+              </View>
+              <Text style={[styles.aboutText, { color: colors.textMuted }]}>{profile.aboutMe}</Text>
             </View>
-            <Text style={[styles.aboutText, { color: colors.textMuted }]}>{profile.aboutMe}</Text>
-          </View>
-        </FadeUp>
+          </FadeUp>
+        )}
 
-        {/* 2. Specialization */}
+        {/* Provider Only Sections: Specialization, Working Hours, Catalog, Education, Experience, Certifications */}
+        {!isCustomer && (
+          <>
         <FadeUp delay={120} duration={300}>
           <View
             style={[
@@ -705,6 +779,8 @@ export default function ProfileScreen({ navigation }: any) {
             ))}
           </View>
         </FadeUp>
+        </>
+        )}
 
         {/* 8. Contact Info */}
         <FadeUp delay={300} duration={300}>
@@ -768,68 +844,72 @@ export default function ProfileScreen({ navigation }: any) {
           </View>
         </FadeUp>
 
-        {/* 10. Emergency Contact */}
-        <FadeUp delay={360} duration={300}>
-          <View
-            style={[
-              styles.sectionCard,
-              { backgroundColor: colors.surface, borderColor: colors.border },
-            ]}>
-            <View style={styles.sectionHeader}>
-              <Icon source={phoneBold} size={18} color={colors.primary} />
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>Emergency Contact</Text>
-            </View>
+        {/* 10. Emergency Contact & 11. Services (Provider Only) */}
+        {!isCustomer && (
+          <>
+            <FadeUp delay={360} duration={300}>
+              <View
+                style={[
+                  styles.sectionCard,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                ]}>
+                <View style={styles.sectionHeader}>
+                  <Icon source={phoneBold} size={18} color={colors.primary} />
+                  <Text style={[styles.sectionTitle, { color: colors.text }]}>Emergency Contact</Text>
+                </View>
 
-            <View style={[styles.infoBoxWithIcon, { backgroundColor: colors.surfaceAlt }]}>
-              <Icon source={userBold} size={18} color={colors.primary} />
-              <View>
-                <Text style={[styles.infoBoxLabel, { color: colors.textMuted }]}>
-                  Contact Person
-                </Text>
-                <Text style={[styles.infoBoxVal, { color: colors.text }]}>
-                  {profile.emergencyPerson}
-                </Text>
+                <View style={[styles.infoBoxWithIcon, { backgroundColor: colors.surfaceAlt }]}>
+                  <Icon source={userBold} size={18} color={colors.primary} />
+                  <View>
+                    <Text style={[styles.infoBoxLabel, { color: colors.textMuted }]}>
+                      Contact Person
+                    </Text>
+                    <Text style={[styles.infoBoxVal, { color: colors.text }]}>
+                      {profile.emergencyPerson}
+                    </Text>
+                  </View>
+                </View>
+
+                <View
+                  style={[
+                    styles.infoBoxWithIcon,
+                    { backgroundColor: colors.surfaceAlt, marginTop: 8 },
+                  ]}>
+                  <Icon source={phoneBold} size={18} color={colors.primary} />
+                  <View>
+                    <Text style={[styles.infoBoxLabel, { color: colors.textMuted }]}>
+                      Contact Number
+                    </Text>
+                    <Text style={[styles.infoBoxVal, { color: colors.text }]}>
+                      {profile.emergencyPhone}
+                    </Text>
+                  </View>
+                </View>
               </View>
-            </View>
+            </FadeUp>
 
-            <View
-              style={[
-                styles.infoBoxWithIcon,
-                { backgroundColor: colors.surfaceAlt, marginTop: 8 },
-              ]}>
-              <Icon source={phoneBold} size={18} color={colors.primary} />
-              <View>
-                <Text style={[styles.infoBoxLabel, { color: colors.textMuted }]}>
-                  Contact Number
-                </Text>
-                <Text style={[styles.infoBoxVal, { color: colors.text }]}>
-                  {profile.emergencyPhone}
-                </Text>
+            {/* 11. Services */}
+            <FadeUp delay={390} duration={300}>
+              <View
+                style={[
+                  styles.sectionCard,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                ]}>
+                <View style={styles.sectionHeader}>
+                  <Icon source={toolExtra} size={18} color={colors.primary} />
+                  <Text style={[styles.sectionTitle, { color: colors.text }]}>Services</Text>
+                </View>
+
+                <View style={styles.servicesRow}>
+                  <Text style={[styles.serviceRowTitle, { color: colors.text }]}>Pickup Service</Text>
+                  <View style={[styles.availableBadge, { backgroundColor: '#10B98120' }]}>
+                    <Text style={[styles.availableBadgeText, { color: '#10B981' }]}>Available</Text>
+                  </View>
+                </View>
               </View>
-            </View>
-          </View>
-        </FadeUp>
-
-        {/* 11. Services */}
-        <FadeUp delay={390} duration={300}>
-          <View
-            style={[
-              styles.sectionCard,
-              { backgroundColor: colors.surface, borderColor: colors.border },
-            ]}>
-            <View style={styles.sectionHeader}>
-              <Icon source={toolExtra} size={18} color={colors.primary} />
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>Services</Text>
-            </View>
-
-            <View style={styles.servicesRow}>
-              <Text style={[styles.serviceRowTitle, { color: colors.text }]}>Pickup Service</Text>
-              <View style={[styles.availableBadge, { backgroundColor: '#10B98120' }]}>
-                <Text style={[styles.availableBadgeText, { color: '#10B981' }]}>Available</Text>
-              </View>
-            </View>
-          </View>
-        </FadeUp>
+            </FadeUp>
+          </>
+        )}
 
         {/* 12. Account Information */}
         <FadeUp delay={420} duration={300}>
@@ -876,65 +956,67 @@ export default function ProfileScreen({ navigation }: any) {
         </FadeUp>
       </ScrollView>
 
-      {/* Add Education Modal */}
-      <AddEducationModal
-        visible={showEduModal}
-        itemToEdit={editingEdu}
-        onClose={() => setShowEduModal(false)}
-        onSave={item => {
-          if (editingEdu) {
-            setProfile(prev => ({
-              ...prev,
-              education: prev.education.map(e => (e.id === item.id ? item : e)),
-            }));
-          } else {
-            setProfile(prev => ({
-              ...prev,
-              education: [...prev.education, item],
-            }));
-          }
-        }}
-      />
+      {/* Provider-only Modals */}
+      {!isCustomer && (
+        <>
+          <AddEducationModal
+            visible={showEduModal}
+            itemToEdit={editingEdu}
+            onClose={() => setShowEduModal(false)}
+            onSave={item => {
+              if (editingEdu) {
+                setProfile(prev => ({
+                  ...prev,
+                  education: prev.education.map(e => (e.id === item.id ? item : e)),
+                }));
+              } else {
+                setProfile(prev => ({
+                  ...prev,
+                  education: [...prev.education, item],
+                }));
+              }
+            }}
+          />
 
-      {/* Add Experience Modal */}
-      <AddExperienceModal
-        visible={showExpModal}
-        itemToEdit={editingExp}
-        onClose={() => setShowExpModal(false)}
-        onSave={item => {
-          if (editingExp) {
-            setProfile(prev => ({
-              ...prev,
-              experience: prev.experience.map(e => (e.id === item.id ? item : e)),
-            }));
-          } else {
-            setProfile(prev => ({
-              ...prev,
-              experience: [...prev.experience, item],
-            }));
-          }
-        }}
-      />
+          <AddExperienceModal
+            visible={showExpModal}
+            itemToEdit={editingExp}
+            onClose={() => setShowExpModal(false)}
+            onSave={item => {
+              if (editingExp) {
+                setProfile(prev => ({
+                  ...prev,
+                  experience: prev.experience.map(e => (e.id === item.id ? item : e)),
+                }));
+              } else {
+                setProfile(prev => ({
+                  ...prev,
+                  experience: [...prev.experience, item],
+                }));
+              }
+            }}
+          />
 
-      {/* Add Certificate Modal */}
-      <AddCertificateModal
-        visible={showCertModal}
-        itemToEdit={editingCert}
-        onClose={() => setShowCertModal(false)}
-        onSave={item => {
-          if (editingCert) {
-            setProfile(prev => ({
-              ...prev,
-              certificates: prev.certificates.map(c => (c.id === item.id ? item : c)),
-            }));
-          } else {
-            setProfile(prev => ({
-              ...prev,
-              certificates: [...prev.certificates, item],
-            }));
-          }
-        }}
-      />
+          <AddCertificateModal
+            visible={showCertModal}
+            itemToEdit={editingCert}
+            onClose={() => setShowCertModal(false)}
+            onSave={item => {
+              if (editingCert) {
+                setProfile(prev => ({
+                  ...prev,
+                  certificates: prev.certificates.map(c => (c.id === item.id ? item : c)),
+                }));
+              } else {
+                setProfile(prev => ({
+                  ...prev,
+                  certificates: [...prev.certificates, item],
+                }));
+              }
+            }}
+          />
+        </>
+      )}
     </View>
   );
 }
