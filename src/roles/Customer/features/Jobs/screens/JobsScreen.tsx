@@ -1,11 +1,22 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Image,
+  Linking,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
 import Button from '@/components/Button';
 import Squeeze from '@/components/Squeeze';
 import CtiLoader from '@/components/CtiLoader';
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import {
   calendarBold,
@@ -28,6 +39,8 @@ import { badges, palette } from '@/theme/colors';
 import { fonts } from '@/theme/fonts';
 import customerJobApi, { MobileCustomerJob } from '../services/customerJobApi';
 import { useCart } from '@/roles/Customer/context/CartContext';
+import WriteReviewModal, { ReviewTargetJob } from '@/components/modals/WriteReviewModal';
+import { WEB_ADD_JOB_URL } from '@/constants/config';
 
 const PAGE_SIZE = 6;
 const DESCRIPTION_PREVIEW = 120;
@@ -60,7 +73,13 @@ function StatusPill({ label, badge, style = null }) {
   );
 }
 
-function JobCard({ job, onPress }) {
+function JobCard({
+  job,
+  onPress,
+}: {
+  job: any;
+  onPress: () => void;
+}) {
   const { colors } = useTheme();
   const [expanded, setExpanded] = useState(false);
 
@@ -115,7 +134,15 @@ function JobCard({ job, onPress }) {
 
         {job.assignedTo ? (
           <View style={styles.assignee}>
-            <View style={[styles.avatarDot, { backgroundColor: colors.surfaceAlt }]}>
+            <View
+              style={[
+                styles.avatarDot,
+                {
+                  backgroundColor: colors.surfaceAlt,
+                  borderWidth: 1,
+                  borderColor: colors.avatarBorder,
+                },
+              ]}>
               <Icon source={userBold} size={12} color={colors.textMuted} />
             </View>
             <Text style={[styles.assigneeText, { color: colors.textMuted }]}>
@@ -135,18 +162,38 @@ function JobCard({ job, onPress }) {
   );
 }
 
-function ReviewCard({ item }) {
+function ReviewCard({
+  item,
+  onWriteReview,
+}: {
+  item: any;
+  onWriteReview?: (item: any) => void;
+}) {
   const { colors } = useTheme();
+
+  const device = item.jobId?.title || item.device || 'Device Repair';
+  const completedDate = item.completedAt
+    ? new Date(item.completedAt).toLocaleDateString()
+    : item.date || item.completedDate || 'Recently';
+  const repairmanName =
+    item.repairmanId?.name || item.assignedTo || item.repairman || 'Technician';
+  const shopName =
+    item.repairmanId?.repairmanProfile?.shopName || item.shop || 'Certified Service Center';
+  const amountPaid = Number(
+    item.pricing?.totalAmount || item.amountPaid || item.priceMin || 0,
+  );
+  const review = item.review;
+  const rating = Number(review?.overallRating || review?.rating || 0);
 
   return (
     <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
       <View style={styles.reviewHead}>
         <View style={styles.reviewHeadText}>
-          <Text style={[styles.device, { color: colors.text }]}>{item.device}</Text>
+          <Text style={[styles.device, { color: colors.text }]}>{device}</Text>
           <View style={styles.reviewMeta}>
             <Icon source={calendarBold} size={13} color={colors.textMuted} />
             <Text style={[styles.reviewMetaText, { color: colors.textMuted }]}>
-              Completed {item.completedDate}
+              Completed {completedDate}
             </Text>
           </View>
         </View>
@@ -156,28 +203,38 @@ function ReviewCard({ item }) {
       <StatusPill label="Job posting" badge={badges.booked} style={styles.tag} />
 
       <View style={[styles.repairmanRow, { backgroundColor: colors.surfaceAlt }]}>
-        <View style={[styles.avatarDot, { backgroundColor: colors.background }]}>
+        <View
+          style={[
+            styles.avatarDot,
+            {
+              backgroundColor: colors.background,
+              borderWidth: 1,
+              borderColor: colors.avatarBorder,
+            },
+          ]}>
           <Icon source={userBold} size={16} color={colors.textMuted} />
         </View>
         <View style={styles.repairmanText}>
-          <Text style={[styles.cardTitle, { color: colors.text }]}>{item.repairman}</Text>
-          <Text style={[styles.reviewMetaText, { color: colors.textMuted }]}>{item.shop}</Text>
+          <Text style={[styles.cardTitle, { color: colors.text }]}>{repairmanName}</Text>
+          <Text style={[styles.reviewMetaText, { color: colors.textMuted }]}>{shopName}</Text>
         </View>
         <View style={styles.repairmanPrice}>
           <Text style={[styles.price, { color: colors.text }]}>
-            TRY {item.amountPaid.toLocaleString('en-US')}
+            TRY {amountPaid.toLocaleString('en-US')}
           </Text>
           <Text style={[styles.reviewMetaText, { color: colors.textMuted }]}>Total paid</Text>
         </View>
       </View>
 
-      {item.review ? (
+      {review ? (
         <View style={[styles.reviewDone, { borderColor: colors.border }]}>
           <View style={styles.reviewHead}>
             <Text style={[styles.cardTitle, { color: colors.text }]}>Your Review</Text>
-            <Text style={[styles.reviewMetaText, { color: colors.textMuted }]}>
-              {item.review.submittedAt}
-            </Text>
+            {Boolean(review.createdAt || review.submittedAt) && (
+              <Text style={[styles.reviewMetaText, { color: colors.textMuted }]}>
+                {new Date(review.createdAt || review.submittedAt).toLocaleDateString()}
+              </Text>
+            )}
           </View>
 
           <View style={styles.stars}>
@@ -186,13 +243,19 @@ function ReviewCard({ item }) {
                 key={n}
                 source={starExtra}
                 size={16}
-                color={n <= item.review.rating ? colors.primary : colors.border}
+                color={n <= rating ? colors.primary : colors.border}
               />
             ))}
             <Text style={[styles.reviewMetaText, { color: colors.textMuted }]}>
-              {item.review.rating} out of 5
+              {rating} out of 5
             </Text>
           </View>
+
+          {Boolean(review.reviewText) && (
+            <Text style={[styles.description, { color: colors.textMuted, marginTop: 6 }]}>
+              "{review.reviewText}"
+            </Text>
+          )}
 
           <View style={styles.submittedRow}>
             <Icon source={checkCircleIcon} size={14} color={colors.success} />
@@ -207,6 +270,7 @@ function ReviewCard({ item }) {
           icon={starExtra}
           iconPosition="left"
           size="md"
+          onPress={() => onWriteReview?.(item)}
           style={styles.reviewButton}
         />
       )}
@@ -307,6 +371,196 @@ export default function JobsScreen({ navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Review & Dispute Modal States
+  const [reviewModalVisible, setReviewModalVisible] = useState(false);
+  const [targetJobForReview, setTargetJobForReview] = useState<ReviewTargetJob | null>(null);
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [reviewedBookingIds, setReviewedBookingIds] = useState<Record<string, any>>({});
+  const [completedReviewJobs, setCompletedReviewJobs] = useState<any[]>([]);
+  const [loadingReviews, setLoadingReviews] = useState(false);
+
+  // Themed AlertModal State (Replaces native Alert)
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    type: AlertModalType;
+    title: string;
+    message: string;
+    buttonText?: string;
+    secondaryButtonText?: string;
+    onButtonPress?: () => void;
+    onSecondaryButtonPress?: () => void;
+    onOk?: () => void;
+  }>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
+
+  const handleOpenNewJobRequestModal = () => {
+    setAlertConfig({
+      visible: true,
+      type: 'info',
+      title: 'New Job Request',
+      message: `To submit a new repair job request with diagnostic requirements and receive bids from certified technicians, please visit our web portal:\n\n${WEB_ADD_JOB_URL}`,
+      buttonText: 'Open Web Portal',
+      secondaryButtonText: 'Close',
+      onButtonPress: async () => {
+        setAlertConfig(prev => ({ ...prev, visible: false }));
+        try {
+          await Linking.openURL(WEB_ADD_JOB_URL);
+        } catch {
+          setAlertConfig({
+            visible: true,
+            type: 'info',
+            title: 'Web Portal Link',
+            message: WEB_ADD_JOB_URL,
+            buttonText: 'Okay',
+          });
+        }
+      },
+      onSecondaryButtonPress: () => {
+        setAlertConfig(prev => ({ ...prev, visible: false }));
+      },
+    });
+  };
+
+  const fetchReviewJobs = useCallback(async () => {
+    setLoadingReviews(true);
+    try {
+      const list = await customerJobApi.getCompletedJobsForReview();
+      setCompletedReviewJobs(list);
+    } catch {
+      setCompletedReviewJobs([]);
+    } finally {
+      setLoadingReviews(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchReviewJobs();
+  }, [fetchReviewJobs]);
+
+  const handleOpenReviewModal = async (item: any) => {
+    // Sourced from /reviews/my-completed-jobs: item._id is the RepairBooking._id
+    // If sourced from job with active booking: item.bookingId or item.booking?._id
+    let bookingId =
+      item.bookingId ||
+      item.booking?._id ||
+      item.booking?.id ||
+      (item.jobId ? item._id : undefined);
+
+    let jobId =
+      item.jobId?._id ||
+      item.jobId ||
+      (item.booking ? item._id : undefined) ||
+      item.id ||
+      item.raw?.jobId;
+
+    let repairmanId =
+      typeof item.repairmanId === 'object' && item.repairmanId !== null
+        ? item.repairmanId._id || item.repairmanId.id
+        : item.repairmanId || item.raw?.repairmanId || item.raw?.selectedOffer?.repairmanId;
+
+    let repairmanName =
+      item.repairmanId?.name || item.assignedTo || 'Technician';
+    let repairmanAvatar =
+      item.repairmanId?.avatar || item.repairmanId?.profilePhoto || null;
+    let deviceTitle = item.jobId?.title || item.device || 'Device Repair';
+
+    // Fallback: fetch detail if bookingId or repairmanId is missing on list item
+    if ((!bookingId || !repairmanId) && item.id) {
+      try {
+        const full = await customerJobApi.getMyJobDetail(item.id);
+        if (full?.booking) {
+          bookingId = full.booking._id || full.booking.id;
+          repairmanId =
+            full.repairman?.id ||
+            full.booking.repairmanId?._id ||
+            full.booking.repairmanId ||
+            repairmanId;
+          repairmanName = full.repairman?.name || repairmanName;
+          repairmanAvatar = full.repairman?.avatar || repairmanAvatar;
+          deviceTitle = full.title || deviceTitle;
+        }
+      } catch {}
+    }
+
+    if (!bookingId || !repairmanId) {
+      setAlertConfig({
+        visible: true,
+        type: 'warning',
+        title: 'Notice',
+        message: 'Booking details are incomplete for writing a review.',
+      });
+      return;
+    }
+
+    setTargetJobForReview({
+      bookingId: String(bookingId),
+      jobId: jobId ? String(jobId) : undefined,
+      repairmanId: String(repairmanId),
+      repairmanName,
+      repairmanAvatar,
+      deviceTitle,
+    });
+    setReviewModalVisible(true);
+  };
+
+  const handleSubmitReview = async (reviewData: {
+    bookingId: string;
+    jobId?: string;
+    repairmanId: string;
+    overallRating: number;
+    reviewText: string;
+  }) => {
+    try {
+      setIsSubmittingReview(true);
+      const res = await customerJobApi.createReview(reviewData);
+      setReviewModalVisible(false);
+      setReviewedBookingIds(prev => ({
+        ...prev,
+        [reviewData.bookingId]: {
+          overallRating: reviewData.overallRating,
+          reviewText: reviewData.reviewText,
+          createdAt: new Date().toISOString(),
+        },
+      }));
+      setCompletedReviewJobs(prev =>
+        prev.map(j => {
+          if (String(j._id || j.id || j.bookingId) === reviewData.bookingId) {
+            return {
+              ...j,
+              review: {
+                overallRating: reviewData.overallRating,
+                reviewText: reviewData.reviewText,
+                createdAt: new Date().toISOString(),
+              },
+            };
+          }
+          return j;
+        }),
+      );
+      setAlertConfig({
+        visible: true,
+        type: 'success',
+        title: 'Review Submitted',
+        message: res.message || 'Review submitted successfully!',
+      });
+      fetchJobs(true);
+      fetchReviewJobs();
+    } catch (err: any) {
+      setAlertConfig({
+        visible: true,
+        type: 'error',
+        title: 'Submission Error',
+        message: err?.message || 'Failed to submit review',
+      });
+    } finally {
+      setIsSubmittingReview(false);
+    }
+  };
+
   const fetchJobs = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
@@ -367,17 +621,17 @@ export default function JobsScreen({ navigation }: any) {
       j => j.status === 'completed' || j.status === 'delivered' || j.status === 'closed',
     ).length,
     disputed: jobs.filter(j => j.status === 'disputed').length,
-    reviews: jobs.filter(
-      j => j.status === 'completed' || j.status === 'delivered' || j.status === 'closed',
-    ).length,
+    reviews: completedReviewJobs.length,
   };
 
   if (activeTab === 'reviews') {
-    const completedJobs = jobs.filter(
-      j =>
-        (j.status === 'completed' || j.status === 'delivered' || j.status === 'closed') &&
-        matches(j),
-    );
+    const listToRender = completedReviewJobs.filter(item => {
+      if (!query) return true;
+      const device = (item.jobId?.title || item.device || '').toLowerCase();
+      const assigned = (item.repairmanId?.name || item.assignedTo || '').toLowerCase();
+      const services = (item.services || []).join(' ').toLowerCase();
+      return device.includes(query) || assigned.includes(query) || services.includes(query);
+    });
 
     return (
       <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -389,8 +643,11 @@ export default function JobsScreen({ navigation }: any) {
           keyboardShouldPersistTaps="handled"
           refreshControl={
             <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
+              refreshing={refreshing || loadingReviews}
+              onRefresh={() => {
+                onRefresh();
+                fetchReviewJobs();
+              }}
               colors={[colors.primary]}
               tintColor={colors.primary}
             />
@@ -404,28 +661,59 @@ export default function JobsScreen({ navigation }: any) {
             Share your experience and help other customers
           </Text>
 
-          {loading && !refreshing ? (
+          {(loading && !refreshing) || loadingReviews ? (
             <CtiLoader
               size="md"
               text="Loading completed jobs..."
               style={{ paddingVertical: 45 }}
             />
-          ) : completedJobs.length === 0 ? (
+          ) : listToRender.length === 0 ? (
             <EmptyState
               activeTab="reviews"
               onAction={() => navigation.navigate('ExpertRepairmen')}
             />
           ) : (
-            completedJobs.map((item, index) => (
-              <FadeUp key={item.id} delay={80 + index * 60} duration={500} style={styles.cardWrap}>
-                <JobCard
-                  job={item}
-                  onPress={() => navigation.navigate('RepairDetail', { jobId: item.id, job: item })}
-                />
-              </FadeUp>
-            ))
+            listToRender.map((item: any, index: number) => {
+              const bId = String(item._id || item.bookingId || item.id);
+              const mergedItem = {
+                ...item,
+                review: reviewedBookingIds[bId] || item.review,
+              };
+
+              return (
+                <FadeUp key={bId || index} delay={80 + index * 60} duration={500} style={styles.cardWrap}>
+                  <ReviewCard
+                    item={mergedItem}
+                    onWriteReview={handleOpenReviewModal}
+                  />
+                </FadeUp>
+              );
+            })
           )}
         </ScrollView>
+
+        <WriteReviewModal
+          visible={reviewModalVisible}
+          job={targetJobForReview}
+          isSubmitting={isSubmittingReview}
+          onClose={() => setReviewModalVisible(false)}
+          onSubmit={handleSubmitReview}
+        />
+
+        <AlertModal
+          visible={alertConfig.visible}
+          type={alertConfig.type}
+          title={alertConfig.title}
+          message={alertConfig.message}
+          buttonText={alertConfig.buttonText || 'Okay'}
+          secondaryButtonText={alertConfig.secondaryButtonText}
+          onButtonPress={alertConfig.onButtonPress}
+          onSecondaryButtonPress={alertConfig.onSecondaryButtonPress}
+          onClose={() => {
+            setAlertConfig(prev => ({ ...prev, visible: false }));
+            if (alertConfig.onOk) alertConfig.onOk();
+          }}
+        />
       </View>
     );
   }
@@ -572,7 +860,43 @@ export default function JobsScreen({ navigation }: any) {
         )}
       </>
     )}
+
+    {/* New Job Request: Only on this screen, below all jobs */}
+    {activeTab === 'all' && (
+      <View style={styles.bottomPostJobWrap}>
+        <Button
+          title="New Job Request"
+          size="md"
+          variant="primary"
+          fullWidth
+          onPress={handleOpenNewJobRequestModal}
+        />
+      </View>
+    )}
   </ScrollView>
+
+  <WriteReviewModal
+    visible={reviewModalVisible}
+    job={targetJobForReview}
+    isSubmitting={isSubmittingReview}
+    onClose={() => setReviewModalVisible(false)}
+    onSubmit={handleSubmitReview}
+  />
+
+  <AlertModal
+    visible={alertConfig.visible}
+    type={alertConfig.type}
+    title={alertConfig.title}
+    message={alertConfig.message}
+    buttonText={alertConfig.buttonText || 'Okay'}
+    secondaryButtonText={alertConfig.secondaryButtonText}
+    onButtonPress={alertConfig.onButtonPress}
+    onSecondaryButtonPress={alertConfig.onSecondaryButtonPress}
+    onClose={() => {
+      setAlertConfig(prev => ({ ...prev, visible: false }));
+      if (alertConfig.onOk) alertConfig.onOk();
+    }}
+  />
 </View>
 );
 }
@@ -609,12 +933,14 @@ function Title() {
   const { colors } = useTheme();
 
   return (
-    <>
-      <Text style={[styles.title, { color: colors.text }]}>My Repair Jobs</Text>
-      <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-        Manage and track your device repair requests
-      </Text>
-    </>
+    <View style={styles.titleRow}>
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.title, { color: colors.text }]}>My Repair Jobs</Text>
+        <Text style={[styles.subtitle, { color: colors.textMuted }]}>
+          Manage and track your device repair requests
+        </Text>
+      </View>
+    </View>
   );
 }
 
@@ -694,7 +1020,15 @@ const styles = StyleSheet.create({
   badgeText: { fontFamily: fonts.bold, fontSize: 9, color: '#FFFFFF' },
 
   body: { paddingHorizontal: 20 },
-  title: { fontFamily: fonts.bold, fontSize: 26, marginTop: 6 },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 6,
+  },
+  postJobBtn: { minWidth: 128, marginTop: 4 },
+  title: { fontFamily: fonts.bold, fontSize: 26 },
   subtitle: { fontFamily: fonts.regular, fontSize: 13, marginTop: 4 },
 
   tabsWrap: { borderBottomWidth: 1, marginTop: 18 },
@@ -806,4 +1140,8 @@ const styles = StyleSheet.create({
   stars: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   submittedRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   submittedText: { fontFamily: fonts.regular, fontSize: 12 },
+  bottomPostJobWrap: {
+    marginTop: 20,
+    marginBottom: 8,
+  },
 });

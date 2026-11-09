@@ -166,7 +166,7 @@ export default function SellerStoreScreen({ navigation, route }: any) {
       <FadeUp duration={400}>
         <View style={[styles.storeCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <View style={styles.storeTopRow}>
-            <View style={[styles.avatarWrap, { borderColor: colors.border }]}>
+            <View style={[styles.avatarWrap, { borderColor: colors.avatarBorder }]}>
               {storeAvatar ? (
                 <Image source={resolveImageSource(storeAvatar, demoProductPhoto)} style={styles.avatar} />
               ) : (

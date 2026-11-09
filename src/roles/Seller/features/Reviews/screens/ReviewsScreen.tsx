@@ -282,7 +282,10 @@ export default function ReviewsScreen({ navigation }: any) {
                 {/* Header: Reviewer, Stars, Date */}
                 <View style={styles.cardTop}>
                   <View style={styles.reviewerInfo}>
-                    <Image source={dummyProfileExtra} style={styles.avatar} />
+                    <Image
+                      source={dummyProfileExtra}
+                      style={[styles.avatar, { borderWidth: 1, borderColor: colors.avatarBorder }]}
+                    />
                     <View>
                       <Text style={[styles.reviewerName, { color: colors.text }]}>
                         {rev.reviewer}

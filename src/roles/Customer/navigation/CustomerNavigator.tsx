@@ -39,8 +39,8 @@ import QuoteApplicationScreen from '@/features/Refurbished/screens/QuoteApplicat
 import ApplicationSubmittedScreen from '@/features/Refurbished/screens/ApplicationSubmittedScreen';
 import MySellRequestsScreen from '@/features/Refurbished/screens/MySellRequestsScreen';
 import NotificationsScreen from '@/features/Notifications/screens/NotificationsScreen';
-import ChatListScreen from '@/roles/Repairman/features/Chat/screens/ChatListScreen';
-import ChatDetailScreen from '@/roles/Repairman/features/Chat/screens/ChatDetailScreen';
+import ChatListScreen from '../features/Chat/screens/ChatListScreen';
+import ChatDetailScreen from '../features/Chat/screens/ChatDetailScreen';
 
 const Stack = createNativeStackNavigator();
 

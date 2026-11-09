@@ -21,3 +21,13 @@ export const splashByTheme = {
 // Reusable Lottie spinner/loader matching the Next.js webapp
 export const ctiLoaderAnimation = require('./cti-loader.json');
 
+// About screen assets matching web frontend/public/assets/about/
+export const aboutImages = {
+  hero: require('./about/1.png'),
+  passion1: require('./about/2.png'),
+  passion2: require('./about/3.png'),
+  water: require('./about/4.png'),
+  waste: require('./about/5.png'),
+  energy: require('./about/6.png'),
+};
+

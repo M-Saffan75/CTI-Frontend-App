@@ -137,7 +137,12 @@ function Bubble({
     ? { uri: participant.avatar }
     : dummyProfileExtra;
 
-  const avatar = <Image source={avatarSource} style={styles.bubbleAvatar} />;
+  const avatar = (
+    <Image
+      source={avatarSource}
+      style={[styles.bubbleAvatar, { borderWidth: 1, borderColor: colors.avatarBorder }]}
+    />
+  );
 
   if (isMine) {
     return (
@@ -546,12 +551,10 @@ export default function ChatDetailScreen({ navigation, route }: any) {
 
   const isMessageFromMe = (msg: ChatMessageItem) => {
     if (msg._id?.startsWith('local-') || msg.messageId?.startsWith('local-')) return true;
-    if (msg.senderType === 'customer') return true;
-    if (msg.senderType === 'seller') return false;
     const uid = currentUserId || currentUserIdRef.current;
     if (uid && msg.senderId) {
       const sId = typeof msg.senderId === 'object' ? msg.senderId._id || msg.senderId.id : msg.senderId;
-      if (sId === uid) return true;
+      if (sId && String(sId) === String(uid)) return true;
     }
     const myRole = currentUserRole || currentUserRoleRef.current;
     if (msg.senderType && myRole) {
@@ -575,7 +578,10 @@ export default function ChatDetailScreen({ navigation, route }: any) {
           </View>
         </Squeeze>
 
-        <Image source={avatarSource} style={styles.headerAvatar} />
+        <Image
+          source={avatarSource}
+          style={[styles.headerAvatar, { borderWidth: 1, borderColor: colors.avatarBorder }]}
+        />
 
         <View style={styles.headerText}>
           <Text style={[styles.headerName, { color: colors.text }]}>{participant.name}</Text>

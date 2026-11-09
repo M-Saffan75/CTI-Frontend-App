@@ -268,7 +268,10 @@ export default function EnquiriesScreen({ navigation }: any) {
                 ]}>
                 <View style={styles.cardHeader}>
                   <View style={styles.customerRow}>
-                    <Image source={dummyProfileExtra} style={styles.avatar} />
+                    <Image
+                      source={dummyProfileExtra}
+                      style={[styles.avatar, { borderWidth: 1, borderColor: colors.avatarBorder }]}
+                    />
                     <View>
                       <Text style={[styles.customerName, { color: colors.text }]}>
                         {item.customerName}

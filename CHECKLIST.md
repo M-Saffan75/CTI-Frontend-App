@@ -1,44 +1,38 @@
-# Phase 2: Customer Role Integration Checklist
+# Task Checklist: Review Fix, Native Alert Elimination, "New Job Request" Placement, Button Audit
 
-## 0. Decisions & Approvals
-- [x] 0.1 Heavy Operation Decision: EditProfile option 2 (Simplify: role-gate form, Customer sees only Name, Avatar, Phone, WhatsApp, City, Address/Zip; hide provider-only sections).
-- [x] 0.2 Heavy Operation Decision: Sell Refurbished option 1 (Keep 7-step flow in app).
-- [x] 0.3 Heavy Operation Decision: Academy option 2 (Simplify: browse courses/details in app, play video lessons via external browser / YouTube).
-- [x] 0.4 Heavy Operation Decision: Checkout option 1 (Keep in app as-is, ensure card data never stored/logged).
-- [x] 0.5 Navigation Decision: Remove ServiceCatalogScreen from CustomerNavigator.
-- [x] 0.6 Profile Decision: Hide provider-only tabs and sections from Customer profile.
-
-## 1. Shared Screens (Profile, EditProfile, Settings, ChangePassword)
-- [ ] 1.1 `CustomerNavigator.tsx`: Remove `ServiceCatalogScreen` import and route definition.
-- [ ] 1.2 `profileApi.ts`:
-      - Remove hardcoded mock data fallbacks (Zubair Malik, University of Karachi, etc.).
-      - Use `AuthService` cached/stored role dynamically.
-      - Map Customer profile data accurately from `GET /customer/profile` and `GET /auth/user-details`.
-      - Wire `updateUserProfileApi` with FormData support for photo upload (`POST /customer/profile/upload-profile` or `PUT /customer/profile/update-profile`).
-- [ ] 1.3 `ProfileScreen.tsx`:
-      - Detect `isCustomer` role dynamically.
-      - Hide provider-only sections for Customer: Bank Details alert card, Stats row (Rating, Jobs Completed, Hours), Specialization, Working Hours, Service Catalog Preview, Education, Experience, Certifications & Licenses, Pickup service, Emergency contact.
-      - Display Customer-relevant sections: Avatar with edit badge, Name, "Customer" role badge, Member Since, Contact Info (Phone, Email, WhatsApp), Location (Address, City, Country, Zip Code), Account Information (Member Since, Last Update, Email Verified status).
-      - Conditional back button (`canGoBack` check so tab view doesn't trap).
-      - Live pull-to-refresh and loading state.
-- [ ] 1.4 `EditProfileScreen.tsx`:
-      - Implement Option 2 (Role-gated simplified form for Customer).
-      - Customer fields: Avatar with `launchImageLibrary`, Name, Phone, WhatsApp, Country, City, Address, Zip Code, and optional About bio.
-      - Hide provider fields when `isCustomer` (Father Name, CNIC, Tax Number, Shop Info, Working Hours, Bank Info, Education, Experience, Certificates, Documents).
-      - Wire save to `updateUserProfileApi` with validation, loading indicator, and success alert.
-- [ ] 1.5 `SettingsScreen.tsx`:
-      - Replace hardcoded "Zubair Malik" and "Owner" with live user profile data (`AuthService.getCachedUser()` / `getStoredUser()`).
-      - Display user avatar or fallback.
-      - Confirm all customer menu routes work.
-      - Verify clean logout confirmation and execution.
-- [ ] 1.6 `ChangePasswordScreen.tsx`:
-      - Pass effective role (`customer`) to `AuthService.changePassword`.
-      - Verify validation (min 6 chars, uppercase, lowercase, number).
-      - Verify error handling on invalid current password (401 exemption check).
-
-## 2. Verification & Device Test List
-- [ ] 2.1 TypeScript check (`npx tsc --noEmit`).
-- [ ] 2.2 ESLint check (`npm run lint`).
-- [ ] 2.3 Search touched files for console.log, unused imports, or leftover mock credentials.
-- [ ] 2.4 Update `PROJECT_MAP.md` with Customer screen statuses.
-- [ ] 2.5 Provide device test list for shared screens and wait for user's "continue".
+- [x] 1. Review Error Root Cause and Fix (Mobile Code Only)
+  - [x] 1.1 Read backend (`reviewController`, `reviewRoutes`, `RepairBooking.model.js`, `RepairJob.model.js`, `RepairJobController.js`) and web app (`reviews.jsx`, `MyJobs.jsx`, etc.) to pinpoint exact conditions and status requirements. (File: `reviewController.js:71-74`)
+  - [x] 1.2 Identify condition throwing error, booking status required, and ID difference (`bookingId` vs `jobId`). (Files: `reviewController.js:71-74`, `reviews.jsx:31-68`)
+  - [x] 1.3 Identify why a job looking completed in mobile fails. (File: `RepairDetailScreen.tsx:254`, `JobsScreen.tsx:556`)
+  - [x] 1.4 Compare with how the web app lets customer reach reviewable booking (including delivery confirmation / close-job). (File: `frontend/job-details/page.jsx:322-336`)
+  - [x] 1.5 Fix mobile code: correct ID sent, correct status mapping (`delivered`), correct list of reviewable jobs from `my-completed-jobs`. (needs device test) (Files: `customerJobApi.ts`, `JobsScreen.tsx`, `RepairDetailScreen.tsx`)
+  - [x] 1.6 Show table: what mobile sent, what backend expects, fix.
+- [x] 2. Eliminate Native `Alert` Everywhere
+  - [x] 2.1 Search entire project for `Alert.alert` and `Alert` from `react-native`.
+  - [x] 2.2 Replace every instance with themed modal (`AlertModal` or `ConfirmModal`), using theme tokens (`colors.surface`, `colors.border`, etc.), verified in light and dark theme. (needs device test) (Files: `JobsScreen.tsx`, `HomeScreen.tsx`, `DisputeDetailScreen.tsx`)
+  - [x] 2.3 Ensure success, error, and info messages (including backend response messages) appear in themed modals. (needs device test) (Files: `JobsScreen.tsx`, `HomeScreen.tsx`, `DisputeDetailScreen.tsx`, `RepairDetailScreen.tsx`)
+  - [x] 2.4 Verify 0 native `Alert` or `Alert.alert` remain in the codebase.
+- [x] 3. Rename "Post a Repair Job" and "Post a Job" to "New Job Request" & Reposition
+  - [x] 3.1 Rename "Post a Repair Job" and "Post a Job" to "New Job Request" everywhere.
+  - [x] 3.2 Remove "Post a Repair Job" buttons from the device finder (`ServiceFinder`) and its action modal on `HomeScreen.tsx`. (needs device test) (File: `HomeScreen.tsx`)
+  - [x] 3.3 Place one "New Job Request" button at the very bottom of `HomeScreen.tsx` content (after the last section / pagination area), full width, using shared `Button` component. (needs device test) (File: `HomeScreen.tsx`)
+  - [x] 3.4 Keep button on `JobsScreen.tsx` header, renamed to "New Job Request". (needs device test) (File: `JobsScreen.tsx`)
+  - [x] 3.5 Both buttons open `WEB_ADD_JOB_URL` via `Linking.openURL()`. (needs device test) (Files: `HomeScreen.tsx`, `JobsScreen.tsx`)
+  - [x] 3.6 Show themed modal (`AlertModal`) with fallback URL if link cannot open. (needs device test) (Files: `HomeScreen.tsx`, `JobsScreen.tsx`)
+- [x] 4. Button Sizing, Layout, and Phase 2 Audit
+  - [x] 4.1 Fix "Report a Problem" and "Write a Review" buttons on `RepairDetailScreen.tsx`: text on one line, centered, proper padding, uniform height and font size matching shared `Button` sizes, no overflow on small screens. (needs device test) (File: `RepairDetailScreen.tsx`, `Button.tsx`)
+  - [x] 4.2 Audit and fix button styling on `ProfileScreen.tsx`. (Verified)
+  - [x] 4.3 Audit and fix button styling on `EditProfileScreen.tsx`. (Verified)
+  - [x] 4.4 Audit and fix button styling on `SettingsScreen.tsx`. (Verified)
+  - [x] 4.5 Audit and fix button styling on `ChangePasswordScreen.tsx`. (Verified)
+  - [x] 4.6 Audit and fix button styling on `CheckoutScreen.tsx`. (Verified)
+  - [x] 4.7 Audit and fix button styling on `HomeScreen.tsx`. (needs device test) (File: `HomeScreen.tsx`)
+  - [x] 4.8 Audit and fix button styling on `JobsScreen.tsx`. (needs device test) (File: `JobsScreen.tsx`)
+  - [x] 4.9 Audit and fix button styling on `RepairDetailScreen.tsx`. (needs device test) (File: `RepairDetailScreen.tsx`)
+  - [x] 4.10 Audit and fix button styling on `DisputeDetailScreen.tsx`. (needs device test) (File: `DisputeDetailScreen.tsx`)
+  - [x] 4.11 Audit and fix button styling on `WriteReviewModal.tsx` and `CreateDisputeModal.tsx`. (needs device test) (Files: `src/components/modals/WriteReviewModal.tsx`, `src/components/modals/CreateDisputeModal.tsx`)
+- [x] 5. Verification & Testing
+  - [x] 5.1 Run TypeScript check (`npx tsc --noEmit`) -> 0 errors.
+  - [x] 5.2 Run ESLint (`npx eslint`) -> 0 errors on modified files.
+  - [x] 5.3 Verify no console.log, unused imports, or leftover debug code.
+  - [x] 5.4 Provide short physical device test list with exact steps to test review on a completed job.

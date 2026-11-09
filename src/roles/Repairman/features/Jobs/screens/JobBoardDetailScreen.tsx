@@ -138,7 +138,15 @@ export default function JobBoardDetailScreen({ navigation, route }) {
               <Text style={[styles.cardTitle, { color: colors.text }]}>About the Client</Text>
             </View>
             <View style={[styles.clientRow, { backgroundColor: colors.surfaceAlt }]}>
-              <View style={[styles.clientAvatar, { backgroundColor: colors.primary + '22' }]}>
+              <View
+                style={[
+                  styles.clientAvatar,
+                  {
+                    backgroundColor: colors.primary + '22',
+                    borderWidth: 1,
+                    borderColor: colors.avatarBorder,
+                  },
+                ]}>
                 <Text style={[styles.clientInitial, { color: colors.primary }]}>{job.client.name[0]}</Text>
               </View>
               <View style={styles.clientInfo}>

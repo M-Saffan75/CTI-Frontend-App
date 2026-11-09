@@ -17,15 +17,23 @@ import {
   arrowLeftBold,
   bookmarkBold,
   calendarBold,
+  cameraBold,
   checkCircleBold,
   clockBold,
   commentDotsBold,
+  compassBold,
   creditCardBold,
   dummyProfileExtra,
   envelopeBold,
   exclamationCircleBold,
   fileBold,
+  flagBold,
+  globeBold,
+  homeBold,
+  inboxBold,
   infoCircleBold,
+  mapBold,
+  mapMarkerBold,
   mapPinBold,
   mobileBold,
   packageBold,
@@ -34,10 +42,14 @@ import {
   settingsBold,
   shieldBold,
   starBold,
+  stopwatchBold,
   toolExtra,
   trashBold,
   userBold,
 } from '@/assets/icons';
+import ConfirmModal from '@/components/ConfirmModal';
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
+import EditCustomerProfileModal from '../components/EditCustomerProfileModal';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import {
@@ -50,7 +62,7 @@ import {
 import AddEducationModal from '../components/AddEducationModal';
 import AddExperienceModal from '../components/AddExperienceModal';
 import AddCertificateModal from '../components/AddCertificateModal';
-import { fetchUserProfileApi } from '../services/profileApi';
+import { deleteProfilePhotoApi, fetchUserProfileApi } from '../services/profileApi';
 import AuthService from '@/services/authService';
 
 const CATALOG_FILTER_TABS = ['All 1', 'Approved 0', 'Pending 1', 'Rejected 0'];
@@ -118,6 +130,40 @@ export default function ProfileScreen({ navigation }: any) {
   const [showCertModal, setShowCertModal] = useState(false);
   const [editingCert, setEditingCert] = useState<CertificateItem | null>(null);
 
+  // Customer Modals & Delete States
+  const [showEditCustomerModal, setShowEditCustomerModal] = useState(false);
+  const [deletePhotoConfirmVisible, setDeletePhotoConfirmVisible] = useState(false);
+  const [, setIsDeletingPhoto] = useState(false);
+
+  // Themed Alert Feedback
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertType, setAlertType] = useState<AlertModalType>('success');
+  const [alertTitle, setAlertTitle] = useState('');
+  const [alertMessage, setAlertMessage] = useState('');
+
+  const handleConfirmDeletePhoto = async () => {
+    setDeletePhotoConfirmVisible(false);
+    setIsDeletingPhoto(true);
+    try {
+      const res = await deleteProfilePhotoApi();
+      const serverMsg = res?.message || 'Profile photo removed successfully';
+      setProfile(prev => ({ ...prev, avatarUri: undefined }));
+      setAlertType('success');
+      setAlertTitle('Photo Removed');
+      setAlertMessage(serverMsg);
+      setAlertVisible(true);
+    } catch (err: any) {
+      const errorMsg =
+        err?.response?.data?.message || err?.message || 'Failed to remove photo';
+      setAlertType('error');
+      setAlertTitle('Error');
+      setAlertMessage(errorMsg);
+      setAlertVisible(true);
+    } finally {
+      setIsDeletingPhoto(false);
+    }
+  };
+
   const handleDeleteEdu = (id: string) => {
     setProfile(prev => ({
       ...prev,
@@ -177,12 +223,16 @@ export default function ProfileScreen({ navigation }: any) {
 
           {/* Floating Edit Button */}
           <Squeeze
-            onPress={() =>
-              navigation?.navigate('EditProfile', {
-                profileData: profile,
-                onSaveProfile: setProfile,
-              })
-            }
+            onPress={() => {
+              if (isCustomer) {
+                setShowEditCustomerModal(true);
+              } else {
+                navigation?.navigate('EditProfile', {
+                  profileData: profile,
+                  onSaveProfile: setProfile,
+                });
+              }
+            }}
             style={[styles.floatingEdit, { top: insets.top + 8 }]}>
             <View style={[styles.editBtnCircle, { backgroundColor: colors.surface }]}>
               <Icon source={penBold} size={16} color={colors.primary} />
@@ -196,18 +246,36 @@ export default function ProfileScreen({ navigation }: any) {
           <View style={styles.avatarWrap}>
             <Image
               source={profile.avatarUri ? { uri: profile.avatarUri } : dummyProfileExtra}
-              style={[styles.avatarImage, { borderColor: colors.surface }]}
+              style={[styles.avatarImage, { borderColor: colors.avatarBorder }]}
             />
             <TouchableOpacity
-              onPress={() =>
-                navigation?.navigate('EditProfile', {
-                  profileData: profile,
-                  onSaveProfile: setProfile,
-                })
-              }
-              style={[styles.avatarEditBadge, { backgroundColor: colors.primary }]}>
-              <Icon source={penBold} size={12} color={colors.onPrimary} />
+              onPress={() => {
+                if (isCustomer) {
+                  setShowEditCustomerModal(true);
+                } else {
+                  navigation?.navigate('EditProfile', {
+                    profileData: profile,
+                    onSaveProfile: setProfile,
+                  });
+                }
+              }}
+              style={[
+                styles.avatarEditBadge,
+                { backgroundColor: colors.primary, borderColor: colors.surface },
+              ]}>
+              <Icon source={cameraBold} size={12} color={colors.onPrimary} />
             </TouchableOpacity>
+
+            {isCustomer && Boolean(profile.avatarUri) && (
+              <TouchableOpacity
+                onPress={() => setDeletePhotoConfirmVisible(true)}
+                style={[
+                  styles.avatarDeleteBadge,
+                  { backgroundColor: colors.error, borderColor: colors.surface },
+                ]}>
+                <Icon source={trashBold} size={11} color="#FFFFFF" />
+              </TouchableOpacity>
+            )}
           </View>
 
           {/* Name */}
@@ -217,7 +285,7 @@ export default function ProfileScreen({ navigation }: any) {
 
           {/* Sub Meta Row */}
           <View style={styles.metaRow}>
-            {Boolean(profile.city) && (
+            {Boolean(profile.city) && !isCustomer && (
               <View style={styles.metaBadge}>
                 <Icon source={mapPinBold} size={14} color={colors.textMuted} />
                 <Text style={[styles.metaBadgeText, { color: colors.textMuted }]}>
@@ -244,6 +312,15 @@ export default function ProfileScreen({ navigation }: any) {
                     Customer
                   </Text>
                 </View>
+
+                {Boolean(profile.country) && (
+                  <View style={styles.metaBadge}>
+                    <Icon source={flagBold} size={14} color={colors.textMuted} />
+                    <Text style={[styles.metaBadgeText, { color: colors.textMuted }]}>
+                      {profile.country}
+                    </Text>
+                  </View>
+                )}
 
                 {Boolean(profile.memberSince) && (
                   <View style={styles.metaBadge}>
@@ -353,7 +430,7 @@ export default function ProfileScreen({ navigation }: any) {
         )}
 
         {/* 1. About me */}
-        {Boolean(profile.aboutMe) && (
+        {!isCustomer && Boolean(profile.aboutMe) && (
           <FadeUp delay={90} duration={300}>
             <View
               style={[
@@ -790,59 +867,142 @@ export default function ProfileScreen({ navigation }: any) {
               { backgroundColor: colors.surface, borderColor: colors.border },
             ]}>
             <View style={styles.sectionHeader}>
-              <Icon source={phoneBold} size={18} color={colors.primary} />
+              <Icon source={inboxBold} size={18} color={colors.primary} />
               <Text style={[styles.sectionTitle, { color: colors.text }]}>Contact Info</Text>
             </View>
 
             <View style={styles.contactItem}>
               <Icon source={phoneBold} size={18} color={colors.primary} />
               <View style={styles.contactItemDetails}>
-                <Text style={[styles.contactLabel, { color: colors.textMuted }]}>Phone</Text>
-                <Text style={[styles.contactVal, { color: colors.text }]}>{profile.phone}</Text>
+                <Text style={[styles.contactLabel, { color: colors.textMuted }]}>Phone Number</Text>
+                <Text style={[styles.contactVal, { color: colors.text }]}>
+                  {profile.phone || 'Not provided'}
+                </Text>
               </View>
             </View>
 
             <View style={styles.contactItem}>
               <Icon source={envelopeBold} size={18} color={colors.primary} />
               <View style={styles.contactItemDetails}>
-                <Text style={[styles.contactLabel, { color: colors.textMuted }]}>Email</Text>
-                <Text style={[styles.contactVal, { color: colors.text }]}>{profile.email}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[styles.contactLabel, { color: colors.textMuted }]}>Email Address</Text>
+                  {isCustomer && (
+                    <Text style={{ fontSize: 10, color: colors.textMuted, fontFamily: fonts.regular }}>
+                      (Read-only)
+                    </Text>
+                  )}
+                </View>
+                <Text style={[styles.contactVal, { color: colors.text }]}>
+                  {profile.email || 'Not provided'}
+                </Text>
               </View>
             </View>
 
-            <View style={styles.contactItem}>
-              <Icon source={commentDotsBold} size={18} color={colors.primary} />
-              <View style={styles.contactItemDetails}>
-                <Text style={[styles.contactLabel, { color: colors.textMuted }]}>WhatsApp</Text>
-                <Text style={[styles.contactVal, { color: colors.text }]}>{profile.whatsapp}</Text>
+            {Boolean(profile.whatsapp) && (
+              <View style={styles.contactItem}>
+                <Icon source={commentDotsBold} size={18} color={colors.primary} />
+                <View style={styles.contactItemDetails}>
+                  <Text style={[styles.contactLabel, { color: colors.textMuted }]}>WhatsApp</Text>
+                  <Text style={[styles.contactVal, { color: colors.text }]}>{profile.whatsapp}</Text>
+                </View>
+              </View>
+            )}
+          </View>
+        </FadeUp>
+
+        {/* Customer Location Info (Real Data from user-details) */}
+        {isCustomer && (
+          <FadeUp delay={330} duration={300}>
+            <View
+              style={[
+                styles.sectionCard,
+                { backgroundColor: colors.surface, borderColor: colors.border },
+              ]}>
+              <View style={styles.sectionHeader}>
+                <Icon source={mapBold} size={18} color={colors.primary} />
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>Address & Location</Text>
+              </View>
+
+              <View style={styles.contactItem}>
+                <Icon source={globeBold} size={18} color={colors.primary} />
+                <View style={styles.contactItemDetails}>
+                  <Text style={[styles.contactLabel, { color: colors.textMuted }]}>Country</Text>
+                  <Text style={[styles.contactVal, { color: colors.text }]}>
+                    {profile.country || 'Not provided'}
+                  </Text>
+                </View>
+              </View>
+
+              {Boolean(profile.state) && (
+                <View style={styles.contactItem}>
+                  <Icon source={mapMarkerBold} size={18} color={colors.primary} />
+                  <View style={styles.contactItemDetails}>
+                    <Text style={[styles.contactLabel, { color: colors.textMuted }]}>State / Province</Text>
+                    <Text style={[styles.contactVal, { color: colors.text }]}>{profile.state}</Text>
+                  </View>
+                </View>
+              )}
+
+              {Boolean(profile.city) && (
+                <View style={styles.contactItem}>
+                  <Icon source={compassBold} size={18} color={colors.primary} />
+                  <View style={styles.contactItemDetails}>
+                    <Text style={[styles.contactLabel, { color: colors.textMuted }]}>City</Text>
+                    <Text style={[styles.contactVal, { color: colors.text }]}>{profile.city}</Text>
+                  </View>
+                </View>
+              )}
+
+              {Boolean(profile.address) && (
+                <View style={styles.contactItem}>
+                  <Icon source={homeBold} size={18} color={colors.primary} />
+                  <View style={styles.contactItemDetails}>
+                    <Text style={[styles.contactLabel, { color: colors.textMuted }]}>Street Address</Text>
+                    <Text style={[styles.contactVal, { color: colors.text }]}>{profile.address}</Text>
+                  </View>
+                </View>
+              )}
+
+              {!profile.address && !profile.city && !profile.state && (
+                <View
+                  style={[
+                    styles.locationNoticeBox,
+                    { backgroundColor: colors.surfaceAlt, borderColor: colors.border },
+                  ]}>
+                  <Text style={[styles.locationNoticeText, { color: colors.textMuted }]}>
+                    Specific street address and city details are saved with your job orders. Country can be updated in Edit Profile.
+                  </Text>
+                </View>
+              )}
+            </View>
+          </FadeUp>
+        )}
+
+        {/* 9. Location (Provider Only) */}
+        {!isCustomer && (
+          <FadeUp delay={330} duration={300}>
+            <View
+              style={[
+                styles.sectionCard,
+                { backgroundColor: colors.surface, borderColor: colors.border },
+              ]}>
+              <View style={styles.sectionHeader}>
+                <Icon source={mapPinBold} size={18} color={colors.primary} />
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>Location</Text>
+              </View>
+
+              <View style={[styles.infoBox, { backgroundColor: colors.primary + '10' }]}>
+                <Text style={[styles.infoBoxLabel, { color: colors.primary }]}>Full Adress</Text>
+                <Text style={[styles.infoBoxVal, { color: colors.text }]}>{profile.address}</Text>
+              </View>
+
+              <View style={[styles.infoBox, { backgroundColor: colors.surfaceAlt, marginTop: 8 }]}>
+                <Text style={[styles.infoBoxLabel, { color: colors.textMuted }]}>Zip Code</Text>
+                <Text style={[styles.infoBoxVal, { color: colors.text }]}>{profile.zipCode}</Text>
               </View>
             </View>
-          </View>
-        </FadeUp>
-
-        {/* 9. Location */}
-        <FadeUp delay={330} duration={300}>
-          <View
-            style={[
-              styles.sectionCard,
-              { backgroundColor: colors.surface, borderColor: colors.border },
-            ]}>
-            <View style={styles.sectionHeader}>
-              <Icon source={mapPinBold} size={18} color={colors.primary} />
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>Location</Text>
-            </View>
-
-            <View style={[styles.infoBox, { backgroundColor: colors.primary + '10' }]}>
-              <Text style={[styles.infoBoxLabel, { color: colors.primary }]}>Full Adress</Text>
-              <Text style={[styles.infoBoxVal, { color: colors.text }]}>{profile.address}</Text>
-            </View>
-
-            <View style={[styles.infoBox, { backgroundColor: colors.surfaceAlt, marginTop: 8 }]}>
-              <Text style={[styles.infoBoxLabel, { color: colors.textMuted }]}>Zip Code</Text>
-              <Text style={[styles.infoBoxVal, { color: colors.text }]}>{profile.zipCode}</Text>
-            </View>
-          </View>
-        </FadeUp>
+          </FadeUp>
+        )}
 
         {/* 10. Emergency Contact & 11. Services (Provider Only) */}
         {!isCustomer && (
@@ -924,37 +1084,132 @@ export default function ProfileScreen({ navigation }: any) {
             </View>
 
             <View style={styles.accountRow}>
-              <Text style={[styles.accountLabel, { color: colors.textMuted }]}>Member Since</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Icon source={shieldBold} size={15} color={colors.textMuted} />
+                <Text style={[styles.accountLabel, { color: colors.textMuted }]}>Account Status</Text>
+              </View>
+              <Text style={[styles.accountVal, { color: colors.text, textTransform: 'capitalize' }]}>
+                {profile.status || 'Active'}
+              </Text>
+            </View>
+
+            <View style={styles.accountRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Icon source={calendarBold} size={15} color={colors.textMuted} />
+                <Text style={[styles.accountLabel, { color: colors.textMuted }]}>Member Since</Text>
+              </View>
               <Text style={[styles.accountVal, { color: colors.text }]}>
                 {profile.memberSince}
               </Text>
             </View>
 
             <View style={styles.accountRow}>
-              <Text style={[styles.accountLabel, { color: colors.textMuted }]}>Last Update</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Icon source={stopwatchBold} size={15} color={colors.textMuted} />
+                <Text style={[styles.accountLabel, { color: colors.textMuted }]}>Last Update</Text>
+              </View>
               <Text style={[styles.accountVal, { color: colors.text }]}>{profile.lastUpdate}</Text>
             </View>
 
             <View style={styles.verificationPillsRow}>
-              <View style={[styles.verifyPill, { backgroundColor: '#10B98120', borderColor: '#10B981', borderWidth: 1 }]}>
-                <Icon source={checkCircleBold} size={13} color="#10B981" />
-                <Text style={[styles.verifyPillText, { color: '#10B981' }]}>Email Verified</Text>
+              <View
+                style={[
+                  styles.verifyPill,
+                  {
+                    backgroundColor: profile.emailVerified ? '#10B98120' : '#F59E0B20',
+                    borderColor: profile.emailVerified ? '#10B981' : '#F59E0B',
+                    borderWidth: 1,
+                  },
+                ]}>
+                <Icon
+                  source={profile.emailVerified ? checkCircleBold : exclamationCircleBold}
+                  size={13}
+                  color={profile.emailVerified ? '#10B981' : '#F59E0B'}
+                />
+                <Text
+                  style={[
+                    styles.verifyPillText,
+                    { color: profile.emailVerified ? '#10B981' : '#F59E0B' },
+                  ]}>
+                  {profile.emailVerified ? 'Email Verified' : 'Email Pending'}
+                </Text>
               </View>
 
               <View
                 style={[
                   styles.verifyPill,
-                  { backgroundColor: colors.primary + '20', borderColor: colors.primary, borderWidth: 1 },
+                  {
+                    backgroundColor: colors.primary + '20',
+                    borderColor: colors.primary,
+                    borderWidth: 1,
+                  },
                 ]}>
-                <Icon source={checkCircleBold} size={13} color={colors.primary} />
+                <Icon source={starBold} size={13} color={colors.primary} />
                 <Text style={[styles.verifyPillText, { color: colors.primary }]}>
                   Profile Completed
                 </Text>
               </View>
             </View>
+
+            {/* Dispute Stats (if any) */}
+            {Boolean(profile.disputeStats && profile.disputeStats.totalDisputes > 0) && (
+              <View
+                style={[
+                  styles.disputeStatsCard,
+                  { backgroundColor: colors.surfaceAlt, borderColor: colors.border },
+                ]}>
+                <Text style={[styles.disputeStatsTitle, { color: colors.text }]}>
+                  Dispute History
+                </Text>
+                <View style={styles.disputeStatsRow}>
+                  <Text style={[styles.disputeStatItem, { color: colors.textMuted }]}>
+                    Total: <Text style={{ color: colors.text, fontFamily: fonts.bold }}>{profile.disputeStats?.totalDisputes || 0}</Text>
+                  </Text>
+                  <Text style={[styles.disputeStatItem, { color: '#10B981' }]}>
+                    Won: <Text style={{ fontFamily: fonts.bold }}>{profile.disputeStats?.disputesWon || 0}</Text>
+                  </Text>
+                  <Text style={[styles.disputeStatItem, { color: colors.error }]}>
+                    Lost: <Text style={{ fontFamily: fonts.bold }}>{profile.disputeStats?.disputesLost || 0}</Text>
+                  </Text>
+                </View>
+              </View>
+            )}
           </View>
         </FadeUp>
       </ScrollView>
+
+      {/* Customer Edit Modal */}
+      {isCustomer && (
+        <EditCustomerProfileModal
+          visible={showEditCustomerModal}
+          profile={profile}
+          onClose={() => setShowEditCustomerModal(false)}
+          onSaved={updated => {
+            setProfile(updated);
+          }}
+        />
+      )}
+
+      {/* Confirm Delete Photo Modal */}
+      <ConfirmModal
+        visible={deletePhotoConfirmVisible}
+        title="Remove Profile Photo"
+        message="Are you sure you want to remove your profile photo?"
+        confirmText="Remove"
+        cancelText="Cancel"
+        danger
+        onConfirm={handleConfirmDeletePhoto}
+        onCancel={() => setDeletePhotoConfirmVisible(false)}
+      />
+
+      {/* Feedback Alert Modal */}
+      <AlertModal
+        visible={alertVisible}
+        type={alertType}
+        title={alertTitle}
+        message={alertMessage}
+        onClose={() => setAlertVisible(false)}
+      />
 
       {/* Provider-only Modals */}
       {!isCustomer && (
@@ -1099,7 +1354,7 @@ const styles = StyleSheet.create({
     width: 96,
     height: 96,
     borderRadius: 48,
-    borderWidth: 4,
+    borderWidth: 2,
   },
   avatarEditBadge: {
     position: 'absolute',
@@ -1112,6 +1367,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 2,
     borderColor: '#fff',
+  },
+  avatarDeleteBadge: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
   },
   profileName: {
     fontFamily: fonts.bold,
@@ -1560,6 +1826,36 @@ const styles = StyleSheet.create({
   },
   verifyPillText: {
     fontFamily: fonts.bold,
+    fontSize: 12,
+  },
+  locationNoticeBox: {
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 4,
+  },
+  locationNoticeText: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  disputeStatsCard: {
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 10,
+    gap: 6,
+  },
+  disputeStatsTitle: {
+    fontFamily: fonts.bold,
+    fontSize: 13,
+  },
+  disputeStatsRow: {
+    flexDirection: 'row',
+    gap: 16,
+  },
+  disputeStatItem: {
+    fontFamily: fonts.regular,
     fontSize: 12,
   },
 });

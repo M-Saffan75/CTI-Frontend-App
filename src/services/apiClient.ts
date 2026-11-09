@@ -37,6 +37,12 @@ apiClient.interceptors.request.use(
     } catch {
       // Ignore token read errors silently
     }
+
+    // Allow axios / React Native FormData boundary to be set automatically
+    if (config.data instanceof FormData) {
+      delete config.headers['Content-Type'];
+    }
+
     return config;
   },
   (error: AxiosError) => {

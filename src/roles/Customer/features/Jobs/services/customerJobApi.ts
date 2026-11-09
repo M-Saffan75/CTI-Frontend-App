@@ -243,7 +243,7 @@ export function mapBackendJobToMobile(raw: any): MobileCustomerJob {
 }
 
 export function normalizeOffer(offer: any): NormalizedOffer | null {
-  if (!offer) return null;
+  if (!offer || typeof offer === 'string') return null;
 
   // 1. Repairman Info
   const repairman = offer.repairmanId || offer.repairman || {};
@@ -413,13 +413,68 @@ export function mapBackendJobDetail(
   const urgency = String(raw?.urgency || 'Normal priority');
   const chips = [statusStr, urgency, 'Job posting'];
 
+  let selectedOffer =
+    payload?.selectedOffer && typeof payload.selectedOffer === 'object'
+      ? normalizeOffer(payload.selectedOffer)
+      : raw?.selectedOffer && typeof raw.selectedOffer === 'object'
+      ? normalizeOffer(raw.selectedOffer)
+      : null;
+
+  // Synthesize selectedOffer from booking or job status if missing
+  const isPostOpenState = ['booked', 'in_progress', 'completed', 'delivered'].includes(statusStr.toLowerCase());
+  if (!selectedOffer && (payload?.booking || raw?.booking || isPostOpenState)) {
+    const b = payload?.booking || raw?.booking || {};
+    const bd = b.bookingDetails || {};
+    const bp = bd.pricing || {};
+    const bw = bd.warranty || {};
+    const rep =
+      typeof b.repairmanId === 'object' && b.repairmanId !== null
+        ? b.repairmanId
+        : raw?.repairman || payload?.repairman || {};
+    const repProfile = rep.repairmanProfile || {};
+
+    selectedOffer = {
+      id: String(b.offerId || b._id || 'booking-offer'),
+      repairmanId: String(rep._id || rep.id || b.repairmanId || 'rep-tech'),
+      repairmanName: rep.name || 'Certified Repair Tech',
+      shopName: repProfile.shopName || 'Certified Repair Center',
+      rating: Number(repProfile.rating || 5.0),
+      totalJobs: Number(repProfile.totalJobs || 0),
+      successRate: 98,
+      basePrice: Number(bp.basePrice || bp.totalAmount || priceMin || 0),
+      partsEstimate: Number(bp.partsPrice || 0),
+      totalPrice: Number(bp.totalAmount || priceMin || 0),
+      pickupAvailable: bd.serviceType === 'pickup',
+      pickupCharge: Number(bp.serviceCharge || 0),
+      finalTotal: Number(bp.totalAmount || priceMin || 0),
+      homeService: bd.serviceType === 'home-service',
+      dropOffLocation: typeof bd.location?.address === 'string' ? bd.location.address : locationLabel,
+      warrantyLabel: bw.duration
+        ? `${bw.duration} Days Warranty`
+        : typeof bw === 'string'
+        ? bw
+        : '30 Days Warranty',
+      timeLabel: 'Standard Service',
+      startLabel: bd.scheduledDate
+        ? new Date(bd.scheduledDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+        : 'Scheduled',
+      currency: bp.currency || 'TRY',
+      description: 'Accepted offer proposal and confirmed repair specifications.',
+      status: 'accepted',
+      partsQuality: '',
+      requiredParts: [],
+      raw: b,
+    };
+  }
+
   const normalizedOffers: NormalizedOffer[] = (offersList || [])
     .map(normalizeOffer)
     .filter(Boolean) as NormalizedOffer[];
 
-  const selectedOffer = payload?.selectedOffer || raw?.selectedOffer
-    ? normalizeOffer(payload?.selectedOffer || raw?.selectedOffer)
-    : null;
+  // Ensure selectedOffer is included in offers list so Tab 2 is never empty when an offer was selected
+  if (selectedOffer && !normalizedOffers.some(o => o.id === selectedOffer.id)) {
+    normalizedOffers.unshift(selectedOffer);
+  }
 
   const bookingRepairman =
     typeof payload?.booking?.repairmanId === 'object' && payload?.booking?.repairmanId !== null
@@ -446,6 +501,16 @@ export function mapBackendJobDetail(
           city: '',
         }
       : null) ||
+    (payload?.booking?.repairmanId
+      ? {
+          id: String(payload.booking.repairmanId),
+          name: 'Certified Repair Technician',
+          shopName: 'Certified Service Center',
+          rating: 5.0,
+          totalJobs: 0,
+          city: '',
+        }
+      : null) ||
     (disputeRepairman
       ? {
           id: disputeRepairman._id || disputeRepairman.id,
@@ -454,6 +519,50 @@ export function mapBackendJobDetail(
           avatar: disputeRepairman.avatar,
         }
       : null);
+
+  let normalizedBooking = payload?.booking || null;
+  if (!normalizedBooking && (raw?.booking || raw?.bookingId || isPostOpenState)) {
+    normalizedBooking = raw?.booking || {
+      _id: raw?.bookingId || raw?._id || 'booking',
+      status: raw?.status || 'booked',
+    };
+  }
+  if (normalizedBooking) {
+    const bd = normalizedBooking.bookingDetails || {};
+    const bp = bd.pricing || {};
+    normalizedBooking = {
+      ...normalizedBooking,
+      status: normalizedBooking.status || raw?.status || 'booked',
+      bookingDetails: {
+        ...bd,
+        serviceType: bd.serviceType || raw?.servicePreference || 'drop-off',
+        scheduledDate: bd.scheduledDate || null,
+        pricing: {
+          basePrice: Number(bp.basePrice || selectedOffer?.basePrice || 0),
+          partsPrice: Number(bp.partsPrice || selectedOffer?.partsEstimate || 0),
+          serviceCharge: Number(bp.serviceCharge || selectedOffer?.pickupCharge || 0),
+          totalAmount: Number(bp.totalAmount || selectedOffer?.finalTotal || priceMin || 0),
+          currency: bp.currency || selectedOffer?.currency || 'TRY',
+        },
+        warranty:
+          bd.warranty ||
+          (selectedOffer?.warrantyLabel
+            ? { duration: 30, description: selectedOffer.warrantyLabel }
+            : { duration: 30, description: '30 Days Warranty' }),
+        location: bd.location || { address: locationLabel },
+      },
+      repairman:
+        repairman ||
+        (normalizedBooking.repairmanId
+          ? {
+              id: String(normalizedBooking.repairmanId),
+              name: 'Certified Repair Technician',
+              shopName: 'Certified Service Center',
+              rating: 5.0,
+            }
+          : null),
+    };
+  }
 
   return {
     id: String(raw?._id || raw?.id || ''),
@@ -477,7 +586,7 @@ export function mapBackendJobDetail(
     createdAt: raw?.createdAt ? new Date(raw.createdAt).toLocaleDateString() : 'Recent',
     offers: normalizedOffers,
     selectedOffer,
-    booking: payload?.booking || null,
+    booking: normalizedBooking,
     repairman,
     quotation: null,
     dispute: payload?.dispute || null,
@@ -596,6 +705,162 @@ export const customerJobApi = {
     if (jobId.startsWith('j-')) {
       const demo = FALLBACK_CUSTOMER_JOBS.find(j => j.id === jobId);
       if (demo) {
+        const isBookedOrBeyond = ['booked', 'in_progress', 'completed', 'disputed'].includes(demo.status);
+        const techName = demo.assignedTo || 'Farhan Repair Tech';
+        const shopName = techName.includes('Center') || techName.includes('Repairs') ? techName : `${techName} Repair Center`;
+        const repId = 'rep-' + demo.id;
+
+        const demoRepairman = {
+          id: repId,
+          name: techName,
+          shopName,
+          rating: 4.9,
+          totalJobs: 84,
+          phone: '+90 532 555 0142',
+          city: 'Istanbul',
+          avatar: null,
+        };
+
+        const demoSelectedOffer: NormalizedOffer | null = isBookedOrBeyond
+          ? {
+              id: 'off-' + demo.id,
+              repairmanId: repId,
+              repairmanName: techName,
+              shopName,
+              rating: 4.9,
+              totalJobs: 84,
+              successRate: 99,
+              basePrice: Number(demo.priceMin || 1500),
+              partsEstimate: 0,
+              totalPrice: Number(demo.priceMin || 1500),
+              pickupAvailable: false,
+              pickupCharge: 0,
+              finalTotal: Number(demo.priceMin || 1500),
+              homeService: false,
+              dropOffLocation: 'Barbaros Bulvarı No: 42, Beşiktaş, Istanbul',
+              warrantyLabel: '30 Days Warranty',
+              timeLabel: '1 - 2 Business Days',
+              startLabel: 'Scheduled',
+              currency: 'TRY',
+              description: 'Professional diagnostic inspection, component replacement, and quality verification.',
+              status: 'accepted',
+              partsQuality: 'Genuine OEM',
+              requiredParts: [],
+              raw: {},
+            }
+          : null;
+
+        const demoOffersList: NormalizedOffer[] =
+          demo.id === 'j-offer-1'
+            ? [
+                {
+                  id: 'off-1',
+                  repairmanId: 'rep-farhan',
+                  repairmanName: 'Farhan Repair Tech',
+                  shopName: 'Expert Mobile Fix',
+                  rating: 4.9,
+                  totalJobs: 112,
+                  successRate: 99,
+                  basePrice: 1400,
+                  partsEstimate: 200,
+                  totalPrice: 1600,
+                  pickupAvailable: true,
+                  pickupCharge: 50,
+                  finalTotal: 1650,
+                  homeService: false,
+                  dropOffLocation: 'Mecidiyeköy Cad. No: 15, Sisli, Istanbul',
+                  warrantyLabel: '60 Days Warranty',
+                  timeLabel: 'Same Day',
+                  startLabel: 'Available now',
+                  currency: 'TRY',
+                  description: 'Original camera lens glass and charging port replacement with full diagnostic test.',
+                  status: 'pending',
+                  partsQuality: 'Original OEM',
+                  requiredParts: [
+                    { id: 'part-1', name: 'Camera Glass Lens', price: 120 },
+                    { id: 'part-2', name: 'USB-C Charging Flex', price: 80 },
+                  ],
+                  raw: {},
+                },
+                {
+                  id: 'off-2',
+                  repairmanId: 'rep-shahid',
+                  repairmanName: 'Shahid Tech Center',
+                  shopName: 'Master Repair Labs',
+                  rating: 4.8,
+                  totalJobs: 76,
+                  successRate: 97,
+                  basePrice: 1600,
+                  partsEstimate: 250,
+                  totalPrice: 1850,
+                  pickupAvailable: true,
+                  pickupCharge: 0,
+                  finalTotal: 1850,
+                  homeService: true,
+                  dropOffLocation: 'Bagdat Caddesi No: 88, Kadikoy, Istanbul',
+                  warrantyLabel: '90 Days Warranty',
+                  timeLabel: '1 Day',
+                  startLabel: 'Tomorrow',
+                  currency: 'TRY',
+                  description: 'Certified repair service with premium parts and extended warranty coverage.',
+                  status: 'pending',
+                  partsQuality: 'Premium Grade A+',
+                  requiredParts: [{ id: 'part-3', name: 'Rear Glass & Port Module', price: 250 }],
+                  raw: {},
+                },
+              ]
+            : demoSelectedOffer
+            ? [demoSelectedOffer]
+            : [];
+
+        const demoBooking = isBookedOrBeyond
+          ? {
+              _id: 'bk-' + demo.id,
+              jobId: demo.id,
+              customerId: 'cust-demo',
+              repairmanId: demoRepairman,
+              status: demo.status === 'completed' ? 'delivered' : demo.status,
+              bookingSource: demo.tag,
+              isReviewSubmitted: false,
+              hasDispute: demo.status === 'disputed',
+              bookingDetails: {
+                serviceType: 'drop-off',
+                scheduledDate: new Date(Date.now() - 86400000 * 2).toISOString(),
+                location: { address: 'Barbaros Bulvarı No: 42, Beşiktaş, Istanbul' },
+                pricing: {
+                  basePrice: Number(demo.priceMin || 1500),
+                  partsPrice: 0,
+                  serviceCharge: 0,
+                  totalAmount: Number(demo.priceMin || 1500),
+                  currency: 'TRY',
+                },
+                warranty: { duration: 30, description: '30 Days Warranty' },
+              },
+              timeline: {
+                confirmedAt: new Date(Date.now() - 86400000 * 4).toISOString(),
+                scheduledAt: new Date(Date.now() - 86400000 * 3).toISOString(),
+                startedAt: new Date(Date.now() - 86400000 * 2).toISOString(),
+                completedAt: demo.status === 'completed' ? new Date(Date.now() - 86400000 * 1).toISOString() : undefined,
+                deliveredAt: demo.status === 'completed' ? new Date().toISOString() : undefined,
+              },
+              repairman: demoRepairman,
+            }
+          : null;
+
+        const demoDispute =
+          demo.status === 'disputed'
+            ? {
+                _id: 'disp-' + demo.id,
+                disputeId: 'DISP-' + demo.id.toUpperCase(),
+                bookingId: 'bk-' + demo.id,
+                category: 'Quality of Repair',
+                description: 'The repaired component is still overheating during load testing. Requesting inspection and resolution.',
+                status: 'under_review',
+                priority: 'medium',
+                createdAt: new Date().toISOString(),
+              }
+            : null;
+
         return {
           id: demo.id,
           tag: demo.tag,
@@ -607,20 +872,21 @@ export const customerJobApi = {
           description: demo.description,
           services: demo.services,
           locationNote: 'Drop-off at technician workshop or pickup arranged on request.',
-          locationLabel: 'Local Service',
+          locationLabel: 'Istanbul Central',
           servicePreference: 'Drop-off',
           stats: [
-            { label: 'Total Offers', value: String(demo.offersCount) },
+            { label: 'Total Offers', value: String(demoOffersList.length || demo.offersCount || 0) },
             { label: 'Status', value: demo.status },
+            { label: 'Max Offers', value: '10' },
             { label: 'Warranty', value: '30 Days' },
           ],
           createdAt: demo.date || 'Recent',
-          offers: [],
-          selectedOffer: null,
-          booking: null,
-          repairman: demo.assignedTo ? { id: 'rep-1', name: demo.assignedTo, shopName: 'Certified Tech' } : null,
+          offers: demoOffersList,
+          selectedOffer: demoSelectedOffer,
+          booking: demoBooking,
+          repairman: demoRepairman,
           quotation: null,
-          dispute: null,
+          dispute: demoDispute,
           raw: demo,
         };
       }
@@ -739,13 +1005,102 @@ export const customerJobApi = {
     try {
       const formData = new FormData();
       formData.append('message', message.trim());
-      const res = await apiClient.post(`/disputes/${disputeId}/response`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      const res = await apiClient.post(`/disputes/${disputeId}/response`, formData);
       return { success: Boolean(res.data?.success), message: res.data?.message || 'Response added successfully!' };
     } catch (err: any) {
       if (__DEV__) console.warn('sendDisputeResponse error:', err?.message);
-      return { success: false, message: err?.response?.data?.message || 'Failed to send response' };
+      return { success: false, message: err?.response?.data?.message || err?.message || 'Failed to send response' };
+    }
+  },
+
+  /**
+   * 7. Submit Review for a Completed Job
+   */
+  async createReview(payload: {
+    bookingId: string;
+    repairmanId: string;
+    jobId?: string;
+    overallRating: number;
+    reviewText: string;
+    aspectRatings?: any;
+    wouldRecommend?: boolean;
+  }): Promise<{ success: boolean; message: string; review?: any }> {
+    try {
+      const res = await apiClient.post('/reviews', payload);
+      return {
+        success: Boolean(res.data?.success),
+        message: res.data?.message || 'Review submitted successfully',
+        review: res.data?.review || res.data?.data,
+      };
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.message || 'Failed to submit review';
+      throw new Error(msg);
+    }
+  },
+
+  /**
+   * 8. Fetch Completed Jobs Available for Review
+   */
+  async getCompletedJobsForReview(page = 1, limit = 20): Promise<any[]> {
+    try {
+      const res = await apiClient.get('/reviews/my-completed-jobs', {
+        params: { page, limit },
+      });
+      return res.data?.data?.completedJobs || [];
+    } catch (err: any) {
+      if (__DEV__) console.warn('getCompletedJobsForReview error:', err?.message);
+      return [];
+    }
+  },
+
+  /**
+   * Close a Completed or Delivered Job (releases payment to technician)
+   * Matches web app: PATCH /api/repair-jobs/:bookingId/close-job
+   */
+  async closeJob(bookingId: string): Promise<{ success: boolean; message: string }> {
+    try {
+      const res = await apiClient.patch(`/repair-jobs/${bookingId}/close-job`, {});
+      return {
+        success: Boolean(res.data?.success),
+        message: res.data?.message || 'Job closed successfully',
+      };
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.message || 'Failed to close job';
+      throw new Error(msg);
+    }
+  },
+
+  /**
+   * 9. Create a Dispute on a Booking
+   */
+  async createDispute(payload: {
+    bookingId: string;
+    category: string;
+    description: string;
+  }): Promise<{ success: boolean; message: string; dispute?: any }> {
+    try {
+      const res = await apiClient.post('/disputes/create', payload);
+      return {
+        success: Boolean(res.data?.success),
+        message: res.data?.message || 'Dispute created successfully',
+        dispute: res.data?.dispute || res.data?.data,
+      };
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.message || 'Failed to create dispute';
+      throw new Error(msg);
+    }
+  },
+
+  /**
+   * 10. Fetch Single Dispute Details
+   */
+  async getDisputeDetails(disputeId: string): Promise<any> {
+    try {
+      const res = await apiClient.get(`/disputes/${disputeId}`);
+      return res.data?.data || res.data?.dispute || res.data;
+    } catch (err: any) {
+      if (__DEV__) console.warn('getDisputeDetails error:', err?.message);
+      return null;
     }
   },
 };

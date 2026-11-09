@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Image,
   Pressable,
   ScrollView,
@@ -11,14 +10,16 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
+import Button from '@/components/Button';
 import Squeeze from '@/components/Squeeze';
 import CtiLoader from '@/components/CtiLoader';
 import AlertModal, { AlertModalType } from '@/components/AlertModal';
+import WriteReviewModal, { ReviewTargetJob } from '@/components/modals/WriteReviewModal';
 import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
   checkCircleBold,
-  clockBold,
+  infoCircleBold,
   menuBold,
   packageBold,
   sendBold,
@@ -60,6 +61,8 @@ export default function RepairDetailScreen({ navigation, route }: any) {
   // Custom Modal States (no cheap Alert.alert)
   const [bookingModalVisible, setBookingModalVisible] = useState(false);
   const [selectedOfferForBooking, setSelectedOfferForBooking] = useState<NormalizedOffer | null>(null);
+  const [reviewModalVisible, setReviewModalVisible] = useState(false);
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [alertState, setAlertState] = useState<{
     visible: boolean;
     type: AlertModalType;
@@ -72,7 +75,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
     message: '',
   });
 
-  const fetchJobDetail = async () => {
+  const fetchJobDetail = useCallback(async () => {
     if (!jobId) {
       setLoading(false);
       return;
@@ -85,11 +88,11 @@ export default function RepairDetailScreen({ navigation, route }: any) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [jobId]);
 
   useEffect(() => {
     fetchJobDetail();
-  }, [jobId]);
+  }, [fetchJobDetail]);
 
   // Dynamic Tabs based on job type
   const availableTabs = useMemo(() => {
@@ -110,7 +113,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
       tabs.push({ key: 'repairman', label: 'Repairman Info' });
     }
 
-    if (job.booking) {
+    if (job.booking || ['booked', 'in_progress', 'completed', 'delivered', 'closed'].includes(job.status)) {
       tabs.push({ key: 'booking', label: 'Booking' });
     }
 
@@ -222,6 +225,149 @@ export default function RepairDetailScreen({ navigation, route }: any) {
 
   const toggleOfferDesc = (id: string) => {
     setExpandedOfferDesc(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const hasDispute = Boolean(
+    job?.dispute ||
+      job?.booking?.hasDispute ||
+      job?.status === 'disputed' ||
+      job?.booking?.status === 'disputed',
+  );
+
+  const isReviewed = Boolean(
+    job?.booking?.isReviewSubmitted ||
+      job?.booking?.isReviewed ||
+      (job as any)?.reviewed ||
+      (job as any)?.review,
+  );
+
+  const isDelivered =
+    job?.booking?.status === 'delivered' ||
+    job?.status === 'delivered';
+
+  const isCompletedWaitingDelivery =
+    (job?.booking?.status === 'completed' || job?.status === 'completed') &&
+    job?.booking?.status !== 'delivered' &&
+    job?.status !== 'delivered';
+
+  // Backend reviewController strictly requires booking.status === 'delivered'
+  const canReview = Boolean(
+    (job?.booking || (job as any)?.bookingId) &&
+      (job?.booking?.status === 'delivered' || job?.status === 'delivered' || job?.booking?.status === 'closed') &&
+      !hasDispute &&
+      !isReviewed,
+  );
+
+  const [isClosingJob, setIsClosingJob] = useState(false);
+
+  const handleCloseJob = async () => {
+    const bookingId = job?.booking?._id || job?.booking?.id;
+    if (!bookingId) return;
+    try {
+      setIsClosingJob(true);
+      const res = await customerJobApi.closeJob(String(bookingId));
+      if (res.success) {
+        setAlertState({
+          visible: true,
+          type: 'success',
+          title: 'Job Closed',
+          message: res.message || 'Job closed successfully. Technician earnings released.',
+        });
+        await fetchJobDetail();
+      } else {
+        setAlertState({
+          visible: true,
+          type: 'error',
+          title: 'Error',
+          message: res.message || 'Failed to close job.',
+        });
+      }
+    } catch (err: any) {
+      setAlertState({
+        visible: true,
+        type: 'error',
+        title: 'Error',
+        message: err?.message || 'Failed to close job.',
+      });
+    } finally {
+      setIsClosingJob(false);
+    }
+  };
+
+  const targetJobForReview: ReviewTargetJob | null = useMemo(() => {
+    const bookingId = String(
+      job?.booking?._id ||
+        job?.booking?.id ||
+        (job as any)?.bookingId ||
+        (job as any)?.raw?.bookingId ||
+        '',
+    );
+    const offerRep = job?.selectedOffer?.repairmanId;
+    const offerRepId =
+      typeof offerRep === 'object' && offerRep !== null
+        ? (offerRep as any)._id || (offerRep as any).id
+        : offerRep;
+
+    const repairmanId = String(
+      job?.repairman?.id ||
+        job?.booking?.repairmanId?._id ||
+        job?.booking?.repairmanId ||
+        offerRepId ||
+        (job as any)?.raw?.repairmanId ||
+        '',
+    );
+    if (!bookingId || !repairmanId) return null;
+    return {
+      bookingId,
+      jobId: job?.id ? String(job.id) : undefined,
+      repairmanId,
+      repairmanName: job?.repairman?.name || job?.selectedOffer?.repairmanName || 'Technician',
+      repairmanAvatar: job?.repairman?.avatar || undefined,
+      deviceTitle: job?.title || 'Device Repair',
+    };
+  }, [job]);
+
+  const handleOpenReviewModal = () => {
+    if (!targetJobForReview) {
+      setAlertState({
+        visible: true,
+        type: 'warning',
+        title: 'Notice',
+        message: 'Booking or technician details are missing for submitting a review.',
+      });
+      return;
+    }
+    setReviewModalVisible(true);
+  };
+
+  const handleSubmitReview = async (reviewData: {
+    bookingId: string;
+    jobId?: string;
+    repairmanId: string;
+    overallRating: number;
+    reviewText: string;
+  }) => {
+    try {
+      setIsSubmittingReview(true);
+      const res = await customerJobApi.createReview(reviewData);
+      setReviewModalVisible(false);
+      setAlertState({
+        visible: true,
+        type: 'success',
+        title: 'Review Submitted',
+        message: res.message || 'Thank you! Your review has been submitted successfully.',
+      });
+      await fetchJobDetail();
+    } catch (err: any) {
+      setAlertState({
+        visible: true,
+        type: 'error',
+        title: 'Review Error',
+        message: err?.message || 'Failed to submit review.',
+      });
+    } finally {
+      setIsSubmittingReview(false);
+    }
   };
 
   return (
@@ -393,53 +539,67 @@ export default function RepairDetailScreen({ navigation, route }: any) {
             {/* TAB 2: OFFERS (Job Postings) */}
             {activeTabKey === 'offers' && (
               <FadeUp duration={400}>
-                {!job.offers || job.offers.length === 0 ? (
-                  <View
-                    style={[
-                      styles.emptyOffersCard,
-                      { backgroundColor: colors.surface, borderColor: colors.border },
-                    ]}
-                  >
-                    <Icon source={toolExtra} size={36} color={colors.primary} />
-                    <Text style={[styles.emptyOffersTitle, { color: colors.text }]}>
-                      No Offers Available Yet
-                    </Text>
-                    <Text style={[styles.emptyOffersText, { color: colors.textMuted }]}>
-                      Expert repair technicians are reviewing your job request. When a technician submits an offer, you will see their proposal, pricing breakdown, and warranty details right here!
-                    </Text>
-                  </View>
-                ) : (
-                  <View style={styles.offersList}>
-                    {job.offers.map((offer: NormalizedOffer, idx: number) => {
-                      const isAccepted =
-                        offer.status === 'accepted' ||
-                        job.selectedOffer?.id === offer.id ||
-                        job.status === 'booked';
-                      const isSubmitting = acceptingOfferId === offer.id;
-                      const isStartingChat = startingChatId === offer.repairmanId;
-                      const isExpanded = Boolean(expandedOfferDesc[offer.id]);
+                {(() => {
+                  const offersList = job.selectedOffer
+                    ? job.offers?.length
+                      ? job.offers
+                      : [job.selectedOffer]
+                    : job.offers || [];
 
-                      return (
-                        <View
-                          key={offer.id || `offer-${idx}`}
-                          style={[
-                            styles.offerCard,
-                            { backgroundColor: colors.surface, borderColor: colors.border },
-                            isAccepted && { borderColor: colors.primary, borderWidth: 1.5 },
-                          ]}
-                        >
-                          {/* Offer Header */}
-                          <View style={styles.offerHeader}>
-                            <View style={styles.offerTechInfo}>
-                              <Text style={[styles.offerTechName, { color: colors.text }]}>
-                                {offer.repairmanName}
-                              </Text>
-                              <Text style={[styles.offerShopName, { color: colors.textMuted }]}>
-                                @{offer.shopName}
-                              </Text>
-                            </View>
+                  if (offersList.length === 0) {
+                    return (
+                      <View
+                        style={[
+                          styles.emptyOffersCard,
+                          { backgroundColor: colors.surface, borderColor: colors.border },
+                        ]}
+                      >
+                        <Icon source={toolExtra} size={36} color={colors.primary} />
+                        <Text style={[styles.emptyOffersTitle, { color: colors.text }]}>
+                          No Offers Available Yet
+                        </Text>
+                        <Text style={[styles.emptyOffersText, { color: colors.textMuted }]}>
+                          Expert repair technicians are reviewing your job request. When a technician submits an offer, you will see their proposal, pricing breakdown, and warranty details right here!
+                        </Text>
+                      </View>
+                    );
+                  }
 
-                            <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                  return (
+                    <View style={styles.offersList}>
+                      {offersList.map((offer: NormalizedOffer, idx: number) => {
+                        const isAccepted =
+                          offer.status === 'accepted' ||
+                          job.selectedOffer?.id === offer.id ||
+                          job.status === 'booked' ||
+                          job.status === 'in_progress' ||
+                          job.status === 'completed' ||
+                          job.status === 'delivered' ||
+                          job.status === 'closed';
+                        const isStartingChat = startingChatId === offer.repairmanId;
+                        const isExpanded = Boolean(expandedOfferDesc[offer.id]);
+
+                        return (
+                          <View
+                            key={offer.id || `offer-${idx}`}
+                            style={[
+                              styles.offerCard,
+                              { backgroundColor: colors.surface, borderColor: colors.border },
+                              isAccepted && { borderColor: colors.primary, borderWidth: 1.5 },
+                            ]}
+                          >
+                            {/* Offer Header */}
+                            <View style={styles.offerHeader}>
+                              <View style={styles.offerTechInfo}>
+                                <Text style={[styles.offerTechName, { color: colors.text }]}>
+                                  {offer.repairmanName}
+                                </Text>
+                                <Text style={[styles.offerShopName, { color: colors.textMuted }]}>
+                                  @{offer.shopName}
+                                </Text>
+                              </View>
+
+                              <View style={{ alignItems: 'flex-end', gap: 4 }}>
                               <View style={styles.offerRatingRow}>
                                 <Icon source={starExtra} size={14} color="#f59e0b" />
                                 <Text style={[styles.offerRatingText, { color: colors.text }]}>
@@ -636,7 +796,12 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                           {/* Action Buttons */}
                           <View style={styles.actionsRow}>
                             {/* Chat Button */}
-                            <Squeeze
+                            <Button
+                              title={isAccepted ? 'Chat' : 'Chat with Tech'}
+                              icon={sendBold}
+                              iconPosition="left"
+                              size="sm"
+                              variant="outline"
                               onPress={() =>
                                 handleStartChatWithTech(
                                   offer.repairmanId,
@@ -644,22 +809,24 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                                 )
                               }
                               disabled={isStartingChat}
-                              style={[
-                                styles.chatBtn,
-                                { borderColor: colors.primary, backgroundColor: colors.surface },
-                              ]}
-                            >
-                              {isStartingChat ? (
-                                <ActivityIndicator size="small" color={colors.primary} />
-                              ) : (
-                                <>
-                                  <Icon source={sendBold} size={16} color={colors.primary} />
-                                  <Text style={[styles.chatBtnText, { color: colors.primary }]}>
-                                    {isAccepted ? 'Chat' : 'Chat with Technician'}
-                                  </Text>
-                                </>
-                              )}
-                            </Squeeze>
+                              loading={isStartingChat}
+                              style={{ flex: 1 }}
+                              contentStyle={{ paddingHorizontal: 8, height: 40 }}
+                              textStyle={{ fontSize: 13, fontFamily: fonts.bold }}
+                            />
+
+                            {/* Accept Offer Guidance */}
+                            {!isAccepted && (
+                              <Button
+                                title="Accept Offer"
+                                size="sm"
+                                variant="primary"
+                                onPress={() => handleAcceptOffer(offer)}
+                                style={{ flex: 1.1 }}
+                                contentStyle={{ paddingHorizontal: 8, height: 40 }}
+                                textStyle={{ fontSize: 13, fontFamily: fonts.bold }}
+                              />
+                            )}
 
                             {/* Accepted Status Button (Only shown if already accepted) */}
                             {isAccepted && (
@@ -705,7 +872,8 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                       );
                     })}
                   </View>
-                )}
+                );
+              })()}
               </FadeUp>
             )}
 
@@ -719,16 +887,33 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                   ]}
                 >
                   <View style={styles.repairmanHeader}>
-                    <View
-                      style={[
-                        styles.avatarCircle,
-                        { backgroundColor: colors.primary + '20' },
-                      ]}
-                    >
-                      <Text style={[styles.avatarText, { color: colors.primary }]}>
-                        {job.repairman?.name?.charAt(0)?.toUpperCase() || 'R'}
-                      </Text>
-                    </View>
+                    {job.repairman?.avatar ? (
+                      <Image
+                        source={{ uri: job.repairman.avatar }}
+                        style={[
+                          styles.avatarCircle,
+                          {
+                            borderWidth: 1.5,
+                            borderColor: colors.avatarBorder,
+                          },
+                        ]}
+                      />
+                    ) : (
+                      <View
+                        style={[
+                          styles.avatarCircle,
+                          {
+                            backgroundColor: colors.primary + '20',
+                            borderWidth: 1.5,
+                            borderColor: colors.avatarBorder,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.avatarText, { color: colors.primary }]}>
+                          {job.repairman?.name?.charAt(0)?.toUpperCase() || 'R'}
+                        </Text>
+                      </View>
+                    )}
                     <View style={{ flex: 1, gap: 2 }}>
                       <Text style={[styles.repairmanName, { color: colors.text }]}>
                         {job.repairman?.name || 'Certified Repair Technician'}
@@ -765,7 +950,13 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                     </View>
                   )}
 
-                  <Squeeze
+                  <Button
+                    title="Chat with Technician"
+                    icon={sendBold}
+                    iconPosition="left"
+                    size="md"
+                    variant="primary"
+                    fullWidth
                     onPress={() =>
                       handleStartChatWithTech(
                         job.repairman?.id,
@@ -773,16 +964,10 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                         job.repairman?.avatar,
                       )
                     }
-                    style={[
-                      styles.fullChatBtn,
-                      { backgroundColor: colors.primary, marginTop: 16 },
-                    ]}
-                  >
-                    <Icon source={sendBold} size={18} color="#fff" />
-                    <Text style={{ color: '#fff', fontFamily: fonts.bold, fontSize: 14 }}>
-                      Chat with Technician
-                    </Text>
-                  </Squeeze>
+                    style={{ marginTop: 16 }}
+                    contentStyle={{ paddingHorizontal: 16, height: 44 }}
+                    textStyle={{ fontSize: 14, fontFamily: fonts.bold }}
+                  />
                 </View>
               </FadeUp>
             )}
@@ -812,63 +997,234 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                           { color: colors.primary },
                         ]}
                       >
-                        {job.booking?.status || 'Scheduled'}
+                        {job.booking?.status || job.status || 'Scheduled'}
                       </Text>
                     </View>
                   </View>
 
                   <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
+                  {/* Assigned Repair Technician Info */}
+                  <View
+                    style={[
+                      styles.bookingTechCard,
+                      { backgroundColor: colors.surfaceAlt, borderColor: colors.border },
+                    ]}
+                  >
+                    <View style={styles.repairmanHeader}>
+                      {job.repairman?.avatar ? (
+                        <Image
+                          source={{ uri: job.repairman.avatar }}
+                          style={[
+                            styles.avatarCircle,
+                            { borderWidth: 1.5, borderColor: colors.avatarBorder },
+                          ]}
+                        />
+                      ) : (
+                        <View
+                          style={[
+                            styles.avatarCircle,
+                            {
+                              backgroundColor: colors.primary + '20',
+                              borderWidth: 1.5,
+                              borderColor: colors.avatarBorder,
+                            },
+                          ]}
+                        >
+                          <Text style={[styles.avatarText, { color: colors.primary }]}>
+                            {job.repairman?.name?.charAt(0)?.toUpperCase() || 'T'}
+                          </Text>
+                        </View>
+                      )}
+                      <View style={{ flex: 1, gap: 2 }}>
+                        <Text style={[styles.repairmanName, { color: colors.text }]}>
+                          {job.repairman?.name || job.selectedOffer?.repairmanName || 'Certified Technician'}
+                        </Text>
+                        <Text style={[styles.repairmanShop, { color: colors.textMuted }]}>
+                          {job.repairman?.shopName || job.selectedOffer?.shopName || 'Certified Repair Center'}
+                        </Text>
+                        <View style={styles.offerRatingRow}>
+                          <Icon source={starExtra} size={14} color="#f59e0b" />
+                          <Text style={[styles.offerRatingText, { color: colors.text }]}>
+                            {Number(job.repairman?.rating || job.selectedOffer?.rating || 5.0).toFixed(1)}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+
+                    {/* Chat with technician button */}
+                    <Button
+                      title="Chat with Technician"
+                      icon={sendBold}
+                      iconPosition="left"
+                      size="sm"
+                      variant="outline"
+                      fullWidth
+                      onPress={() =>
+                        handleStartChatWithTech(
+                          job.repairman?.id || job.selectedOffer?.repairmanId || '',
+                          job.repairman?.name || job.selectedOffer?.repairmanName || 'Technician',
+                          job.repairman?.avatar || undefined,
+                        )
+                      }
+                      style={{ marginTop: 4 }}
+                      contentStyle={{ paddingHorizontal: 16, height: 40 }}
+                      textStyle={{ fontSize: 13, fontFamily: fonts.bold }}
+                    />
+                  </View>
+
+                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
+
                   {/* Scheduled Date */}
-                  {Boolean(job.booking?.bookingDetails?.scheduledDate) && (
-                    <View style={styles.statItem}>
+                  <View style={styles.statItem}>
+                    <Text style={[styles.statLabel, { color: colors.textMuted }]}>
+                      Scheduled Date:
+                    </Text>
+                    <Text style={[styles.statValue, { color: colors.text }]}>
+                      {job.booking?.bookingDetails?.scheduledDate
+                        ? new Date(job.booking.bookingDetails.scheduledDate).toLocaleDateString('en-US', {
+                            weekday: 'short',
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric',
+                          })
+                        : 'To be scheduled'}
+                    </Text>
+                  </View>
+
+                  {/* Estimated Completion */}
+                  {Boolean(job.booking?.bookingDetails?.estimatedCompletion) && (
+                    <View style={[styles.statItem, { marginTop: 10 }]}>
                       <Text style={[styles.statLabel, { color: colors.textMuted }]}>
-                        Scheduled Date:
+                        Estimated Completion:
                       </Text>
                       <Text style={[styles.statValue, { color: colors.text }]}>
-                        {new Date(
-                          job.booking.bookingDetails.scheduledDate,
-                        ).toLocaleDateString('en-US', {
-                          weekday: 'short',
-                          year: 'numeric',
+                        {new Date(job.booking.bookingDetails.estimatedCompletion).toLocaleDateString('en-US', {
                           month: 'short',
                           day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
                         })}
                       </Text>
                     </View>
                   )}
 
                   {/* Service Type */}
-                  {Boolean(job.booking?.bookingDetails?.serviceType) && (
-                    <View style={[styles.statItem, { marginTop: 10 }]}>
-                      <Text style={[styles.statLabel, { color: colors.textMuted }]}>
-                        Service Type:
+                  <View style={[styles.statItem, { marginTop: 10 }]}>
+                    <Text style={[styles.statLabel, { color: colors.textMuted }]}>
+                      Service Type:
+                    </Text>
+                    <Text
+                      style={[
+                        styles.statValue,
+                        { color: colors.text, textTransform: 'capitalize' },
+                      ]}
+                    >
+                      {String(
+                        job.booking?.bookingDetails?.serviceType ||
+                          job.servicePreference ||
+                          'Drop-off',
+                      ).replace('-', ' ')}
+                    </Text>
+                  </View>
+
+                  {/* Pricing Breakdown Container */}
+                  <View
+                    style={[
+                      styles.priceBreakdownBox,
+                      { backgroundColor: colors.surfaceAlt, borderColor: colors.border, marginTop: 14 },
+                    ]}
+                  >
+                    <Text style={[styles.breakdownHeader, { color: colors.text }]}>
+                      Pricing Breakdown
+                    </Text>
+
+                    <View style={styles.breakdownRow}>
+                      <Text style={[styles.breakdownLabel, { color: colors.textMuted }]}>
+                        Base / Labor:
                       </Text>
-                      <Text
-                        style={[
-                          styles.statValue,
-                          { color: colors.text, textTransform: 'capitalize' },
-                        ]}
-                      >
-                        {String(job.booking.bookingDetails.serviceType).replace('-', ' ')}
+                      <Text style={[styles.breakdownVal, { color: colors.text }]}>
+                        {job.booking?.bookingDetails?.pricing?.currency || 'TRY'}{' '}
+                        {Number(
+                          job.booking?.bookingDetails?.pricing?.basePrice ||
+                            job.selectedOffer?.basePrice ||
+                            0,
+                        ).toLocaleString()}
                       </Text>
                     </View>
-                  )}
 
-                  {/* Pricing */}
-                  {Boolean(job.booking?.bookingDetails?.pricing?.totalAmount) && (
-                    <View style={[styles.statItem, { marginTop: 10 }]}>
-                      <Text style={[styles.statLabel, { color: colors.textMuted }]}>
+                    {Number(
+                      job.booking?.bookingDetails?.pricing?.partsPrice ||
+                        job.selectedOffer?.partsEstimate ||
+                        0,
+                    ) > 0 && (
+                      <View style={styles.breakdownRow}>
+                        <Text style={[styles.breakdownLabel, { color: colors.textMuted }]}>
+                          Parts Cost:
+                        </Text>
+                        <Text style={[styles.breakdownVal, { color: colors.text }]}>
+                          {job.booking?.bookingDetails?.pricing?.currency || 'TRY'}{' '}
+                          {Number(
+                            job.booking?.bookingDetails?.pricing?.partsPrice ||
+                              job.selectedOffer?.partsEstimate ||
+                              0,
+                          ).toLocaleString()}
+                        </Text>
+                      </View>
+                    )}
+
+                    {Number(
+                      job.booking?.bookingDetails?.pricing?.serviceCharge ||
+                        job.selectedOffer?.pickupCharge ||
+                        0,
+                    ) > 0 && (
+                      <View style={styles.breakdownRow}>
+                        <Text style={[styles.breakdownLabel, { color: colors.textMuted }]}>
+                          Service / Pickup Fee:
+                        </Text>
+                        <Text style={[styles.breakdownVal, { color: colors.text }]}>
+                          +{job.booking?.bookingDetails?.pricing?.currency || 'TRY'}{' '}
+                          {Number(
+                            job.booking?.bookingDetails?.pricing?.serviceCharge ||
+                              job.selectedOffer?.pickupCharge ||
+                              0,
+                          ).toLocaleString()}
+                        </Text>
+                      </View>
+                    )}
+
+                    <View style={[styles.breakdownDivider, { backgroundColor: colors.border }]} />
+
+                    <View style={styles.breakdownRow}>
+                      <Text style={[styles.totalLabel, { color: colors.text }]}>
                         Total Price:
                       </Text>
-                      <Text style={[styles.statValue, { color: colors.primary }]}>
-                        {job.booking.bookingDetails.pricing.currency || 'TRY'}{' '}
-                        {job.booking.bookingDetails.pricing.totalAmount.toLocaleString()}
+                      <Text style={[styles.totalVal, { color: colors.primary }]}>
+                        {job.booking?.bookingDetails?.pricing?.currency || 'TRY'}{' '}
+                        {Number(
+                          job.booking?.bookingDetails?.pricing?.totalAmount ||
+                            job.selectedOffer?.finalTotal ||
+                            0,
+                        ).toLocaleString()}
                       </Text>
                     </View>
-                  )}
+                  </View>
 
-                  {/* Service / Pickup Address - Clean line break + dedicated full-width box + See More / See Less */}
+                  {/* Warranty info */}
+                  <View style={[styles.statItem, { marginTop: 12 }]}>
+                    <Text style={[styles.statLabel, { color: colors.textMuted }]}>
+                      Warranty Protection:
+                    </Text>
+                    <Text style={[styles.statValue, { color: colors.primary }]}>
+                      {typeof job.booking?.bookingDetails?.warranty === 'string'
+                        ? job.booking.bookingDetails.warranty
+                        : job.booking?.bookingDetails?.warranty?.duration
+                        ? `${job.booking.bookingDetails.warranty.duration} Days Warranty`
+                        : job.selectedOffer?.warrantyLabel || '30 Days Warranty'}
+                    </Text>
+                  </View>
+
+                  {/* Service / Pickup Address */}
                   {Boolean(
                     job.booking?.bookingDetails?.location?.address ||
                       job.booking?.pickUpAddress ||
@@ -914,6 +1270,173 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                       </View>
                     </View>
                   )}
+
+                  {/* Timeline Milestones (if available) */}
+                  {Boolean(job.booking?.timeline) && (
+                    <View style={styles.timelineSection}>
+                      <Text style={[styles.addressLabel, { color: colors.textMuted, marginTop: 14 }]}>
+                        Service Timeline:
+                      </Text>
+                      <View
+                        style={[
+                          styles.timelineBox,
+                          { backgroundColor: colors.surfaceAlt, borderColor: colors.border },
+                        ]}
+                      >
+                        {job.booking.timeline.confirmedAt && (
+                          <View style={styles.timelineRow}>
+                            <View style={[styles.timelineDot, { backgroundColor: colors.success }]} />
+                            <Text style={[styles.timelineText, { color: colors.text }]}>
+                              Confirmed: {new Date(job.booking.timeline.confirmedAt).toLocaleDateString()}
+                            </Text>
+                          </View>
+                        )}
+                        {job.booking.timeline.scheduledAt && (
+                          <View style={styles.timelineRow}>
+                            <View style={[styles.timelineDot, { backgroundColor: colors.primary }]} />
+                            <Text style={[styles.timelineText, { color: colors.text }]}>
+                              Scheduled: {new Date(job.booking.timeline.scheduledAt).toLocaleDateString()}
+                            </Text>
+                          </View>
+                        )}
+                        {job.booking.timeline.startedAt && (
+                          <View style={styles.timelineRow}>
+                            <View style={[styles.timelineDot, { backgroundColor: '#f59e0b' }]} />
+                            <Text style={[styles.timelineText, { color: colors.text }]}>
+                              Repair Started: {new Date(job.booking.timeline.startedAt).toLocaleDateString()}
+                            </Text>
+                          </View>
+                        )}
+                        {job.booking.timeline.completedAt && (
+                          <View style={styles.timelineRow}>
+                            <View style={[styles.timelineDot, { backgroundColor: '#8b5cf6' }]} />
+                            <Text style={[styles.timelineText, { color: colors.text }]}>
+                              Repair Completed: {new Date(job.booking.timeline.completedAt).toLocaleDateString()}
+                            </Text>
+                          </View>
+                        )}
+                        {job.booking.timeline.deliveredAt && (
+                          <View style={styles.timelineRow}>
+                            <View style={[styles.timelineDot, { backgroundColor: colors.success }]} />
+                            <Text style={[styles.timelineText, { color: colors.text }]}>
+                              Delivered to Customer: {new Date(job.booking.timeline.deliveredAt).toLocaleDateString()}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  )}
+
+                  {/* Active Dispute Banner */}
+                  {hasDispute && (
+                    <View
+                      style={[
+                        styles.bookingDisputeNotice,
+                        { backgroundColor: '#fef3c7', borderColor: '#fde68a' },
+                      ]}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Icon source={shieldBold} size={18} color="#b45309" />
+                        <Text style={[styles.bookingDisputeTitle, { color: '#b45309' }]}>
+                          Case Under Dispute / Mediation
+                        </Text>
+                      </View>
+                      <Text style={[styles.bookingDisputeDesc, { color: '#92400e' }]}>
+                        Payment is held securely in escrow while our customer support team reviews the case.
+                      </Text>
+                      <Button
+                        title="View Dispute Details"
+                        size="sm"
+                        onPress={() =>
+                          navigation.navigate('DisputeDetail', {
+                            jobId: job?.id,
+                            job,
+                            disputeId:
+                              job?.booking?.disputeId ||
+                              (job as any)?.disputeId ||
+                              job?.dispute?._id ||
+                              job?.dispute?.id,
+                          })
+                        }
+                        style={{ marginTop: 10 }}
+                      />
+                    </View>
+                  )}
+
+                  {/* Delivery Handover Notice when repair completed but not yet marked delivered */}
+                  {isCompletedWaitingDelivery && !isDelivered && !hasDispute && (
+                    <View
+                      style={[
+                        styles.deliveryNoticeBox,
+                        { backgroundColor: colors.surfaceAlt, borderColor: colors.border },
+                      ]}>
+                      <Icon source={infoCircleBold} size={16} color={colors.primary} />
+                      <Text style={[styles.deliveryNoticeText, { color: colors.textMuted }]}>
+                        Repair completed by technician. Review will unlock once the device is marked delivered.
+                      </Text>
+                    </View>
+                  )}
+
+                  {/* Device Delivered: Customer Close Job Banner */}
+                  {isDelivered && job?.booking?.status !== 'closed' && (
+                    <View
+                      style={[
+                        styles.deliveryNoticeBox,
+                        { backgroundColor: colors.surfaceAlt, borderColor: colors.border, marginTop: 12 },
+                      ]}>
+                      <View style={{ flex: 1, gap: 4 }}>
+                        <Text style={[styles.sectionTitle, { color: colors.text, marginTop: 0, fontSize: 13 }]}>
+                          Device Delivered
+                        </Text>
+                        <Text style={[styles.deliveryNoticeText, { color: colors.textMuted }]}>
+                          Please inspect your device. If satisfied, confirm to close the job and release funds.
+                        </Text>
+                      </View>
+                      <Button
+                        title={isClosingJob ? 'Closing...' : 'Close Job'}
+                        size="sm"
+                        variant="soft"
+                        loading={isClosingJob}
+                        disabled={isClosingJob}
+                        onPress={handleCloseJob}
+                        style={{ alignSelf: 'center', minWidth: 90 }}
+                        contentStyle={{ paddingHorizontal: 10 }}
+                        textStyle={{ fontSize: 13 }}
+                      />
+                    </View>
+                  )}
+
+                  {/* Review Submitted Status (Inside Booking Tab Only) */}
+                  {isReviewed && (
+                    <View
+                      style={[
+                        styles.reviewedSuccessBanner,
+                        { backgroundColor: colors.surfaceAlt, borderColor: colors.border, marginTop: 14 },
+                      ]}
+                    >
+                      <Icon source={checkCircleBold} size={16} color={colors.success} />
+                      <Text style={[styles.reviewedSuccessText, { color: colors.text }]}>
+                        Review submitted for this repair job. Thank you!
+                      </Text>
+                    </View>
+                  )}
+
+                  {/* Action: Write Review */}
+                  {canReview && (
+                    <View style={styles.bookingActionsRow}>
+                      <Button
+                        title="Write a Review"
+                        size="md"
+                        variant="filled"
+                        icon={starExtra}
+                        iconPosition="left"
+                        onPress={handleOpenReviewModal}
+                        fullWidth
+                        contentStyle={{ paddingHorizontal: 16, height: 44 }}
+                        textStyle={{ fontSize: 14, fontFamily: fonts.bold }}
+                      />
+                    </View>
+                  )}
                 </View>
               </FadeUp>
             )}
@@ -945,6 +1468,14 @@ export default function RepairDetailScreen({ navigation, route }: any) {
         buttonText="Okay"
         onButtonPress={() => setAlertState(prev => ({ ...prev, visible: false }))}
         onClose={() => setAlertState(prev => ({ ...prev, visible: false }))}
+      />
+
+      <WriteReviewModal
+        visible={reviewModalVisible}
+        job={targetJobForReview}
+        isSubmitting={isSubmittingReview}
+        onClose={() => setReviewModalVisible(false)}
+        onSubmit={handleSubmitReview}
       />
     </View>
   );
@@ -1334,6 +1865,88 @@ const styles = StyleSheet.create({
   },
   seeMoreText: {
     fontFamily: fonts.bold,
+    fontSize: 12,
+  },
+  bookingDisputeNotice: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 14,
+    marginTop: 16,
+  },
+  bookingDisputeTitle: {
+    fontFamily: fonts.bold,
+    fontSize: 14,
+  },
+  bookingDisputeDesc: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 6,
+  },
+  bookingActionsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 16,
+    alignItems: 'center',
+  },
+  deliveryNoticeBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    marginTop: 14,
+  },
+  deliveryNoticeText: {
+    flex: 1,
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  reviewedSuccessBanner: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  reviewedSuccessText: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+  },
+  bookingTechCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    gap: 10,
+    marginTop: 4,
+  },
+  timelineSection: {
+    marginTop: 6,
+  },
+  timelineBox: {
+    borderRadius: 10,
+    borderWidth: 1,
+    padding: 12,
+    gap: 8,
+    marginTop: 6,
+  },
+  timelineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  timelineDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  timelineText: {
+    fontFamily: fonts.regular,
     fontSize: 12,
   },
 });

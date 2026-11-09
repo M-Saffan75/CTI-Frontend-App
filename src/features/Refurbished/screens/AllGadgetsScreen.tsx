@@ -45,7 +45,10 @@ const SORT_OPTIONS = [
 export default function AllGadgetsScreen({ navigation, route }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const initialCategory = route?.params?.initialCategory;
+  const initialCategory =
+    route?.params?.initialCategory ||
+    route?.params?.category ||
+    route?.params?.categorySlug;
   const initialFilters = route?.params?.appliedFilters;
 
   const [filterModalVisible, setFilterModalVisible] = useState(false);

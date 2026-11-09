@@ -18,12 +18,12 @@ import Icon from '@/components/Icon';
 import Button from '@/components/Button';
 import Squeeze from '@/components/Squeeze';
 import CtiLoader from '@/components/CtiLoader';
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import {
   bellBold,
   checkCircleBold,
   chevronDownBold,
-  chevronRightBold,
   closeIcon,
   colorPaletteIcon,
   commentDotsBold,
@@ -35,7 +35,6 @@ import {
   mapPinBold,
   menuBold,
   mobileBold,
-  plusSquareBold,
   searchBold,
   shoppingCartExtra,
   starExtra,
@@ -51,6 +50,7 @@ import { useCart } from '@/roles/Customer/context/CartContext';
 import { mapBackendToBlog } from '@/services/blogApi';
 import homeApi, { HomeData } from '@/services/homeApi';
 import { fetchUnreadChatCount, startChat } from '@/services/chatApi';
+import socketService from '@/services/socketService';
 import {
   DeviceBrand,
   DeviceModel,
@@ -97,7 +97,21 @@ function Header({ navigation }) {
       refreshCart();
       refreshWishlist();
     });
-    return unsubscribe;
+
+    // Real-time unread badge synchronization over WebSockets
+    socketService.connect().catch(() => {});
+    const unsubListUpdate = socketService.onChatListUpdated(() => {
+      loadUnreadCount();
+    });
+    const unsubNewMsg = socketService.onNewMessage(() => {
+      loadUnreadCount();
+    });
+
+    return () => {
+      unsubscribe();
+      unsubListUpdate();
+      unsubNewMsg();
+    };
   }, [navigation, loadUnreadCount, refreshCart, refreshWishlist]);
 
   return (
@@ -133,7 +147,9 @@ function Header({ navigation }) {
               <Icon source={commentDotsBold} size={22} color={colors.text} />
               {unreadMsgCount > 0 && (
                 <View style={[styles.headerBadge, { backgroundColor: colors.error }]}>
-                  <Text style={styles.headerBadgeText}>{unreadMsgCount}</Text>
+                  <Text style={styles.headerBadgeText}>
+                    {unreadMsgCount > 99 ? '99+' : unreadMsgCount}
+                  </Text>
                 </View>
               )}
             </View>
@@ -255,9 +271,6 @@ function ServiceFinder({ navigation }: { navigation?: any }) {
   const [pickerType, setPickerType] = useState<'brand' | 'model' | 'color' | null>(null);
   const [pickerSearch, setPickerSearch] = useState('');
 
-  // Action modal state ("What do you want to do?")
-  const [showActionModal, setShowActionModal] = useState(false);
-
   useEffect(() => {
     let isMounted = true;
     (async () => {
@@ -308,18 +321,7 @@ function ServiceFinder({ navigation }: { navigation?: any }) {
 
   const handleFindService = () => {
     if (!selectedBrand || !selectedModel || !selectedColor) return;
-    setShowActionModal(true);
-  };
-
-  const handleSearchRepairman = () => {
-    setShowActionModal(false);
     const query = `${selectedBrand?.name || ''} ${selectedModel?.name || ''}`.trim();
-    navigation?.navigate('ExpertRepairmen', { query });
-  };
-
-  const handleHireRepairman = () => {
-    setShowActionModal(false);
-    const query = selectedBrand?.name || '';
     navigation?.navigate('ExpertRepairmen', { query });
   };
 
@@ -557,72 +559,6 @@ function ServiceFinder({ navigation }: { navigation?: any }) {
                 )
               )}
             </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* --- Action Modal ("What do you want to do?") --- */}
-      <Modal
-        visible={showActionModal}
-        animationType="fade"
-        transparent
-        onRequestClose={() => setShowActionModal(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.actionModalContent, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            {/* Header */}
-            <View style={styles.actionModalHeader}>
-              <Text style={[styles.actionModalTitle, { color: colors.text }]}>What do you want to do?</Text>
-              <Text style={[styles.actionModalSubtitle, { color: colors.textMuted }]}>
-                {selectedBrand?.name} • {selectedModel?.name} • {selectedColor}
-              </Text>
-            </View>
-
-            {/* Options */}
-            <View style={styles.actionOptions}>
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={handleSearchRepairman}
-                style={[styles.actionOptionCard, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
-                <View style={styles.actionOptionLeft}>
-                  <View style={[styles.actionIconWrap, { backgroundColor: '#E0F2FE' }]}>
-                    <Icon source={searchBold} size={22} color="#0284C7" />
-                  </View>
-                  <View style={styles.actionOptionTexts}>
-                    <Text style={[styles.actionOptionTitle, { color: colors.text }]}>Search Repairman</Text>
-                    <Text style={[styles.actionOptionDesc, { color: colors.textMuted }]}>
-                      Find nearby verified technicians
-                    </Text>
-                  </View>
-                </View>
-                <Icon source={chevronRightBold} size={18} color={colors.textMuted} />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={handleHireRepairman}
-                style={[styles.actionOptionCard, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
-                <View style={styles.actionOptionLeft}>
-                  <View style={[styles.actionIconWrap, { backgroundColor: '#FFEDD5' }]}>
-                    <Icon source={plusSquareBold} size={22} color="#EA580C" />
-                  </View>
-                  <View style={styles.actionOptionTexts}>
-                    <Text style={[styles.actionOptionTitle, { color: colors.text }]}>Hire a Repairman</Text>
-                    <Text style={[styles.actionOptionDesc, { color: colors.textMuted }]}>
-                      Let repairmen come to you
-                    </Text>
-                  </View>
-                </View>
-                <Icon source={chevronRightBold} size={18} color={colors.textMuted} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Cancel Button */}
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onPress={() => setShowActionModal(false)}
-              style={[styles.actionCancelButton, { borderTopColor: colors.border }]}>
-              <Text style={[styles.actionCancelText, { color: colors.textMuted }]}>Cancel</Text>
-            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -957,9 +893,22 @@ function RatingsSlider({ liveReviews }: { liveReviews?: any[] }) {
                 ]}>
                 <View style={styles.reviewHead}>
                   {review.photo ? (
-                    <Image source={{ uri: review.photo }} style={styles.reviewAvatar} />
+                    <Image
+                      source={{ uri: review.photo }}
+                      style={[styles.reviewAvatar, { borderWidth: 1, borderColor: colors.avatarBorder }]}
+                    />
                   ) : (
-                    <View style={[styles.reviewAvatar, { backgroundColor: colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' }]}>
+                    <View
+                      style={[
+                        styles.reviewAvatar,
+                        {
+                          backgroundColor: colors.surfaceAlt,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          borderWidth: 1,
+                          borderColor: colors.avatarBorder,
+                        },
+                      ]}>
                       <Icon source={usersThreeBold} size={16} color={colors.textMuted} />
                     </View>
                   )}
@@ -1081,6 +1030,19 @@ export default function HomeScreen({ navigation }: any) {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Themed Alert Modal State (Replaces native Alert)
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    type: AlertModalType;
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
+
   const loadData = useCallback(async (isUserRetry = false) => {
     if (isUserRetry) {
       setLoading(true);
@@ -1095,7 +1057,7 @@ export default function HomeScreen({ navigation }: any) {
         setHomeData(null);
         setError('No data available from server.');
       }
-    } catch (e: any) {
+    } catch {
       setHomeData(null);
       setError('Server not reachable. Please try again.');
     } finally {
@@ -1182,8 +1144,18 @@ export default function HomeScreen({ navigation }: any) {
               <BestRatedStores liveSellers={homeData.sellers} navigation={navigation} />
             </FadeUp>
           )}
+
         </ScrollView>
       )}
+
+      {/* Themed Alert Modal */}
+      <AlertModal
+        visible={alertConfig.visible}
+        type={alertConfig.type}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
+      />
     </View>
   );
 }
@@ -1271,6 +1243,18 @@ const styles = StyleSheet.create({
   selectLabel: { fontFamily: fonts.regular, fontSize: 11 },
   selectValue: { fontFamily: fonts.bold, fontSize: 14 },
   findServiceButton: { marginTop: 16 },
+  postJobBanner: {
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(150, 150, 150, 0.2)',
+    alignItems: 'center',
+  },
+  postJobBannerText: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    textAlign: 'center',
+  },
 
   servicesRow: { gap: 14, paddingHorizontal: 20, paddingTop: 16 },
   serviceItem: { alignItems: 'center', gap: 8, width: 76 },

@@ -115,6 +115,13 @@ export default function ServiceCatalogScreen({ navigation }: any) {
       <FlatList
         data={filteredServices}
         keyExtractor={item => item.id}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => loadServices(true)}
+            tintColor={colors.primary}
+          />
+        }
         contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 40 }]}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={

@@ -1058,7 +1058,15 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
                   { backgroundColor: colors.surface, borderColor: colors.border + '33' },
                 ]}>
                 <View style={styles.reviewUserRow}>
-                  <View style={[styles.reviewerAvatar, { backgroundColor: colors.primary + '22' }]}>
+                  <View
+                    style={[
+                      styles.reviewerAvatar,
+                      {
+                        backgroundColor: colors.primary + '22',
+                        borderWidth: 1,
+                        borderColor: colors.avatarBorder,
+                      },
+                    ]}>
                     <Text style={[styles.reviewerInitials, { color: colors.primary }]}>
                       {item?.name ? item.name.charAt(0) : 'U'}
                     </Text>

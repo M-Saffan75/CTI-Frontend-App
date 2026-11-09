@@ -283,7 +283,7 @@ export async function getAllCustomerOrders(params?: {
       const timeB = new Date(b.raw?.createdAt || b.date).getTime() || 0;
       return timeB - timeA;
     });
-  } catch (err) {
+  } catch {
     return [];
   }
 }
@@ -399,7 +399,11 @@ export async function createCustomerOrderApi(payload: {
     fullName: string;
     phone: string;
     country?: string;
+    countryCode?: string;
+    state?: string;
+    stateCode?: string;
     city: string;
+    area?: string;
     addressLine: string;
     postalCode?: string;
   };
@@ -426,7 +430,7 @@ export async function createCustomerOrderApi(payload: {
         ? '/refurbished/cart/my-cart/clear'
         : '/e-commerce/cart/my-cart/clear';
       await apiClient.delete(clearUrl);
-    } catch (_) {}
+    } catch {}
 
     return res.data;
   } catch (err: any) {

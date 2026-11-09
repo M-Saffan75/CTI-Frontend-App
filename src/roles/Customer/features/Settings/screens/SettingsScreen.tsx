@@ -63,8 +63,8 @@ const MENU = [
     label: 'Refurbished Devices',
     icon: mobileBold,
     children: [
-      { label: 'Sell Gadgets', icon: storeBold, screen: 'SellRefurbished', params: { mode: 'gadget' } },
       { label: 'Sell Phone', icon: phoneBold, screen: 'SellRefurbished', params: { mode: 'phone' } },
+      { label: 'Sell Gadgets', icon: storeBold, screen: 'SellRefurbished', params: { mode: 'gadget' } },
     ],
   },
   {
@@ -76,19 +76,19 @@ const MENU = [
         label: 'Refurbished Smart Watch',
         icon: clockBold,
         screen: 'AllGadgets',
-        params: { initialCategory: 'Smart watches' },
+        params: { initialCategory: 'Smart watches', categorySlug: 'smart-watches' },
       },
       {
         label: 'Refurbished Tablet',
         icon: tabletBold,
         screen: 'AllGadgets',
-        params: { initialCategory: 'Tablets' },
+        params: { initialCategory: 'Tablets', categorySlug: 'tablets' },
       },
       {
         label: 'Refurbished Gaming Console',
         icon: desktopBold,
         screen: 'AllGadgets',
-        params: { initialCategory: 'Gaming Console' },
+        params: { initialCategory: 'Gaming Console', categorySlug: 'gaming-consoles' },
       },
     ],
   },
@@ -225,7 +225,10 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
           activeOpacity={0.7}
           onPress={() => navigation?.navigate('Profile')}
           style={styles.profileBtn}>
-          <Image source={avatarSource} style={styles.avatar} />
+          <Image
+            source={avatarSource}
+            style={[styles.avatar, { borderColor: colors.avatarBorder }]}
+          />
 
           <View style={styles.profileText}>
             <Text style={[styles.name, { color: colors.text }]}>
@@ -313,7 +316,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 14,
   },
-  avatar: { width: 48, height: 48, borderRadius: 24 },
+  avatar: { width: 48, height: 48, borderRadius: 24, borderWidth: 1.5 },
   profileText: { flex: 1, gap: 2 },
   name: { fontFamily: fonts.bold, fontSize: 16 },
   role: { fontFamily: fonts.regular, fontSize: 13 },

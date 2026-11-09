@@ -55,6 +55,16 @@ Rules for this flow:
 - Payment (iyzico card details sent to our backend, no 3D Secure): postponed. Keep the current checkout working as it is. Do not change the payment flow. Only make sure card data is never logged or stored on the device.
 - Seller HomeScreen placeholder (src/roles/Seller/features/Home/screens/HomeScreen.tsx): it is an unused placeholder, because SellerMainScreen is the real home. Search the whole project to confirm nothing imports or navigates to it. If it is really unused, delete the file and tell me. If something uses it, do not delete it and tell me where.
 
+## 2d. UX rules for every screen (strict, apply everywhere)
+
+- Edit and update forms: compare the current values with the original values. If nothing changed, do not call the API. Show a short message such as "Nothing changed" and stay on the screen. Disable or visually mark the save button when there is no change.
+- After a successful action, show the success message that the backend returns (the message field of the response). Use a fixed fallback text only when the backend sends no message. Never hardcode a success text when the backend provides one.
+- After a failed action, show the backend error message (and field errors next to the right fields). Use a generic fallback only when the backend sends nothing useful.
+- Every submit button shows a loading state and is disabled while the request runs, so there are no double submits.
+- After success, update the visible data everywhere it is shown (profile name and photo in headers, Settings, lists) without needing an app restart.
+- Every profile picture and avatar (profile screen, edit profile, settings, headers, chat, lists) has a light colored border that follows the theme, using the theme tokens (for example the theme border color), never a hardcoded color. It must look right in both light and dark theme. If there is no photo, show the placeholder with the same border.
+- Keyboard, safe area and long text must never hide or break a form.
+
 ## 3. Current priority: API integration for all 3 roles
 
 Language support (Turkish default, English second) comes later. Do not implement translations now. Just keep new user facing text in one obvious place per screen (not duplicated or scattered) so adding translations later is easy.

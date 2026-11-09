@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Image,
   Modal,
@@ -17,6 +17,7 @@ import Icon from '@/components/Icon';
 import Button from '@/components/Button';
 import Squeeze from '@/components/Squeeze';
 import CtiLoader from '@/components/CtiLoader';
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
@@ -24,9 +25,7 @@ import {
   commentDotsBold,
   heartExtra,
   mapPinBold,
-  phoneBold,
   searchBold,
-  shieldBold,
   shoppingCartExtra,
   starExtra,
   userBold,
@@ -42,33 +41,18 @@ import { startChat } from '@/services/chatApi';
 
 function RepairmanCard({
   repairman,
-  navigation,
   onViewProfile,
   searchQuery,
+  onStartChat,
+  isStartingChat,
 }: {
   repairman: MobileRepairman;
-  navigation: any;
   onViewProfile: (repairman: MobileRepairman) => void;
   searchQuery?: string;
+  onStartChat: (repairman: MobileRepairman) => void;
+  isStartingChat: boolean;
 }) {
   const { colors } = useTheme();
-
-  const handleStartChat = async () => {
-    if (!repairman.id) return;
-    try {
-      const res = await startChat({ repairmanId: repairman.id });
-      const targetName = res.chat?.user?.name || res.chat?.repairman?.name || repairman.name;
-      const targetAvatar = res.chat?.user?.avatar || res.chat?.repairman?.avatar || repairman.photo;
-      navigation.navigate('ChatDetail', {
-        chatId: res.chat?._id || res.chat?.chatId,
-        participantId: repairman.id,
-        participantName: targetName,
-        participantAvatar: targetAvatar,
-      });
-    } catch {
-      navigation.navigate('ChatList');
-    }
-  };
 
   // Find matching specialization based on searchQuery if available
   const q = (searchQuery || '').trim().toLowerCase();
@@ -146,7 +130,9 @@ function RepairmanCard({
           <Button
             title="Book & Chat"
             size="sm"
-            onPress={handleStartChat}
+            loading={isStartingChat}
+            disabled={isStartingChat}
+            onPress={() => onStartChat(repairman)}
             style={styles.bookButton}
           />
         </View>
@@ -176,6 +162,53 @@ export default function ExpertRepairmenScreen({ navigation, route }: any) {
   const initialQuery = route?.params?.query || route?.params?.specialization || '';
   const [search, setSearch] = useState<string>(initialQuery);
   const [selectedRepairman, setSelectedRepairman] = useState<MobileRepairman | null>(null);
+  const [startingChatId, setStartingChatId] = useState<string | null>(null);
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    type: AlertModalType;
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+    type: 'info',
+  });
+
+  const handleStartChat = async (rep: MobileRepairman) => {
+    if (!rep?.id || startingChatId) return;
+    setStartingChatId(rep.id);
+    try {
+      const res = await startChat({ repairmanId: rep.id });
+      if (res.success && res.chat) {
+        if (selectedRepairman) setSelectedRepairman(null);
+        const targetName = res.chat?.user?.name || res.chat?.repairman?.name || rep.name;
+        const targetAvatar = res.chat?.user?.avatar || res.chat?.repairman?.avatar || rep.photo;
+        navigation.navigate('ChatDetail', {
+          chatId: res.chat?._id || res.chat?.chatId,
+          participantId: rep.id,
+          participantName: targetName,
+          participantAvatar: targetAvatar,
+        });
+      } else {
+        setAlertConfig({
+          visible: true,
+          title: 'Unable to Start Chat',
+          message: res.message || 'Could not connect with this repairman. Please try again later.',
+          type: 'error',
+        });
+      }
+    } catch (err: any) {
+      setAlertConfig({
+        visible: true,
+        title: 'Chat Connection Error',
+        message: err?.message || 'A network error occurred while connecting to the chat.',
+        type: 'error',
+      });
+    } finally {
+      setStartingChatId(null);
+    }
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -183,7 +216,7 @@ export default function ExpertRepairmenScreen({ navigation, route }: any) {
       if (q !== null && q !== undefined) {
         setSearch(q);
       }
-    }, [route?.params?.query, route?.params?.specialization, route?.params?.timestamp])
+    }, [route?.params?.query, route?.params?.specialization])
   );
 
   const loadRepairmen = useCallback(async () => {
@@ -581,9 +614,10 @@ export default function ExpertRepairmenScreen({ navigation, route }: any) {
                 style={styles.gridItem}>
                 <RepairmanCard
                   repairman={repairman}
-                  navigation={navigation}
                   onViewProfile={r => setSelectedRepairman(r)}
                   searchQuery={search}
+                  onStartChat={handleStartChat}
+                  isStartingChat={startingChatId === repairman.id}
                 />
               </FadeUp>
             ))}
@@ -682,23 +716,9 @@ export default function ExpertRepairmenScreen({ navigation, route }: any) {
                   size="md"
                   icon={commentDotsBold}
                   iconPosition="left"
-                  onPress={async () => {
-                    const r = selectedRepairman;
-                    setSelectedRepairman(null);
-                    try {
-                      const res = await startChat({ repairmanId: r.id });
-                      const targetName = res.chat?.user?.name || res.chat?.repairman?.name || r.name;
-                      const targetAvatar = res.chat?.user?.avatar || res.chat?.repairman?.avatar || r.photo;
-                      navigation.navigate('ChatDetail', {
-                        chatId: res.chat?._id || res.chat?.chatId,
-                        participantId: r.id,
-                        participantName: targetName,
-                        participantAvatar: targetAvatar,
-                      });
-                    } catch {
-                      navigation.navigate('ChatList');
-                    }
-                  }}
+                  loading={startingChatId === selectedRepairman.id}
+                  disabled={startingChatId === selectedRepairman.id}
+                  onPress={() => handleStartChat(selectedRepairman)}
                   style={{ marginTop: 18 }}
                 />
               </ScrollView>
@@ -706,6 +726,15 @@ export default function ExpertRepairmenScreen({ navigation, route }: any) {
           </View>
         </Modal>
       )}
+
+      {/* Themed Feedback / Error Modal (Section 2d compliant - no native Alert) */}
+      <AlertModal
+        visible={alertConfig.visible}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        type={alertConfig.type}
+        onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
+      />
     </View>
   );
 }

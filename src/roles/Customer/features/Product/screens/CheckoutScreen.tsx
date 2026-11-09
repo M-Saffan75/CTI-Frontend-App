@@ -25,6 +25,7 @@ import { fonts } from '@/theme/fonts';
 import { useWishlist } from '../../../context/WishlistContext';
 import { useCart } from '../../../context/CartContext';
 import { createCustomerOrderApi } from '../../Orders/services/orderApi';
+import AuthService from '@/services/authService';
 
 // Luhn algorithm validator for card numbers (Standard credit card checksum)
 function validateLuhn(numberStr: string): boolean {
@@ -86,13 +87,16 @@ export default function CheckoutScreen({ navigation, route }: any) {
   const effectiveCartCount =
     cartCount > 0 ? cartCount : (cartItems?.length || 0);
 
-  const [firstName, setFirstName] = useState('Customer');
-  const [lastName, setLastName] = useState('User');
-  const [email, setEmail] = useState('customer@gmail.com');
-  const [phone, setPhone] = useState('03001234567');
-  const [address, setAddress] = useState('Main Boulevard, Gulberg');
-  const [city, setCity] = useState('Lahore');
-  const [postalCode, setPostalCode] = useState('54000');
+  const cachedUser = AuthService.getCachedUser();
+  const userNames = (cachedUser?.name || 'Customer').trim().split(' ');
+  const [firstName, setFirstName] = useState(userNames[0] || 'Customer');
+  const [lastName, setLastName] = useState(userNames.slice(1).join(' ') || '');
+  const [email, setEmail] = useState(cachedUser?.email || '');
+  const [phone, setPhone] = useState(cachedUser?.phone || '');
+  const [country, setCountry] = useState('Turkey');
+  const [address, setAddress] = useState('');
+  const [city, setCity] = useState('');
+  const [postalCode, setPostalCode] = useState('');
 
   const [paymentMethod, setPaymentMethod] = useState<'card' | 'cod'>('card');
   const [cardHolder, setCardHolder] = useState('Customer User');
@@ -101,6 +105,7 @@ export default function CheckoutScreen({ navigation, route }: any) {
   const [cardCvv, setCardCvv] = useState('');
   const [placed, setPlaced] = useState(false);
   const [placing, setPlacing] = useState(false);
+  const [orderSuccessMsg, setOrderSuccessMsg] = useState('');
   const scrollRef = useRef<any>(null);
 
   const cardBrand = getCardBrand(cardNumber);
@@ -263,14 +268,16 @@ export default function CheckoutScreen({ navigation, route }: any) {
         };
       });
 
-      await createCustomerOrderApi({
+      const orderRes = await createCustomerOrderApi({
         shippingAddress: {
           fullName: `${firstName} ${lastName}`.trim(),
           phone: phone.trim(),
-          country: 'Pakistan',
+          country: country.trim() || 'Turkey',
+          countryCode: 'TR',
           city: city.trim(),
+          area: city.trim(),
           addressLine: address.trim(),
-          postalCode: postalCode.trim(),
+          postalCode: postalCode.trim() || undefined,
         },
         paymentMethod: paymentMethod === 'card' ? 'card' : 'cod',
         cardHolder: cardHolder.trim() || `${firstName} ${lastName}`.trim(),
@@ -286,13 +293,20 @@ export default function CheckoutScreen({ navigation, route }: any) {
         await refreshCart();
       } catch {}
 
+      if (orderRes?.message) {
+        setOrderSuccessMsg(orderRes.message);
+      }
       setPlaced(true);
     } catch (err: any) {
       setModal({
         visible: true,
         type: 'error',
         title: 'Order Failed',
-        message: err?.message || 'Could not place your order. Please try again.',
+        message:
+          err?.response?.data?.message ||
+          err?.data?.message ||
+          err?.message ||
+          'Could not place your order. Please try again.',
       });
     } finally {
       setPlacing(false);
@@ -354,7 +368,8 @@ export default function CheckoutScreen({ navigation, route }: any) {
             <Input label="First Name" value={firstName} onChangeText={setFirstName} style={styles.field} />
             <Input label="Last Name" value={lastName} onChangeText={setLastName} style={styles.field} />
             <Input label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" style={styles.field} />
-            <Input label="Phone" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="03xx xxxxxxx" style={styles.field} />
+            <Input label="Phone" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="Phone number" style={styles.field} />
+            <Input label="Country" value={country} onChangeText={setCountry} placeholder="Country (e.g. Turkey)" style={styles.field} />
             <Input label="Address" value={address} onChangeText={setAddress} placeholder="House, street, area" style={styles.field} />
             <Input label="City" value={city} onChangeText={setCity} style={styles.field} />
             <Input label="Postal Code" value={postalCode} onChangeText={setPostalCode} keyboardType="numeric" style={styles.field} />
@@ -492,7 +507,10 @@ export default function CheckoutScreen({ navigation, route }: any) {
       <ConfirmModal
         visible={placed}
         title="Order Placed!"
-        message="Your order has been placed successfully. We'll notify you once it starts shipping."
+        message={
+          orderSuccessMsg ||
+          "Your order has been placed successfully. We'll notify you once it starts shipping."
+        }
         cancelText="Keep Shopping"
         confirmText="View Orders"
         onCancel={() => {

@@ -30,6 +30,8 @@ export default function Button({
   disabled = false,
   fullWidth = true,
   style = null,
+  contentStyle = null,
+  textStyle = null,
 }) {
   const { colors } = useTheme();
   const sizing = SIZES[size] ?? SIZES.md;
@@ -38,7 +40,7 @@ export default function Button({
   const accent = color ?? colors.primary;
 
   const textColor =
-    gradient || variant === 'filled'
+    gradient || variant === 'filled' || variant === 'primary'
       ? color
         ? '#FFFFFF' // a custom fill is always a strong colour, so white reads on it
         : colors.onPrimary
@@ -48,10 +50,11 @@ export default function Button({
 
   const background = {
     filled: { backgroundColor: accent },
+    primary: { backgroundColor: accent },
     soft: { backgroundColor: colors.inputBg },
     outline: { backgroundColor: 'transparent', borderWidth: 1, borderColor: accent },
     ghost: { backgroundColor: 'transparent' },
-  }[variant];
+  }[variant] || { backgroundColor: accent };
 
   const inner = (
     <>
@@ -64,7 +67,7 @@ export default function Button({
           )}
           <Text
             numberOfLines={1}
-            style={[styles.title, { color: textColor, fontSize: sizing.fontSize }]}>
+            style={[styles.title, { color: textColor, fontSize: sizing.fontSize }, textStyle]}>
             {title}
           </Text>
           {icon && iconPosition === 'right' && (
@@ -78,6 +81,7 @@ export default function Button({
   const box = [
     styles.box,
     { height: sizing.height, paddingHorizontal: sizing.paddingHorizontal },
+    contentStyle,
   ];
 
   return (

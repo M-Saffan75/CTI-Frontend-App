@@ -648,7 +648,11 @@ export default function SellRefurbishedScreen({ navigation, route }: any) {
                   <View
                     style={[
                       styles.avatarCircle,
-                      { backgroundColor: colors.primary + '18' },
+                      {
+                        backgroundColor: colors.primary + '18',
+                        borderWidth: 1,
+                        borderColor: colors.avatarBorder,
+                      },
                     ]}>
                     <Text style={[styles.avatarText, { color: colors.primary }]}>
                       {(item.name || 'C')[0]}

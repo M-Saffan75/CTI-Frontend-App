@@ -172,13 +172,14 @@ TOTAL APP SCREENS: 95
 ========================================================================
 
 1. SHARED & ROLE-AGNOSTIC (20 SCREENS):
-   - Real API (11): NotificationsScreen, BuyRefurbishedScreen, AllGadgetsScreen, 
+   - Real API (13): NotificationsScreen, BuyRefurbishedScreen, AllGadgetsScreen, 
                     RefurbishedProductDetailScreen, SellRefurbishedScreen, 
                     SelectModelScreen, SelectVariantScreen, DeviceConditionScreen, 
                     UploadDeviceMediaScreen, QuoteApplicationScreen, 
-                    MySellRequestsScreen, ChangePasswordScreen.
-   - Hybrid (2):    ProfileScreen, EditProfileScreen.
-   - Mock (1):      ServiceCatalogScreen.
+                    MySellRequestsScreen, ChangePasswordScreen, ProfileScreen (Customer),
+                    EditProfileScreen (Customer).
+   - Hybrid (0):    None (Profile & EditProfile role-gated to Real API for Customer).
+   - Mock (1):      ServiceCatalogScreen (Provider only, removed from CustomerNavigator).
    - Local (2):     SplashScreen, RoleSelectScreen.
    - Clean (4):     PrivacyPolicyScreen, TermsScreen, ApplicationSubmittedScreen, 
                     ProfileScreen (alias).

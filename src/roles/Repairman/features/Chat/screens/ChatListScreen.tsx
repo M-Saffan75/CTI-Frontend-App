@@ -59,7 +59,10 @@ function ChatRow({ chat, navigation }: { chat: ChatItem; navigation: any }) {
       }>
       <View style={styles.row}>
         <View style={styles.avatarWrap}>
-          <Image source={avatarSource} style={styles.avatar} />
+          <Image
+            source={avatarSource}
+            style={[styles.avatar, { borderWidth: 1, borderColor: colors.avatarBorder }]}
+          />
           {chat.participant?.isOnline && (
             <View
               style={[

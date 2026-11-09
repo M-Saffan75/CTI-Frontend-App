@@ -493,6 +493,24 @@ export class AuthService {
   }
 
   /**
+   * Get asynchronously stored user
+   */
+  static async getStoredUser(): Promise<AuthUser | null> {
+    if (memoryUser) return memoryUser;
+    const session = await this.getStoredSession();
+    return session?.user || null;
+  }
+
+  /**
+   * Get asynchronously stored role
+   */
+  static async getStoredRole(): Promise<string | null> {
+    if (memoryRole) return memoryRole;
+    const session = await this.getStoredSession();
+    return session?.role || null;
+  }
+
+  /**
    * Clear local storage and memory
    */
   static async clearStoredAuth(): Promise<void> {

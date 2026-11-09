@@ -10,6 +10,7 @@ class SocketService {
   private socket: Socket | null = null;
   private isConnecting: boolean = false;
   private netInfoUnsubscribe: (() => void) | null = null;
+  private activeChatId: string | null = null;
 
   // Single source of truth for listeners to prevent duplicate socket subscriptions
   private listeners: Map<string, Set<Function>> = new Map();
@@ -90,7 +91,14 @@ class SocketService {
           console.log('[Socket] Connected successfully with ID:', this.socket?.id);
         }
         if (token) {
-          this.socket?.emit('user_online', { token });
+          this.socket?.emit('user_online');
+        }
+        // Auto-rejoin active chat on socket connect / reconnect after network drop
+        if (this.activeChatId) {
+          if (__DEV__) {
+            console.log('[Socket] Rejoining active chat room on connect:', this.activeChatId);
+          }
+          this.socket?.emit('join_chat', { chatId: this.activeChatId });
         }
       });
 
@@ -132,6 +140,7 @@ class SocketService {
    * Disconnect and clear socket on logout or cleanup
    */
   disconnect() {
+    this.activeChatId = null;
     if (this.socket) {
       this.socket.removeAllListeners();
       this.socket.disconnect();
@@ -223,6 +232,8 @@ class SocketService {
    * Join a chat room to receive live messages
    */
   joinChat(chatId: string) {
+    if (!chatId) return;
+    this.activeChatId = chatId;
     this.emit('join_chat', { chatId });
   }
 
@@ -230,7 +241,17 @@ class SocketService {
    * Leave a chat room
    */
   leaveChat(chatId: string) {
+    if (this.activeChatId === chatId) {
+      this.activeChatId = null;
+    }
     this.emit('leave_chat', { chatId });
+  }
+
+  /**
+   * Get currently active joined chat room ID
+   */
+  getActiveChatId(): string | null {
+    return this.activeChatId;
   }
 
   /**
@@ -252,6 +273,13 @@ class SocketService {
    */
   onNewMessage(callback: (message: any) => void): () => void {
     return this.on('new_message', callback);
+  }
+
+  /**
+   * Listen for server confirmation when a message is persisted and sent
+   */
+  onMessageSent(callback: (data: { messageId: string; timestamp: string | Date }) => void): () => void {
+    return this.on('message_sent', callback);
   }
 
   /**
@@ -283,17 +311,42 @@ class SocketService {
   }
 
   /**
+   * Listen for other user typing state changes (Backend emits 'user_typing' event)
+   */
+  onUserTyping(callback: (data: { userId: string; userName?: string; chatId: string; isTyping: boolean }) => void): () => void {
+    return this.on('user_typing', callback);
+  }
+
+  /**
    * Listen for other user typing
    */
   onTypingStart(callback: (data: { userId: string; userName?: string; chatId: string }) => void): () => void {
-    return this.on('typing_start', callback);
+    const unsubUserTyping = this.on('user_typing', (data: any) => {
+      if (data?.isTyping) {
+        callback(data);
+      }
+    });
+    const unsubLegacy = this.on('typing_start', callback);
+    return () => {
+      unsubUserTyping();
+      unsubLegacy();
+    };
   }
 
   /**
    * Listen for other user stopped typing
    */
   onTypingStop(callback: (data: { userId: string; chatId: string }) => void): () => void {
-    return this.on('typing_stop', callback);
+    const unsubUserTyping = this.on('user_typing', (data: any) => {
+      if (data && !data.isTyping) {
+        callback(data);
+      }
+    });
+    const unsubLegacy = this.on('typing_stop', callback);
+    return () => {
+      unsubUserTyping();
+      unsubLegacy();
+    };
   }
 
   /**
@@ -304,9 +357,23 @@ class SocketService {
   }
 
   /**
+   * Delete message over socket
+   */
+  deleteMessage(chatId: string, messageId: string) {
+    this.emit('delete_message', { chatId, messageId });
+  }
+
+  /**
+   * Listen for message deletion
+   */
+  onMessageDeleted(callback: (data: { chatId: string; messageId: string }) => void): () => void {
+    return this.on('message_deleted', callback);
+  }
+
+  /**
    * Listen for read receipts
    */
-  onMessagesRead(callback: (data: { chatId: string; messageIds: string[]; readBy: string }) => void): () => void {
+  onMessagesRead(callback: (data: { chatId: string; messageIds: string[]; readBy: string; readAt?: string | Date }) => void): () => void {
     return this.on('messages_read', callback);
   }
 

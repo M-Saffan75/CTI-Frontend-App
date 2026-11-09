@@ -409,7 +409,10 @@ export default function ChatDetailScreen({ navigation, route }: any) {
           </View>
         </Squeeze>
 
-        <Image source={dummyProfileExtra} style={styles.avatar} />
+        <Image
+          source={dummyProfileExtra}
+          style={[styles.avatar, { borderWidth: 1, borderColor: colors.avatarBorder }]}
+        />
 
         <View style={styles.headerInfo}>
           <View style={styles.nameRow}>

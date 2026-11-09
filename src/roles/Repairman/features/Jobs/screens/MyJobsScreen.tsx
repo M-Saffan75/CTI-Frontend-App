@@ -115,7 +115,10 @@ export default function MyJobsContent({ navigation }) {
 
         {MY_JOBS[0] && (
           <View style={styles.customerRow}>
-            <Image source={{ uri: MY_JOBS[0].customer.avatar }} style={styles.avatar} />
+            <Image
+              source={{ uri: MY_JOBS[0].customer.avatar }}
+              style={[styles.avatar, { borderWidth: 1, borderColor: colors.avatarBorder }]}
+            />
             <Text style={[styles.customerName, { color: colors.text }]}>{MY_JOBS[0].customer.name}</Text>
             <View style={[styles.messagePill, { backgroundColor: colors.error + '18' }]}>
               <Text style={[styles.messagePillText, { color: colors.error }]}>{MY_JOBS[0].messageStatus}</Text>

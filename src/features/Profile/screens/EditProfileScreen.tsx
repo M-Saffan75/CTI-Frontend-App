@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -15,6 +16,7 @@ import { launchImageLibrary } from 'react-native-image-picker';
 
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
+import ConfirmModal from '@/components/ConfirmModal';
 import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import {
@@ -49,7 +51,12 @@ import {
 import AddEducationModal from '../components/AddEducationModal';
 import AddExperienceModal from '../components/AddExperienceModal';
 import AddCertificateModal from '../components/AddCertificateModal';
-import { updateUserProfileApi } from '../services/profileApi';
+import {
+  CountryOption,
+  deleteProfilePhotoApi,
+  fetchCountriesApi,
+  updateUserProfileApi,
+} from '../services/profileApi';
 import AuthService from '@/services/authService';
 
 const GENDER_OPTIONS = ['Male', 'Female', 'Other'];
@@ -68,7 +75,7 @@ export default function EditProfileScreen({ navigation, route }: any) {
   const insets = useSafeAreaInsets();
 
   const cachedUser = AuthService.getCachedUser();
-  const [profile] = useState<ProfileData>(
+  const [profile, setProfile] = useState<ProfileData>(
     route?.params?.profileData || INITIAL_PROFILE_DATA,
   );
 
@@ -86,17 +93,96 @@ export default function EditProfileScreen({ navigation, route }: any) {
   );
   const [selectedPhoto, setSelectedPhoto] = useState<any>(null);
   const [phone, setPhone] = useState(profile?.phone || cachedUser?.phone || '');
-  const [whatsapp, setWhatsapp] = useState(profile?.whatsapp || profile?.phone || cachedUser?.phone || '');
-  const [email] = useState(profile?.email || cachedUser?.email || '');
-  const [country, setCountry] = useState(profile?.city ? 'Turkey' : 'Turkey');
-  const [city, setCity] = useState(profile?.city || '');
-  const [address, setAddress] = useState(profile?.address || '');
-  const [zipCode, setZipCode] = useState(profile?.zipCode || '');
-  const [aboutBio, setAboutBio] = useState(profile?.aboutMe || '');
+  const [email, setEmail] = useState(profile?.email || cachedUser?.email || '');
+
+  // Snapshot of initial values to detect changes (UX rule 2d)
+  const initialCustomerDataRef = useRef<{
+    name: string;
+    phone: string;
+    countryId?: string;
+    countryName?: string;
+    hasInitializedCountry?: boolean;
+  }>({
+    name: (profile?.name || cachedUser?.name || 'Customer').trim(),
+    phone: (profile?.phone || cachedUser?.phone || '').trim().replace(/[\s-()]/g, ''),
+    countryId: profile?.countryId,
+    countryName: profile?.country || 'Turkey',
+    hasInitializedCountry: false,
+  });
+
+  // Country Dropdown States (Loaded from GET /api/public/countries)
+  const [countries, setCountries] = useState<CountryOption[]>([]);
+  const [selectedCountryId, setSelectedCountryId] = useState<string | undefined>(profile?.countryId);
+  const [selectedCountryName, setSelectedCountryName] = useState<string>(profile?.country || 'Turkey');
+  const [showCountryDropdown, setShowCountryDropdown] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    fetchCountriesApi().then(list => {
+      if (!mounted) return;
+      if (list && list.length > 0) {
+        setCountries(list);
+        let resolvedId: string | undefined;
+        let resolvedName = 'Turkey';
+
+        if (profile?.countryId) {
+          const match = list.find(c => c.id === profile.countryId);
+          if (match) {
+            resolvedId = match.id;
+            resolvedName = match.name;
+          }
+        } else if (profile?.country) {
+          const match = list.find(c => c.name.toLowerCase() === profile.country?.toLowerCase());
+          if (match) {
+            resolvedId = match.id;
+            resolvedName = match.name;
+          }
+        } else {
+          const turkey = list.find(c => c.name.toLowerCase() === 'turkey');
+          if (turkey) {
+            resolvedId = turkey.id;
+            resolvedName = turkey.name;
+          }
+        }
+
+        if (resolvedId) {
+          setSelectedCountryId(resolvedId);
+          setSelectedCountryName(resolvedName);
+          if (!initialCustomerDataRef.current.hasInitializedCountry) {
+            initialCustomerDataRef.current.countryId = resolvedId;
+            initialCustomerDataRef.current.countryName = resolvedName;
+            initialCustomerDataRef.current.hasInitializedCountry = true;
+          }
+        }
+      }
+    });
+    return () => {
+      mounted = false;
+    };
+  }, [profile?.country, profile?.countryId]);
+
+  // Track if any field changed for Customer
+  const currentCleanPhone = phone.trim().replace(/[\s-()]/g, '');
+  const hasCustomerChanged =
+    selectedPhoto !== null ||
+    fullName.trim() !== initialCustomerDataRef.current.name ||
+    currentCleanPhone !== initialCustomerDataRef.current.phone ||
+    Boolean(
+      initialCustomerDataRef.current.countryId &&
+      selectedCountryId &&
+      selectedCountryId !== initialCustomerDataRef.current.countryId
+    );
+
+  const hasChanged = isCustomer ? hasCustomerChanged : true;
 
   // Provider Form States (Preserved for Repairman / Seller)
   const [firstName, setFirstName] = useState((profile?.name || '').split(' ')[0] || '');
   const [fatherName, setFatherName] = useState('');
+  const [whatsapp, setWhatsapp] = useState(profile?.whatsapp || profile?.phone || '');
+  const [country, setCountry] = useState(profile?.country || 'Turkey');
+  const [city, setCity] = useState(profile?.city || '');
+  const [address, setAddress] = useState(profile?.address || '');
+  const [zipCode, setZipCode] = useState(profile?.zipCode || '');
   const [gender, setGender] = useState('Male');
   const [showGenderDropdown, setShowGenderDropdown] = useState(false);
   const [dob, setDob] = useState('01/01/1995');
@@ -137,6 +223,34 @@ export default function EditProfileScreen({ navigation, route }: any) {
   const [editingExp, setEditingExp] = useState<ExperienceItem | null>(null);
   const [showCertModal, setShowCertModal] = useState(false);
   const [editingCert, setEditingCert] = useState<CertificateItem | null>(null);
+
+  const [deletePhotoConfirmVisible, setDeletePhotoConfirmVisible] = useState(false);
+
+  const handleConfirmDeletePhoto = async () => {
+    setDeletePhotoConfirmVisible(false);
+    if (selectedPhoto) {
+      setSelectedPhoto(null);
+      return;
+    }
+    try {
+      const res = await deleteProfilePhotoApi();
+      setProfile(prev => ({ ...prev, avatarUri: undefined }));
+      route?.params?.onSaveProfile?.({ ...profile, avatarUri: undefined });
+      setAlertConfig({
+        visible: true,
+        type: 'success',
+        title: 'Photo Removed',
+        message: res?.message || 'Profile photo removed successfully',
+      });
+    } catch (err: any) {
+      setAlertConfig({
+        visible: true,
+        type: 'error',
+        title: 'Error',
+        message: err?.response?.data?.message || err?.message || 'Failed to remove photo',
+      });
+    }
+  };
 
   const handlePickAvatar = () => {
     launchImageLibrary({ mediaType: 'photo', quality: 0.8 }, response => {
@@ -182,29 +296,50 @@ export default function EditProfileScreen({ navigation, route }: any) {
   });
 
   const handleSave = async () => {
+    if (isSaving) return;
+
+    // UX Rule: If nothing changed, do not call API, show "Nothing changed", stay on screen
+    if (!hasChanged) {
+      setAlertConfig({
+        visible: true,
+        type: 'info',
+        title: 'No Changes',
+        message: 'Nothing changed.',
+      });
+      return;
+    }
+
     setIsSaving(true);
     try {
       if (isCustomer) {
-        if (!fullName.trim()) {
+        const trimmedName = fullName.trim();
+        if (trimmedName.length < 2 || trimmedName.length > 50) {
           setAlertConfig({
             visible: true,
             type: 'error',
             title: 'Validation Error',
-            message: 'Full Name is required.',
+            message: 'Full Name must be between 2 and 50 characters.',
+          });
+          setIsSaving(false);
+          return;
+        }
+
+        const trimmedPhone = phone.trim().replace(/[\s-()]/g, '');
+        if (trimmedPhone && (trimmedPhone.length < 7 || trimmedPhone.length > 20)) {
+          setAlertConfig({
+            visible: true,
+            type: 'error',
+            title: 'Validation Error',
+            message: 'Please provide a valid phone number (7 to 20 digits).',
           });
           setIsSaving(false);
           return;
         }
 
         const payload: any = {
-          name: fullName.trim(),
-          phone: phone.trim(),
-          whatsapp: whatsapp.trim(),
-          country: country.trim(),
-          city: city.trim(),
-          address: address.trim(),
-          zipCode: zipCode.trim(),
-          aboutMe: aboutBio.trim(),
+          name: trimmedName,
+          phone: trimmedPhone,
+          countryId: selectedCountryId,
         };
 
         if (selectedPhoto) {
@@ -217,16 +352,22 @@ export default function EditProfileScreen({ navigation, route }: any) {
 
         const res = await updateUserProfileApi(payload);
 
+        // Update baseline reference so save button immediately reflects saved state
+        initialCustomerDataRef.current = {
+          name: trimmedName,
+          phone: trimmedPhone,
+          countryId: selectedCountryId,
+          countryName: selectedCountryName,
+          hasInitializedCountry: true,
+        };
+        setSelectedPhoto(null);
+
         const updated: ProfileData = {
           ...profile,
-          name: fullName.trim(),
-          phone: phone.trim(),
-          whatsapp: whatsapp.trim(),
-          country: country.trim(),
-          city: city.trim(),
-          address: address.trim(),
-          zipCode: zipCode.trim(),
-          aboutMe: aboutBio.trim(),
+          name: trimmedName,
+          phone: trimmedPhone,
+          country: selectedCountryName,
+          countryId: selectedCountryId,
           avatarUri: res?.data?.user?.profileImage || (selectedPhoto?.uri || profile.avatarUri),
         };
 
@@ -235,7 +376,7 @@ export default function EditProfileScreen({ navigation, route }: any) {
           visible: true,
           type: 'success',
           title: 'Profile Updated',
-          message: 'Your profile details have been saved successfully!',
+          message: res?.message || res?.data?.message || 'Profile updated successfully',
           onOk: () => navigation?.goBack(),
         });
       } else {
@@ -258,7 +399,7 @@ export default function EditProfileScreen({ navigation, route }: any) {
           bankDetailsCompleted: Boolean(accountNumber && bankName),
         };
 
-        await updateUserProfileApi({
+        const res = await updateUserProfileApi({
           fullName: updated.name,
           phone: updated.phone,
           email: updated.email,
@@ -282,7 +423,7 @@ export default function EditProfileScreen({ navigation, route }: any) {
           visible: true,
           type: 'success',
           title: 'Profile Updated',
-          message: 'Your profile details have been saved successfully!',
+          message: res?.message || res?.data?.message || 'Profile updated successfully',
           onOk: () => navigation?.goBack(),
         });
       }
@@ -291,7 +432,11 @@ export default function EditProfileScreen({ navigation, route }: any) {
         visible: true,
         type: 'error',
         title: 'Update Failed',
-        message: err?.message || 'Could not update profile. Please try again.',
+        message:
+          err?.response?.data?.message ||
+          err?.data?.message ||
+          err?.message ||
+          'Could not update profile. Please try again.',
       });
     } finally {
       setIsSaving(false);
@@ -350,17 +495,38 @@ export default function EditProfileScreen({ navigation, route }: any) {
                         ? { uri: selectedPhoto.uri }
                         : (profile.avatarUri ? { uri: profile.avatarUri } : dummyProfileExtra)
                     }
-                    style={[styles.avatarPreview, { borderColor: colors.primary }]}
+                    style={[styles.avatarPreview, { borderColor: colors.avatarBorder }]}
                   />
                 </View>
-                <Squeeze onPress={handlePickAvatar} style={{ marginTop: 12 }}>
-                  <View style={[styles.uploadPhotoBtn, { backgroundColor: colors.primary }]}>
-                    <Icon source={uploadBold} size={16} color={colors.onPrimary} />
-                    <Text style={[styles.uploadPhotoBtnText, { color: colors.onPrimary }]}>
-                      {selectedPhoto ? 'Change Photo' : 'Upload Profile Photo'}
-                    </Text>
-                  </View>
-                </Squeeze>
+                <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
+                  <Squeeze onPress={handlePickAvatar}>
+                    <View style={[styles.uploadPhotoBtn, { backgroundColor: colors.primary }]}>
+                      <Icon source={uploadBold} size={16} color={colors.onPrimary} />
+                      <Text style={[styles.uploadPhotoBtnText, { color: colors.onPrimary }]}>
+                        {selectedPhoto ? 'Change Photo' : 'Upload Profile Photo'}
+                      </Text>
+                    </View>
+                  </Squeeze>
+
+                  {(Boolean(selectedPhoto) || Boolean(profile.avatarUri)) && (
+                    <Squeeze onPress={() => setDeletePhotoConfirmVisible(true)}>
+                      <View
+                        style={[
+                          styles.uploadPhotoBtn,
+                          {
+                            backgroundColor: colors.surface,
+                            borderWidth: 1,
+                            borderColor: colors.error,
+                          },
+                        ]}>
+                        <Icon source={trashBold} size={16} color={colors.error} />
+                        <Text style={[styles.uploadPhotoBtnText, { color: colors.error }]}>
+                          Remove
+                        </Text>
+                      </View>
+                    </Squeeze>
+                  )}
+                </View>
               </View>
             </FadeUp>
 
@@ -442,29 +608,10 @@ export default function EditProfileScreen({ navigation, route }: any) {
                     ]}
                   />
                 </View>
-
-                <View style={styles.formGroup}>
-                  <Text style={[styles.label, { color: colors.text }]}>WhatsApp Number</Text>
-                  <TextInput
-                    value={whatsapp}
-                    onChangeText={setWhatsapp}
-                    placeholder="+90 5XX XXX XXXX"
-                    placeholderTextColor={colors.textMuted}
-                    keyboardType="phone-pad"
-                    style={[
-                      styles.input,
-                      {
-                        backgroundColor: colors.surfaceAlt,
-                        color: colors.text,
-                        borderColor: colors.border,
-                      },
-                    ]}
-                  />
-                </View>
               </View>
             </FadeUp>
 
-            {/* Customer Location & Delivery Address */}
+            {/* Customer Country Dropdown Card */}
             <FadeUp delay={90} duration={300}>
               <View
                 style={[
@@ -473,115 +620,91 @@ export default function EditProfileScreen({ navigation, route }: any) {
                 ]}>
                 <View style={styles.cardHeader}>
                   <Icon source={mapPinBold} size={18} color={colors.primary} />
-                  <Text style={[styles.cardTitle, { color: colors.text }]}>Address & Delivery</Text>
+                  <Text style={[styles.cardTitle, { color: colors.text }]}>Country</Text>
                 </View>
 
                 <View style={styles.formGroup}>
-                  <Text style={[styles.label, { color: colors.text }]}>Country</Text>
-                  <TextInput
-                    value={country}
-                    onChangeText={setCountry}
-                    placeholder="Country"
-                    placeholderTextColor={colors.textMuted}
+                  <Text style={[styles.label, { color: colors.text }]}>Select Country</Text>
+                  <TouchableOpacity
+                    onPress={() => setShowCountryDropdown(!showCountryDropdown)}
+                    activeOpacity={0.7}
                     style={[
                       styles.input,
                       {
                         backgroundColor: colors.surfaceAlt,
-                        color: colors.text,
                         borderColor: colors.border,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
                       },
-                    ]}
-                  />
-                </View>
+                    ]}>
+                    <Text
+                      style={{
+                        color: selectedCountryName ? colors.text : colors.textMuted,
+                        fontSize: 14,
+                        fontFamily: fonts.medium,
+                      }}>
+                      {selectedCountryName || 'Select your country'}
+                    </Text>
+                    <Icon
+                      source={chevronDownBold}
+                      size={14}
+                      color={colors.textMuted}
+                      style={showCountryDropdown ? { transform: [{ rotate: '180deg' }] } : undefined}
+                    />
+                  </TouchableOpacity>
 
-                <View style={styles.formGroup}>
-                  <Text style={[styles.label, { color: colors.text }]}>City</Text>
-                  <TextInput
-                    value={city}
-                    onChangeText={setCity}
-                    placeholder="City"
-                    placeholderTextColor={colors.textMuted}
-                    style={[
-                      styles.input,
-                      {
-                        backgroundColor: colors.surfaceAlt,
-                        color: colors.text,
+                  {showCountryDropdown && (
+                    <View
+                      style={{
+                        backgroundColor: colors.surface,
                         borderColor: colors.border,
-                      },
-                    ]}
-                  />
-                </View>
-
-                <View style={styles.formGroup}>
-                  <Text style={[styles.label, { color: colors.text }]}>Delivery Address</Text>
-                  <TextInput
-                    value={address}
-                    onChangeText={setAddress}
-                    placeholder="Street, building, apartment..."
-                    placeholderTextColor={colors.textMuted}
-                    multiline
-                    numberOfLines={3}
-                    style={[
-                      styles.textArea,
-                      {
-                        backgroundColor: colors.surfaceAlt,
-                        color: colors.text,
-                        borderColor: colors.border,
-                      },
-                    ]}
-                  />
-                </View>
-
-                <View style={styles.formGroup}>
-                  <Text style={[styles.label, { color: colors.text }]}>Zip Code</Text>
-                  <TextInput
-                    value={zipCode}
-                    onChangeText={setZipCode}
-                    placeholder="Postal / Zip code"
-                    placeholderTextColor={colors.textMuted}
-                    keyboardType="numeric"
-                    style={[
-                      styles.input,
-                      {
-                        backgroundColor: colors.surfaceAlt,
-                        color: colors.text,
-                        borderColor: colors.border,
-                      },
-                    ]}
-                  />
-                </View>
-              </View>
-            </FadeUp>
-
-            {/* Customer About Bio */}
-            <FadeUp delay={120} duration={300}>
-              <View
-                style={[
-                  styles.card,
-                  { backgroundColor: colors.surface, borderColor: colors.border },
-                ]}>
-                <View style={styles.cardHeader}>
-                  <Icon source={penBold} size={18} color={colors.primary} />
-                  <Text style={[styles.cardTitle, { color: colors.text }]}>About Me (Optional)</Text>
-                </View>
-
-                <View style={styles.formGroup}>
-                  <TextInput
-                    value={aboutBio}
-                    onChangeText={setAboutBio}
-                    placeholder="Tell us a bit about yourself..."
-                    placeholderTextColor={colors.textMuted}
-                    multiline
-                    numberOfLines={3}
-                    style={[
-                      styles.textArea,
-                      {
-                        backgroundColor: colors.surfaceAlt,
-                        color: colors.text,
-                        borderColor: colors.border,
-                      },
-                    ]}
-                  />
+                        borderWidth: 1,
+                        borderRadius: 8,
+                        marginTop: 6,
+                        maxHeight: 180,
+                        overflow: 'hidden',
+                      }}>
+                      <ScrollView nestedScrollEnabled showsVerticalScrollIndicator>
+                        {countries.length > 0 ? (
+                          countries.map(c => {
+                            const isSelected = selectedCountryId === c.id || selectedCountryName === c.name;
+                            return (
+                              <TouchableOpacity
+                                key={c.id}
+                                onPress={() => {
+                                  setSelectedCountryId(c.id);
+                                  setSelectedCountryName(c.name);
+                                  setShowCountryDropdown(false);
+                                }}
+                                style={{
+                                  paddingHorizontal: 14,
+                                  paddingVertical: 12,
+                                  borderBottomWidth: 1,
+                                  borderBottomColor: colors.border + '40',
+                                  backgroundColor: isSelected ? colors.primary + '18' : 'transparent',
+                                }}>
+                                <Text
+                                  style={{
+                                    color: isSelected ? colors.primary : colors.text,
+                                    fontFamily: isSelected ? fonts.bold : fonts.regular,
+                                    fontSize: 14,
+                                  }}>
+                                  {c.name}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })
+                        ) : (
+                          <View style={{ padding: 14, alignItems: 'center' }}>
+                            <Text style={{ color: colors.textMuted, fontSize: 13 }}>
+                              Loading countries...
+                            </Text>
+                          </View>
+                        )}
+                      </ScrollView>
+                    </View>
+                  )}
                 </View>
               </View>
             </FadeUp>
@@ -1331,15 +1454,32 @@ export default function EditProfileScreen({ navigation, route }: any) {
 
         {/* Action Buttons: Save Profile & Cancel */}
         <View style={styles.bottomButtonsSection}>
-          <Squeeze onPress={handleSave}>
-            <View style={[styles.saveBtn, { backgroundColor: colors.primary }]}>
-              <Text style={[styles.saveBtnText, { color: colors.onPrimary }]}>
-                {isSaving ? 'Saving...' : 'Save Profile'}
-              </Text>
+          <Squeeze onPress={handleSave} disabled={isSaving}>
+            <View
+              style={[
+                styles.saveBtn,
+                !hasChanged && styles.saveBtnDisabled,
+                isSaving && styles.saveBtnSaving,
+                {
+                  backgroundColor: hasChanged ? colors.primary : colors.surfaceAlt,
+                  borderColor: colors.border,
+                },
+              ]}>
+              {isSaving ? (
+                <ActivityIndicator color={colors.onPrimary} size="small" />
+              ) : (
+                <Text
+                  style={[
+                    styles.saveBtnText,
+                    { color: hasChanged ? colors.onPrimary : colors.textMuted },
+                  ]}>
+                  Save Profile
+                </Text>
+              )}
             </View>
           </Squeeze>
 
-          <Squeeze onPress={() => navigation?.goBack()}>
+          <Squeeze onPress={() => navigation?.goBack()} disabled={isSaving}>
             <View
               style={[
                 styles.cancelBtn,
@@ -1412,6 +1552,18 @@ export default function EditProfileScreen({ navigation, route }: any) {
           />
         </>
       )}
+
+      {/* Confirm Delete Photo Modal */}
+      <ConfirmModal
+        visible={deletePhotoConfirmVisible}
+        title="Remove Profile Photo"
+        message="Are you sure you want to remove your profile photo?"
+        confirmText="Remove"
+        cancelText="Cancel"
+        danger
+        onConfirm={handleConfirmDeletePhoto}
+        onCancel={() => setDeletePhotoConfirmVisible(false)}
+      />
 
       {/* Alert Modal */}
       <AlertModal
@@ -1730,6 +1882,13 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  saveBtnDisabled: {
+    borderWidth: 1,
+    opacity: 0.6,
+  },
+  saveBtnSaving: {
+    opacity: 0.7,
   },
   saveBtnText: {
     fontFamily: fonts.bold,

@@ -73,7 +73,7 @@ export default function ChangePasswordScreen({ navigation }: any) {
         visible: true,
         type: 'success',
         title: 'Success',
-        message: res.message || 'Password changed successfully!',
+        message: res?.message || 'Password changed successfully!',
         onPrimary: () => {
           setModal(m => ({ ...m, visible: false }));
           navigation.goBack();
@@ -84,7 +84,11 @@ export default function ChangePasswordScreen({ navigation }: any) {
         visible: true,
         type: 'error',
         title: 'Change Password Failed',
-        message: err.message || 'Could not change password. Please check your current password.',
+        message:
+          err?.response?.data?.message ||
+          err?.data?.message ||
+          err?.message ||
+          'Could not change password. Please check your current password.',
         onPrimary: () => setModal(m => ({ ...m, visible: false })),
       });
     } finally {
@@ -181,9 +185,10 @@ export default function ChangePasswordScreen({ navigation }: any) {
         {/* Submit Button */}
         <FadeUp delay={340} duration={600}>
           <Button
-            title="Update Password"
+            title={loading ? 'Updating Password...' : 'Update Password'}
             size="lg"
             loading={loading}
+            disabled={loading}
             onPress={onSubmit}
             icon={lockBold}
             iconPosition="left"

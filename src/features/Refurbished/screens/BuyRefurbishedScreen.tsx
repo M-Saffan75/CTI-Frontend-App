@@ -498,7 +498,15 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
                   {t?.feedback || ''}
                 </Text>
                 <View style={styles.testimonialUserRow}>
-                  <View style={[styles.avatarCircle, { backgroundColor: colors.primary + '22' }]}>
+                  <View
+                    style={[
+                      styles.avatarCircle,
+                      {
+                        backgroundColor: colors.primary + '22',
+                        borderWidth: 1,
+                        borderColor: colors.avatarBorder,
+                      },
+                    ]}>
                     <Text style={[styles.avatarText, { color: colors.primary }]}>
                       {t?.name ? t.name.charAt(0) : 'U'}
                     </Text>

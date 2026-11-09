@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Pressable,
   ScrollView,
@@ -15,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
 import CtiLoader from '@/components/CtiLoader';
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
@@ -46,12 +46,15 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { cartCount } = useCart();
-  const [tab, setTab] = useState('Details');
 
   const passedJob = route?.params?.job;
   const jobId = route?.params?.jobId || passedJob?.id;
+  const routeDisputeId = route?.params?.disputeId;
+  const initialTab = route?.params?.initialTab || (routeDisputeId ? 'Disputes' : 'Details');
+  const [tab, setTab] = useState(initialTab);
 
   const [job, setJob] = useState<MobileJobDetail | null>(null);
+  const [extraDispute, setExtraDispute] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   // Direct chat start state
@@ -61,20 +64,43 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
   const [replyMessage, setReplyMessage] = useState('');
   const [isSendingReply, setIsSendingReply] = useState(false);
 
+  // Themed AlertModal state (Replaces native Alert)
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    type: AlertModalType;
+    title: string;
+    message: string;
+    buttonText?: string;
+    secondaryButtonText?: string;
+    onButtonPress?: () => void;
+    onSecondaryButtonPress?: () => void;
+  }>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
+
   const fetchJobDetails = useCallback(async () => {
-    if (!jobId) {
+    if (!jobId && !routeDisputeId) {
       setLoading(false);
       return;
     }
     try {
-      const data = await customerJobApi.getMyJobDetail(jobId);
-      if (data) setJob(data);
+      if (jobId) {
+        const data = await customerJobApi.getMyJobDetail(jobId);
+        if (data) setJob(data);
+      }
+      if (routeDisputeId) {
+        const dispData = await customerJobApi.getDisputeDetails(routeDisputeId);
+        if (dispData) setExtraDispute(dispData);
+      }
     } catch {
       // keep existing
     } finally {
       setLoading(false);
     }
-  }, [jobId]);
+  }, [jobId, routeDisputeId]);
 
   useEffect(() => {
     setLoading(true);
@@ -103,14 +129,19 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
         : String(rawRepairmanId || '');
 
     if (!repairmanId || !/^[0-9a-fA-F]{24}$/.test(repairmanId)) {
-      Alert.alert(
-        'Technician Not Assigned',
-        'Direct chat will be available once a certified technician is assigned to this job.',
-        [
-          { text: 'View All Chats', onPress: () => navigation.navigate('ChatList') },
-          { text: 'OK', style: 'cancel' },
-        ],
-      );
+      setAlertConfig({
+        visible: true,
+        type: 'info',
+        title: 'Technician Not Assigned',
+        message: 'Direct chat will be available once a certified technician is assigned to this job.',
+        buttonText: 'View All Chats',
+        secondaryButtonText: 'Cancel',
+        onButtonPress: () => {
+          setAlertConfig(prev => ({ ...prev, visible: false }));
+          navigation.navigate('ChatList');
+        },
+        onSecondaryButtonPress: () => setAlertConfig(prev => ({ ...prev, visible: false })),
+      });
       return;
     }
 
@@ -149,14 +180,19 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
           role: 'customer',
         });
       } else {
-        Alert.alert(
-          'Chat Notice',
-          res.message || 'Could not initiate chat with technician directly. Opening chat conversations...',
-          [
-            { text: 'Open Chats', onPress: () => navigation.navigate('ChatList') },
-            { text: 'Cancel', style: 'cancel' },
-          ],
-        );
+        setAlertConfig({
+          visible: true,
+          type: 'info',
+          title: 'Chat Notice',
+          message: res.message || 'Could not initiate chat with technician directly. Opening chat conversations...',
+          buttonText: 'Open Chats',
+          secondaryButtonText: 'Cancel',
+          onButtonPress: () => {
+            setAlertConfig(prev => ({ ...prev, visible: false }));
+            navigation.navigate('ChatList');
+          },
+          onSecondaryButtonPress: () => setAlertConfig(prev => ({ ...prev, visible: false })),
+        });
       }
     } catch {
       navigation.navigate('ChatList');
@@ -167,12 +203,22 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
 
   // Handle sending response to active dispute
   const handleSendDisputeReply = async () => {
-    const disputeId = job?.dispute?._id || job?.dispute?.id;
+    const disputeId =
+      job?.dispute?._id ||
+      job?.dispute?.id ||
+      extraDispute?._id ||
+      extraDispute?.id ||
+      routeDisputeId;
     if (!disputeId) return;
 
     const trimmed = replyMessage.trim();
     if (!trimmed) {
-      Alert.alert('Required', 'Please enter a message to send.');
+      setAlertConfig({
+        visible: true,
+        type: 'warning',
+        title: 'Required',
+        message: 'Please enter a message to send.',
+      });
       return;
     }
 
@@ -182,11 +228,27 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
       if (res.success) {
         setReplyMessage('');
         await fetchJobDetails();
+        setAlertConfig({
+          visible: true,
+          type: 'success',
+          title: 'Update Sent',
+          message: res.message || 'Response added successfully!',
+        });
       } else {
-        Alert.alert('Error', res.message || 'Failed to send response');
+        setAlertConfig({
+          visible: true,
+          type: 'error',
+          title: 'Error',
+          message: res.message || 'Failed to send response',
+        });
       }
     } catch (e: any) {
-      Alert.alert('Error', e?.message || 'Failed to send response');
+      setAlertConfig({
+        visible: true,
+        type: 'error',
+        title: 'Error',
+        message: e?.message || 'Failed to send response',
+      });
     } finally {
       setIsSendingReply(false);
     }
@@ -203,7 +265,7 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
 
   const booking = job?.booking;
   const repairman = job?.repairman;
-  const dispute = job?.dispute;
+  const dispute = job?.dispute || extraDispute;
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -357,11 +419,32 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
                 {repairman ? (
                   <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                     <View style={styles.repairmanHeader}>
-                      <View style={[styles.avatarCircle, { backgroundColor: colors.primary + '20' }]}>
-                        <Text style={[styles.avatarText, { color: colors.primary }]}>
-                          {(repairman.name || 'R').charAt(0).toUpperCase()}
-                        </Text>
-                      </View>
+                      {repairman.avatar ? (
+                        <Image
+                          source={{ uri: repairman.avatar }}
+                          style={[
+                            styles.avatarCircle,
+                            {
+                              borderWidth: 1.5,
+                              borderColor: colors.avatarBorder,
+                            },
+                          ]}
+                        />
+                      ) : (
+                        <View
+                          style={[
+                            styles.avatarCircle,
+                            {
+                              backgroundColor: colors.primary + '20',
+                              borderWidth: 1.5,
+                              borderColor: colors.avatarBorder,
+                            },
+                          ]}>
+                          <Text style={[styles.avatarText, { color: colors.primary }]}>
+                            {(repairman.name || 'R').charAt(0).toUpperCase()}
+                          </Text>
+                        </View>
+                      )}
                       <View style={{ flex: 1, gap: 2 }}>
                         <Text style={[styles.cardTitle, { color: colors.text }]}>
                           {repairman.name || 'Certified Repair Technician'}
@@ -769,6 +852,19 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
           </>
         )}
       </ScrollView>
+
+      {/* Themed Alert Modal */}
+      <AlertModal
+        visible={alertConfig.visible}
+        type={alertConfig.type}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        buttonText={alertConfig.buttonText || 'Okay'}
+        secondaryButtonText={alertConfig.secondaryButtonText}
+        onButtonPress={alertConfig.onButtonPress}
+        onSecondaryButtonPress={alertConfig.onSecondaryButtonPress}
+        onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
+      />
     </View>
   );
 }

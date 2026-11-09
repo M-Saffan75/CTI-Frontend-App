@@ -18,7 +18,7 @@ import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import RepairmanHeader from '../../../components/RepairmanHeader';
 import Select from '../../../components/Select';
-import CreateDisputeModal from '../components/CreateDisputeModal';
+import CreateDisputeModal from '@/components/modals/CreateDisputeModal';
 import UpSellModal from '../components/UpSellModal';
 import { getMyJobById, MY_JOBS, UPDATE_STATUSES } from '../data/jobs';
 
@@ -186,7 +186,12 @@ export default function MyJobDetailScreen({ navigation, route }) {
         </FadeUp>
       </ScrollView>
 
-      <CreateDisputeModal visible={disputeOpen} onClose={() => setDisputeOpen(false)} onSubmit={() => setDisputeOpen(false)} />
+      <CreateDisputeModal
+        visible={disputeOpen}
+        role="repairman"
+        onClose={() => setDisputeOpen(false)}
+        onSubmit={() => setDisputeOpen(false)}
+      />
       <UpSellModal visible={upSellOpen} onClose={() => setUpSellOpen(false)} onSubmit={() => setUpSellOpen(false)} />
     </View>
   );

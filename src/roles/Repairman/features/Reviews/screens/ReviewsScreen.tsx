@@ -19,7 +19,10 @@ function ReviewCard({ review }) {
   return (
     <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
       <View style={styles.head}>
-        <Image source={{ uri: review.avatar }} style={styles.avatar} />
+        <Image
+          source={{ uri: review.avatar }}
+          style={[styles.avatar, { borderWidth: 1, borderColor: colors.avatarBorder }]}
+        />
         <View style={styles.headText}>
           <Text style={[styles.name, { color: colors.text }]}>{review.name}</Text>
           <Text style={[styles.days, { color: colors.textMuted }]}>{review.daysAgo} Days ago</Text>

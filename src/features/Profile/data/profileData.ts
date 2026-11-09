@@ -42,7 +42,12 @@ export interface ProfileData {
   role: string;
   avatarUri?: string;
   coverUri?: string;
+  country?: string;
+  countryId?: string;
+  state?: string;
+  stateId?: string;
   city: string;
+  cityId?: string;
   experienceYears: string;
   jobsCompleted: number;
   rating: string;
@@ -66,6 +71,13 @@ export interface ProfileData {
   education: EducationItem[];
   experience: ExperienceItem[];
   certificates: CertificateItem[];
+  status?: string;
+  disputeStats?: {
+    totalDisputes: number;
+    disputesWon: number;
+    disputesLost: number;
+    warningCount: number;
+  };
 }
 
 export const INITIAL_PROFILE_DATA: ProfileData = {

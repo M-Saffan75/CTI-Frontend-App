@@ -45,6 +45,7 @@ export const palette = {
  *   text             headings and body text
  *   textMuted        small grey text under a title
  *   border           card borders, dividers
+ *   avatarBorder     border for profile pictures and avatars (clearly visible in both themes)
  *   inputBg          text input background
  *   error            validation errors, red borders
  *   success          success states
@@ -65,6 +66,7 @@ const white = {
   text: palette.ink,
   textMuted: palette.greyText,
   border: '#0000001A',
+  avatarBorder: '#00000033',
   inputBg: palette.greyBg,
   error: palette.redBright,
   success: palette.greenGrass,
@@ -82,6 +84,7 @@ const black = {
   text: palette.white,
   textMuted: '#FFFFFF99',
   border: '#FFFFFF1F',
+  avatarBorder: '#FFFFFF55',
   inputBg: '#291B00',
   error: palette.redRose,
   success: palette.greenMint,
@@ -99,6 +102,7 @@ const sand = {
   text: '#3D2B1F',
   textMuted: '#3D2B1F99',
   border: '#3D2B1F1A',
+  avatarBorder: '#3D2B1F3D',
   inputBg: palette.creamBg,
   error: palette.redBright,
   success: palette.greenDeep,
@@ -116,6 +120,7 @@ const ocean = {
   text: palette.white,
   textMuted: '#FFFFFF99',
   border: '#FFFFFF1A',
+  avatarBorder: '#FFFFFF55',
   inputBg: '#1B3159',
   error: palette.redRose,
   success: palette.greenMint,
@@ -133,6 +138,7 @@ const forest = {
   text: palette.white,
   textMuted: '#FFFFFF99',
   border: '#FFFFFF1A',
+  avatarBorder: '#FFFFFF55',
   inputBg: '#173729',
   error: palette.redRose,
   success: palette.greenMint,
