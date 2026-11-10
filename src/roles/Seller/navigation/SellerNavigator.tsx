@@ -6,8 +6,8 @@ import ImportExportScreen from '../features/Product/screens/ImportExportScreen';
 import CancelledOrdersScreen from '../features/Orders/screens/CancelledOrdersScreen';
 import ReturnRequestsScreen from '../features/Orders/screens/ReturnRequestsScreen';
 import CreateCampaignScreen from '../features/Ads/screens/CreateCampaignScreen';
-import ChatDetailScreen from '../features/Chat/screens/ChatDetailScreen';
-import ChatListScreen from '@/roles/Repairman/features/Chat/screens/ChatListScreen';
+import ChatDetailScreen from '@/features/Chat/screens/ChatDetailScreen';
+import ChatListScreen from '@/features/Chat/screens/ChatListScreen';
 import NotificationsScreen from '@/features/Notifications/screens/NotificationsScreen';
 import SettingsScreen from '../features/Settings/screens/SettingsScreen';
 
@@ -62,8 +62,12 @@ export default function SellerNavigator({ onLogout }: any) {
         <Stack.Screen name="CancelledOrders" component={CancelledOrdersScreen} />
         <Stack.Screen name="ReturnRequests" component={ReturnRequestsScreen} />
         <Stack.Screen name="CreateCampaign" component={CreateCampaignScreen} />
-        <Stack.Screen name="ChatList" component={ChatListScreen} />
-        <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
+        <Stack.Screen name="ChatList">
+          {props => <ChatListScreen {...props} role="seller" />}
+        </Stack.Screen>
+        <Stack.Screen name="ChatDetail">
+          {props => <ChatDetailScreen {...props} role="seller" />}
+        </Stack.Screen>
         <Stack.Screen name="Notifications" component={NotificationsScreen} />
         <Stack.Screen name="Settings">
           {props => (

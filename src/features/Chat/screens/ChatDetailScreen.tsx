@@ -12,12 +12,12 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
+import Button from '@/components/Button';
 import CtiLoader from '@/components/CtiLoader';
 import Icon from '@/components/Icon';
-import Button from '@/components/Button';
 import Squeeze from '@/components/Squeeze';
-import AlertModal, { AlertModalType } from '@/components/AlertModal';
-import { arrowLeftBold, checkCircleBold, sendBold, dummyProfileExtra } from '@/assets/icons';
+import { arrowLeftBold, checkCircleBold, dummyProfileExtra, sendBold } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import {
@@ -34,6 +34,8 @@ import {
 } from '@/services/chatApi';
 import AuthService from '@/services/authService';
 import socketService from '@/services/socketService';
+
+export type ChatRole = 'customer' | 'repairman' | 'seller';
 
 function formatMessageTime(dateStr?: string): string {
   if (!dateStr) return '';
@@ -69,16 +71,12 @@ function QuotationCard({
   const total =
     (quotationData.pricing?.serviceCharges || quotationData.serviceCharges || 0) +
     (quotationData.pricing?.partsPrice || quotationData.partsPrice || 0);
-
+  const currency = quotationData.pricing?.currency || quotationData.currency || 'TRY';
   const status = quotationData.status || 'pending';
-  const statusColor =
-    status === 'accepted'
-      ? colors.success
-      : status === 'rejected'
-      ? colors.error
-      : colors.primary;
+  const quotationId = quotationData.quotationId || quotationData._id;
 
-  const qId = quotationData.quotationId || quotationData._id;
+  const statusColor =
+    status === 'accepted' ? colors.success : status === 'rejected' ? colors.error : colors.primary;
 
   return (
     <View
@@ -94,13 +92,10 @@ function QuotationCard({
           </Text>
         </View>
       </View>
-
       <Text style={[styles.quotationDesc, { color: colors.textMuted }]}>
         {quotationData.repairmanNotes || quotationData.description || 'Repair service estimate'}
       </Text>
-
       <View style={[styles.quotationDivider, { backgroundColor: colors.border }]} />
-
       <View style={styles.quotationRow}>
         <Text style={[styles.quotationLabel, { color: colors.textMuted }]}>Estimated Time:</Text>
         <Text style={[styles.quotationVal, { color: colors.text }]}>
@@ -109,15 +104,14 @@ function QuotationCard({
             '1-2 days'}
         </Text>
       </View>
-
       <View style={styles.quotationRow}>
         <Text style={[styles.quotationLabel, { color: colors.textMuted }]}>Total Amount:</Text>
         <Text style={[styles.quotationPrice, { color: colors.primary }]}>
-          PKR {total.toLocaleString()}
+          {currency} {total.toLocaleString()}
         </Text>
       </View>
 
-      {status === 'pending' && onRespond && qId && (
+      {status === 'pending' && onRespond && quotationId && (
         <View style={styles.quotationActions}>
           <Button
             title="Accept"
@@ -125,16 +119,16 @@ function QuotationCard({
             variant="primary"
             loading={isResponding}
             disabled={isResponding}
-            onPress={() => onRespond(qId, 'accepted')}
-            style={{ flex: 1 }}
+            onPress={() => onRespond(quotationId, 'accepted')}
+            style={styles.quotationActionBtn}
           />
           <Button
             title="Decline"
             size="sm"
             variant="outline"
             disabled={isResponding}
-            onPress={() => onRespond(qId, 'rejected')}
-            style={{ flex: 1 }}
+            onPress={() => onRespond(quotationId, 'rejected')}
+            style={styles.quotationActionBtn}
           />
         </View>
       )}
@@ -213,14 +207,23 @@ function Bubble({
   );
 }
 
-export default function ChatDetailScreen({ navigation, route }: any) {
+export default function ChatDetailScreen({
+  navigation,
+  route,
+  role,
+}: {
+  navigation: any;
+  route: any;
+  role: ChatRole;
+}) {
+  const isCustomer = role === 'customer';
+  const defaultParticipantName = isCustomer ? 'Technician' : 'User';
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const chatId = route?.params?.chatId;
-  const queryId =
-    route?.params?.queryId ||
-    (chatId?.startsWith('query_') ? chatId.replace(/^query_/, '') : undefined);
-  const isSellerQuery = Boolean(queryId || route?.params?.chatType === 'seller_query');
+  const queryId = route?.params?.queryId || (chatId?.startsWith('query_') ? chatId.replace(/^query_/, '') : undefined);
+  // Customer enquiry threads use the REST query endpoints; other roles use the normal chat.
+  const isSellerQuery = isCustomer && Boolean(queryId || route?.params?.chatType === 'seller_query');
 
   const initialCached = chatId ? getCachedMessages(chatId) : undefined;
   const cachedUser = AuthService.getCachedUser();
@@ -230,7 +233,11 @@ export default function ChatDetailScreen({ navigation, route }: any) {
   );
   const [participant, setParticipant] = useState<ChatParticipant>({
     id: route?.params?.participantId || '',
-    name: route?.params?.participantName || route?.params?.name || 'Technician',
+    name:
+      route?.params?.participantName ||
+      route?.params?.name ||
+      route?.params?.customerName ||
+      defaultParticipantName,
     avatar: route?.params?.participantAvatar || route?.params?.avatar || null,
     isOnline: Boolean(route?.params?.isOnline),
   });
@@ -247,25 +254,20 @@ export default function ChatDetailScreen({ navigation, route }: any) {
   const [isOtherTyping, setIsOtherTyping] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isRespondingQuotation, setIsRespondingQuotation] = useState(false);
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [alertConfig, setAlertConfig] = useState<{
     visible: boolean;
     title: string;
     message: string;
     type: AlertModalType;
-  }>({
-    visible: false,
-    title: '',
-    message: '',
-    type: 'info',
-  });
-
+  }>({ visible: false, title: '', message: '', type: 'info' });
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const currentUserIdRef = useRef(currentUserId);
+  const processedMessageIdsRef = useRef<Set<string>>(new Set());
   const participantRef = useRef(participant);
   const hasInitialScrolledRef = useRef(false);
-  const processedMessageIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     currentUserIdRef.current = currentUserId;
@@ -294,7 +296,7 @@ export default function ChatDetailScreen({ navigation, route }: any) {
     };
   }, []);
 
-  // 1. Fetch current logged in customer info if not cached
+  // 1. Fetch current logged in user info (if not already cached)
   useEffect(() => {
     async function loadUser() {
       try {
@@ -313,6 +315,13 @@ export default function ChatDetailScreen({ navigation, route }: any) {
     loadUser();
   }, []);
 
+  const rememberMessageIds = (list: ChatMessageItem[]) => {
+    list.forEach(m => {
+      if (m.messageId) processedMessageIdsRef.current.add(m.messageId);
+      if (m._id) processedMessageIdsRef.current.add(m._id);
+    });
+  };
+
   // 2. Load message history and bind socket room
   useEffect(() => {
     if (!chatId) return;
@@ -326,24 +335,21 @@ export default function ChatDetailScreen({ navigation, route }: any) {
           const data = await fetchQueryMessages(queryId || chatId);
           if (isMounted) {
             setMessages(data.messages);
-            data.messages.forEach(m => {
-              if (m.messageId) processedMessageIdsRef.current.add(m.messageId);
-              if (m._id) processedMessageIdsRef.current.add(m._id);
-            });
+            rememberMessageIds(data.messages);
             if (data.user) {
               setParticipant(prev => {
-                const hasValidName = Boolean(prev.name && prev.name !== 'Technician');
+                const hasValidName = Boolean(prev.name && prev.name !== defaultParticipantName);
                 return {
                   ...prev,
                   id: data.user?.id || prev.id,
-                  name: hasValidName ? prev.name : data.user?.name || prev.name,
+                  name: hasValidName ? prev.name : (data.user?.name || prev.name),
                   avatar: prev.avatar || data.user?.avatar || null,
                 };
               });
             }
           }
         } catch (err) {
-          if (__DEV__) console.log('[CustomerChatDetailScreen] fetchQueryMessages error:', err);
+          if (__DEV__) console.log('[ChatDetailScreen] fetchQueryMessages error:', err);
         } finally {
           if (isMounted) setLoading(false);
         }
@@ -360,29 +366,26 @@ export default function ChatDetailScreen({ navigation, route }: any) {
         socketService.joinChat(chatId);
         markChatAsRead(chatId);
 
-        // Fetch messages from backend
+        // Fetch messages
         const data = await fetchChatMessages(chatId);
         if (isMounted) {
           setMessages(data.messages);
+          rememberMessageIds(data.messages);
           setCachedMessages(chatId, data.messages);
-          data.messages.forEach(m => {
-            if (m.messageId) processedMessageIdsRef.current.add(m.messageId);
-            if (m._id) processedMessageIdsRef.current.add(m._id);
-          });
           if (data.user) {
             setParticipant(prev => {
-              const hasValidName = Boolean(prev.name && prev.name !== 'Technician');
+              const hasValidName = Boolean(prev.name && prev.name !== defaultParticipantName);
               return {
                 ...prev,
                 id: data.user?.id || prev.id,
-                name: hasValidName ? prev.name : data.user?.name || prev.name,
+                name: hasValidName ? prev.name : (data.user?.name || prev.name),
                 avatar: prev.avatar || data.user?.avatar || null,
               };
             });
           }
         }
       } catch (err) {
-        if (__DEV__) console.log('[CustomerChatDetailScreen] init error:', err);
+        if (__DEV__) console.log('[ChatDetailScreen] init error:', err);
       } finally {
         if (isMounted) setLoading(false);
       }
@@ -390,28 +393,27 @@ export default function ChatDetailScreen({ navigation, route }: any) {
 
     initChat();
 
-    // Listen to real-time incoming messages with rigorous deduplication
+    // Listen to real-time incoming messages
     const unsubNewMsg = socketService.onNewMessage((msg: any) => {
       if (msg.chatId === chatId) {
         const incomingId = msg.messageId || msg._id || `msg-${Date.now()}`;
 
-        // Deduplicate rapid wire events (server emits to both chat and user rooms)
+        // The server emits to both the chat and user rooms, so ignore repeated wire events
         if (processedMessageIdsRef.current.has(incomingId)) {
           return;
         }
         processedMessageIdsRef.current.add(incomingId);
 
         setMessages(prev => {
+          // 1. Prevent duplicate by exact ID
           if (prev.some(m => m.messageId === incomingId || m._id === incomingId)) {
             return prev;
           }
 
+          // 2. If message was sent by me, reconcile with existing pending local optimistic message
           const myId = currentUserIdRef.current;
-          const sId =
-            typeof msg.senderId === 'object'
-              ? msg.senderId?._id || msg.senderId.id
-              : msg.senderId;
-          const isFromMe = (myId && sId === myId) || msg.senderType === 'customer';
+          const sId = typeof msg.senderId === 'object' ? msg.senderId?._id || msg.senderId.id : msg.senderId;
+          const isFromMe = (myId && sId === myId) || msg.senderType === role;
 
           let updated: ChatMessageItem[];
           if (isFromMe) {
@@ -480,7 +482,7 @@ export default function ChatDetailScreen({ navigation, route }: any) {
           return updated;
         });
 
-        // Mark read immediately since customer is actively viewing this conversation
+        // Mark read immediately since user is actively viewing this chat
         socketService.markMessagesRead(chatId, [incomingId]);
         setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
       }
@@ -489,15 +491,14 @@ export default function ChatDetailScreen({ navigation, route }: any) {
     // Listen to read receipts from the other participant
     const unsubRead = socketService.onMessagesRead(data => {
       if (data.chatId === chatId) {
-        setMessages(prev => {
-          const idsToMark = new Set(data.messageIds || []);
-          return prev.map(m => {
-            if (idsToMark.size === 0 || idsToMark.has(m._id) || idsToMark.has(m.messageId)) {
-              return { ...m, isRead: true };
-            }
-            return m;
-          });
-        });
+        const idsToMark = new Set(data.messageIds || []);
+        setMessages(prev =>
+          prev.map(m =>
+            idsToMark.size === 0 || idsToMark.has(m._id) || idsToMark.has(m.messageId)
+              ? { ...m, isRead: true }
+              : m,
+          ),
+        );
       }
     });
 
@@ -537,7 +538,7 @@ export default function ChatDetailScreen({ navigation, route }: any) {
       unsubOnline();
       unsubOffline();
     };
-  }, [chatId, isSellerQuery, queryId]);
+  }, [chatId, isSellerQuery, queryId, defaultParticipantName, role]);
 
   // Initial scroll to bottom once messages are rendered
   useEffect(() => {
@@ -578,7 +579,7 @@ export default function ChatDetailScreen({ navigation, route }: any) {
       messageId: tempId,
       content: text,
       messageType: 'text',
-      senderType: 'customer',
+      senderType: role,
       senderId: currentUserIdRef.current,
       timestamp: nowIso,
       isRead: false,
@@ -596,7 +597,7 @@ export default function ChatDetailScreen({ navigation, route }: any) {
       try {
         await sendQueryReply(queryId || chatId, text);
       } catch (err) {
-        if (__DEV__) console.log('[CustomerChatDetailScreen] sendQueryReply error:', err);
+        if (__DEV__) console.log('[ChatDetailScreen] sendQueryReply error:', err);
       } finally {
         setIsSending(false);
       }
@@ -605,12 +606,14 @@ export default function ChatDetailScreen({ navigation, route }: any) {
 
     try {
       if (socketService.isConnected()) {
+        // Only send via socket when connected
         socketService.sendChatMessage({
           chatId,
           content: text,
           messageType: 'text',
         });
       } else {
+        // Fallback to HTTP only when socket is not connected
         const res = await sendChatMessageHttp(chatId, { content: text });
         if (res.success && res.message) {
           const serverId = res.message._id || res.message.messageId;
@@ -626,7 +629,7 @@ export default function ChatDetailScreen({ navigation, route }: any) {
         }
       }
     } catch (err) {
-      if (__DEV__) console.log('[CustomerChatDetailScreen] send error:', err);
+      if (__DEV__) console.log('[ChatDetailScreen] send error:', err);
     } finally {
       setIsSending(false);
     }
@@ -636,30 +639,23 @@ export default function ChatDetailScreen({ navigation, route }: any) {
     if (!quotationId || isRespondingQuotation) return;
     setIsRespondingQuotation(true);
     try {
-      await respondToQuotation(quotationId, action);
-      // Update state locally
+      const res = await respondToQuotation(quotationId, action);
       setMessages(prev =>
         prev.map(m => {
-          const mQId = m.quotationData?.quotationId || m.quotationData?._id;
-          if (mQId === quotationId) {
-            return {
-              ...m,
-              quotationData: {
-                ...m.quotationData,
-                status: action,
-              },
-            };
-          }
-          return m;
+          const id = m.quotationData?.quotationId || m.quotationData?._id;
+          return id === quotationId
+            ? { ...m, quotationData: { ...m.quotationData, status: action } }
+            : m;
         }),
       );
       setAlertConfig({
         visible: true,
         title: action === 'accepted' ? 'Quote Accepted' : 'Quote Declined',
         message:
-          action === 'accepted'
-            ? 'You have accepted the technician quotation. The service is being processed.'
-            : 'You have declined this quotation.',
+          res?.message ||
+          (action === 'accepted'
+            ? 'You have accepted the technician quotation.'
+            : 'You have declined this quotation.'),
         type: action === 'accepted' ? 'success' : 'info',
       });
     } catch (err: any) {
@@ -676,17 +672,12 @@ export default function ChatDetailScreen({ navigation, route }: any) {
 
   const isMessageFromMe = (msg: ChatMessageItem) => {
     if (msg._id?.startsWith('local-') || msg.messageId?.startsWith('local-')) return true;
-    if (msg.senderType === 'customer') return true;
-    if (msg.senderType === 'repairman' || msg.senderType === 'seller') return false;
     const uid = currentUserId || currentUserIdRef.current;
     if (uid && msg.senderId) {
-      const sId =
-        typeof msg.senderId === 'object'
-          ? msg.senderId._id || msg.senderId.id
-          : msg.senderId;
+      const sId = typeof msg.senderId === 'object' ? msg.senderId._id || msg.senderId.id : msg.senderId;
       if (sId && String(sId) === String(uid)) return true;
     }
-    return false;
+    return msg.senderType === role;
   };
 
   const avatarSource = participant.avatar ? { uri: participant.avatar } : dummyProfileExtra;
@@ -723,7 +714,13 @@ export default function ChatDetailScreen({ navigation, route }: any) {
                 styles.headerSubtitle,
                 { color: participant.isOnline ? colors.success : colors.textMuted },
               ]}>
-              {isOtherTyping ? 'Typing...' : participant.isOnline ? 'Online' : 'Offline'}
+              {isOtherTyping
+                ? 'Typing...'
+                : route?.params?.question
+                ? `${route.params.question}${queryId ? ` - ID: ${queryId}` : ''}`
+                : participant.isOnline
+                ? 'Online'
+                : 'Offline'}
             </Text>
           </View>
         </View>
@@ -772,7 +769,7 @@ export default function ChatDetailScreen({ navigation, route }: any) {
                     message={message}
                     participant={participant}
                     isMine={isMine}
-                    onRespondQuotation={handleRespondQuotation}
+                    onRespondQuotation={isCustomer ? handleRespondQuotation : undefined}
                     isRespondingQuotation={isRespondingQuotation}
                   />
                 </View>
@@ -795,7 +792,7 @@ export default function ChatDetailScreen({ navigation, route }: any) {
         <TextInput
           value={draft}
           onChangeText={handleTextChange}
-          placeholder="Type your message..."
+          placeholder={isCustomer ? 'Type your message...' : 'Type your reply here...'}
           placeholderTextColor={colors.textMuted}
           multiline
           style={[
@@ -814,7 +811,6 @@ export default function ChatDetailScreen({ navigation, route }: any) {
         </Squeeze>
       </View>
 
-      {/* Themed Feedback Modal */}
       <AlertModal
         visible={alertConfig.visible}
         title={alertConfig.title}
@@ -898,8 +894,9 @@ const styles = StyleSheet.create({
   quotationRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   quotationLabel: { fontFamily: fonts.regular, fontSize: 12 },
   quotationVal: { fontFamily: fonts.medium, fontSize: 12 },
-  quotationPrice: { fontFamily: fonts.bold, fontSize: 14 },
   quotationActions: { flexDirection: 'row', gap: 8, marginTop: 4 },
+  quotationActionBtn: { flex: 1 },
+  quotationPrice: { fontFamily: fonts.bold, fontSize: 14 },
 
   inputRow: {
     flexDirection: 'row',
@@ -921,4 +918,3 @@ const styles = StyleSheet.create({
   },
   sendButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
 });
-

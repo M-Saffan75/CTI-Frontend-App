@@ -14,7 +14,8 @@ import Button from '@/components/Button';
 import Squeeze from '@/components/Squeeze';
 import CtiLoader from '@/components/CtiLoader';
 import AlertModal, { AlertModalType } from '@/components/AlertModal';
-import WriteReviewModal, { ReviewTargetJob } from '@/components/modals/WriteReviewModal';
+import CreateDisputeModal from '@/components/modals/CreateDisputeModal';
+import WriteReviewModal,{ ReviewTargetJob } from '@/components/modals/WriteReviewModal';
 import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
@@ -63,6 +64,9 @@ export default function RepairDetailScreen({ navigation, route }: any) {
   const [selectedOfferForBooking, setSelectedOfferForBooking] = useState<NormalizedOffer | null>(null);
   const [reviewModalVisible, setReviewModalVisible] = useState(false);
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [disputeModalVisible, setDisputeModalVisible] = useState(false);
+  const [isSubmittingDispute, setIsSubmittingDispute] = useState(false);
+  const [openDisputeId, setOpenDisputeId] = useState<string | null>(null);
   const [alertState, setAlertState] = useState<{
     visible: boolean;
     type: AlertModalType;
@@ -257,6 +261,59 @@ export default function RepairDetailScreen({ navigation, route }: any) {
       !hasDispute &&
       !isReviewed,
   );
+
+  const DISPUTABLE_STATUSES = [
+    'confirmed',
+    'repairman_notified',
+    'scheduled',
+    'in_progress',
+    'parts_needed',
+    'pending_approval',
+    'quality_check',
+    'completed',
+    'delivered',
+  ];
+  const disputeBookingId = String(job?.booking?._id || job?.booking?.id || '');
+  const canReportProblem = Boolean(
+    disputeBookingId &&
+      !hasDispute &&
+      DISPUTABLE_STATUSES.includes(String(job?.booking?.status || job?.status)),
+  );
+
+  const handleSubmitDispute = async (data: { category: string; description: string }) => {
+    try {
+      setIsSubmittingDispute(true);
+      const res = await customerJobApi.createDispute({ bookingId: disputeBookingId, ...data });
+      setDisputeModalVisible(false);
+      const disputeId = res.dispute?._id || res.dispute?.id;
+      await fetchJobDetail();
+      setAlertState({
+        visible: true,
+        type: 'success',
+        title: 'Dispute Created',
+        message: res.message || 'Your dispute has been submitted.',
+      });
+      setOpenDisputeId(disputeId ? String(disputeId) : null);
+    } catch (err: any) {
+      setAlertState({
+        visible: true,
+        type: 'error',
+        title: 'Dispute Error',
+        message: err?.message || 'Failed to create dispute.',
+      });
+    } finally {
+      setIsSubmittingDispute(false);
+    }
+  };
+
+  const dismissAlert = () => {
+    setAlertState(prev => ({ ...prev, visible: false }));
+    if (openDisputeId) {
+      const disputeId = openDisputeId;
+      setOpenDisputeId(null);
+      navigation.navigate('DisputeDetail', { jobId: job?.id, job, disputeId });
+    }
+  };
 
   const [isClosingJob, setIsClosingJob] = useState(false);
 
@@ -1437,6 +1494,21 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                       />
                     </View>
                   )}
+
+                  {/* Action: Report a Problem */}
+                  {canReportProblem && (
+                    <View style={styles.bookingActionsRow}>
+                      <Button
+                        title="Report a Problem"
+                        size="md"
+                        variant="soft"
+                        onPress={() => setDisputeModalVisible(true)}
+                        fullWidth
+                        contentStyle={{ paddingHorizontal: 16, height: 44 }}
+                        textStyle={{ fontSize: 14, fontFamily: fonts.bold }}
+                      />
+                    </View>
+                  )}
                 </View>
               </FadeUp>
             )}
@@ -1466,8 +1538,16 @@ export default function RepairDetailScreen({ navigation, route }: any) {
         title={alertState.title}
         message={alertState.message}
         buttonText="Okay"
-        onButtonPress={() => setAlertState(prev => ({ ...prev, visible: false }))}
-        onClose={() => setAlertState(prev => ({ ...prev, visible: false }))}
+        onButtonPress={dismissAlert}
+        onClose={dismissAlert}
+      />
+
+      <CreateDisputeModal
+        visible={disputeModalVisible}
+        role="customer"
+        isSubmitting={isSubmittingDispute}
+        onClose={() => setDisputeModalVisible(false)}
+        onSubmit={handleSubmitDispute}
       />
 
       <WriteReviewModal

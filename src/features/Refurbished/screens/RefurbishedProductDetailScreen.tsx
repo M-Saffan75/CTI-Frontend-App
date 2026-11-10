@@ -15,11 +15,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
 import AlertModal, { AlertModalType } from '@/components/AlertModal';
-import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
   cameraBold,
-  checkCircleBold,
   checkCircleFilled,
   commentDotsBold,
   filterBold,
@@ -28,7 +26,6 @@ import {
   menuBold,
   packageBold,
   returnOfInvestmentIcon,
-  searchBold,
   shieldBold,
   shieldIcon,
   shoppingBasketBold,
@@ -45,14 +42,12 @@ import RefurbishedFilterModal from '../components/RefurbishedFilterModal';
 import CtiLoader from '@/components/CtiLoader';
 import {
   GRADE_EXPLANATIONS,
-  REFURBISHED_PRODUCTS,
   RefurbishedProduct,
 } from '../data/refurbishedData';
 import {
   getRefurbishedProductDetail,
+  getRelatedRefurbishedProducts,
   addRefurbishedCartItem,
-  toggleRefurbishedWishlist,
-  checkIsRefurbishedWishlisted,
 } from '../services/refurbishedApi';
 import { useWishlist } from '@/roles/Customer/context/WishlistContext';
 import { useCart } from '@/roles/Customer/context/CartContext';
@@ -80,6 +75,7 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
 
   const [product, setProduct] = useState<RefurbishedProduct | null>(passedProduct || null);
   const [loading, setLoading] = useState<boolean>(!passedProduct && !!lookupKey);
+  const [relatedProducts, setRelatedProducts] = useState<RefurbishedProduct[]>([]);
 
   // Sync state whenever route params change
   useEffect(() => {
@@ -114,6 +110,19 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
     }
   }, [lookupKey]);
 
+  const productId = product?.id;
+  useEffect(() => {
+    if (!product) return;
+    let active = true;
+    getRelatedRefurbishedProducts(product)
+      .then(list => active && setRelatedProducts(list))
+      .catch(() => active && setRelatedProducts([]));
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productId]);
+
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [quantity, setQuantity] = useState(1);
   const [selectedGrade, setSelectedGrade] = useState<'Superb' | 'Good' | 'Fair' | 'Best Value'>(
@@ -125,7 +134,7 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
   const [wishlistLoading, setWishlistLoading] = useState(false);
   const [addingToCart, setAddingToCart] = useState(false);
 
-  const { ids: wishlistIds, isSaved, toggle: toggleWishlistContext, refreshWishlist } = useWishlist();
+  const { ids: wishlistIds, toggle: toggleWishlistContext } = useWishlist();
   const { cartCount, refreshCart } = useCart();
 
   // Variant handling
@@ -270,7 +279,7 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
           ? `${product.name} has been added to your wishlist!`
           : `${product.name} has been removed from your wishlist.`,
       });
-    } catch (err) {
+    } catch {
       // Revert if error
     } finally {
       setWishlistLoading(false);
@@ -1089,6 +1098,7 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
         </View>
 
         {/* Related Products Carousel */}
+        {relatedProducts.length > 0 && (
         <View style={styles.sectionBlock}>
           <Text style={[styles.sectionHeading, { color: colors.text }]}>
             Related Refurbished Products
@@ -1097,9 +1107,7 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.relatedScroll}>
-            {(REFURBISHED_PRODUCTS || [])
-              .filter(p => p?.id !== product?.id)
-              .map(rel => (
+            {relatedProducts.map(rel => (
                 <TouchableOpacity
                   key={rel?.id}
                   onPress={() =>
@@ -1124,6 +1132,7 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
               ))}
           </ScrollView>
         </View>
+        )}
       </ScrollView>
       )}
 

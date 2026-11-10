@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -12,11 +12,9 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { launchImageLibrary } from 'react-native-image-picker';
 
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
-import ConfirmModal from '@/components/ConfirmModal';
 import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import {
@@ -26,7 +24,6 @@ import {
   checkCircleBold,
   chevronDownBold,
   creditCardBold,
-  dummyProfileExtra,
   fileBold,
   mapPinBold,
   menuBold,
@@ -52,9 +49,6 @@ import AddEducationModal from '../components/AddEducationModal';
 import AddExperienceModal from '../components/AddExperienceModal';
 import AddCertificateModal from '../components/AddCertificateModal';
 import {
-  CountryOption,
-  deleteProfilePhotoApi,
-  fetchCountriesApi,
   updateUserProfileApi,
 } from '../services/profileApi';
 import AuthService from '@/services/authService';
@@ -79,101 +73,8 @@ export default function EditProfileScreen({ navigation, route }: any) {
     route?.params?.profileData || INITIAL_PROFILE_DATA,
   );
 
-  const effectiveRole = (
-    profile?.role ||
-    AuthService.getCachedRole() ||
-    cachedUser?.role ||
-    'customer'
-  ).toLowerCase();
-  const isCustomer = effectiveRole === 'customer';
-
-  // Customer & Common Form States
-  const [fullName, setFullName] = useState(
-    profile?.name || cachedUser?.name || 'Customer',
-  );
-  const [selectedPhoto, setSelectedPhoto] = useState<any>(null);
   const [phone, setPhone] = useState(profile?.phone || cachedUser?.phone || '');
   const [email, setEmail] = useState(profile?.email || cachedUser?.email || '');
-
-  // Snapshot of initial values to detect changes (UX rule 2d)
-  const initialCustomerDataRef = useRef<{
-    name: string;
-    phone: string;
-    countryId?: string;
-    countryName?: string;
-    hasInitializedCountry?: boolean;
-  }>({
-    name: (profile?.name || cachedUser?.name || 'Customer').trim(),
-    phone: (profile?.phone || cachedUser?.phone || '').trim().replace(/[\s-()]/g, ''),
-    countryId: profile?.countryId,
-    countryName: profile?.country || 'Turkey',
-    hasInitializedCountry: false,
-  });
-
-  // Country Dropdown States (Loaded from GET /api/public/countries)
-  const [countries, setCountries] = useState<CountryOption[]>([]);
-  const [selectedCountryId, setSelectedCountryId] = useState<string | undefined>(profile?.countryId);
-  const [selectedCountryName, setSelectedCountryName] = useState<string>(profile?.country || 'Turkey');
-  const [showCountryDropdown, setShowCountryDropdown] = useState(false);
-
-  useEffect(() => {
-    let mounted = true;
-    fetchCountriesApi().then(list => {
-      if (!mounted) return;
-      if (list && list.length > 0) {
-        setCountries(list);
-        let resolvedId: string | undefined;
-        let resolvedName = 'Turkey';
-
-        if (profile?.countryId) {
-          const match = list.find(c => c.id === profile.countryId);
-          if (match) {
-            resolvedId = match.id;
-            resolvedName = match.name;
-          }
-        } else if (profile?.country) {
-          const match = list.find(c => c.name.toLowerCase() === profile.country?.toLowerCase());
-          if (match) {
-            resolvedId = match.id;
-            resolvedName = match.name;
-          }
-        } else {
-          const turkey = list.find(c => c.name.toLowerCase() === 'turkey');
-          if (turkey) {
-            resolvedId = turkey.id;
-            resolvedName = turkey.name;
-          }
-        }
-
-        if (resolvedId) {
-          setSelectedCountryId(resolvedId);
-          setSelectedCountryName(resolvedName);
-          if (!initialCustomerDataRef.current.hasInitializedCountry) {
-            initialCustomerDataRef.current.countryId = resolvedId;
-            initialCustomerDataRef.current.countryName = resolvedName;
-            initialCustomerDataRef.current.hasInitializedCountry = true;
-          }
-        }
-      }
-    });
-    return () => {
-      mounted = false;
-    };
-  }, [profile?.country, profile?.countryId]);
-
-  // Track if any field changed for Customer
-  const currentCleanPhone = phone.trim().replace(/[\s-()]/g, '');
-  const hasCustomerChanged =
-    selectedPhoto !== null ||
-    fullName.trim() !== initialCustomerDataRef.current.name ||
-    currentCleanPhone !== initialCustomerDataRef.current.phone ||
-    Boolean(
-      initialCustomerDataRef.current.countryId &&
-      selectedCountryId &&
-      selectedCountryId !== initialCustomerDataRef.current.countryId
-    );
-
-  const hasChanged = isCustomer ? hasCustomerChanged : true;
 
   // Provider Form States (Preserved for Repairman / Seller)
   const [firstName, setFirstName] = useState((profile?.name || '').split(' ')[0] || '');
@@ -224,43 +125,6 @@ export default function EditProfileScreen({ navigation, route }: any) {
   const [showCertModal, setShowCertModal] = useState(false);
   const [editingCert, setEditingCert] = useState<CertificateItem | null>(null);
 
-  const [deletePhotoConfirmVisible, setDeletePhotoConfirmVisible] = useState(false);
-
-  const handleConfirmDeletePhoto = async () => {
-    setDeletePhotoConfirmVisible(false);
-    if (selectedPhoto) {
-      setSelectedPhoto(null);
-      return;
-    }
-    try {
-      const res = await deleteProfilePhotoApi();
-      setProfile(prev => ({ ...prev, avatarUri: undefined }));
-      route?.params?.onSaveProfile?.({ ...profile, avatarUri: undefined });
-      setAlertConfig({
-        visible: true,
-        type: 'success',
-        title: 'Photo Removed',
-        message: res?.message || 'Profile photo removed successfully',
-      });
-    } catch (err: any) {
-      setAlertConfig({
-        visible: true,
-        type: 'error',
-        title: 'Error',
-        message: err?.response?.data?.message || err?.message || 'Failed to remove photo',
-      });
-    }
-  };
-
-  const handlePickAvatar = () => {
-    launchImageLibrary({ mediaType: 'photo', quality: 0.8 }, response => {
-      if (response.didCancel || response.errorCode) return;
-      if (response.assets && response.assets.length > 0) {
-        setSelectedPhoto(response.assets[0]);
-      }
-    });
-  };
-
   const handleAddSpec = () => {
     if (!newSpec.trim()) return;
     if (!specializations.includes(newSpec.trim())) {
@@ -298,88 +162,8 @@ export default function EditProfileScreen({ navigation, route }: any) {
   const handleSave = async () => {
     if (isSaving) return;
 
-    // UX Rule: If nothing changed, do not call API, show "Nothing changed", stay on screen
-    if (!hasChanged) {
-      setAlertConfig({
-        visible: true,
-        type: 'info',
-        title: 'No Changes',
-        message: 'Nothing changed.',
-      });
-      return;
-    }
-
     setIsSaving(true);
     try {
-      if (isCustomer) {
-        const trimmedName = fullName.trim();
-        if (trimmedName.length < 2 || trimmedName.length > 50) {
-          setAlertConfig({
-            visible: true,
-            type: 'error',
-            title: 'Validation Error',
-            message: 'Full Name must be between 2 and 50 characters.',
-          });
-          setIsSaving(false);
-          return;
-        }
-
-        const trimmedPhone = phone.trim().replace(/[\s-()]/g, '');
-        if (trimmedPhone && (trimmedPhone.length < 7 || trimmedPhone.length > 20)) {
-          setAlertConfig({
-            visible: true,
-            type: 'error',
-            title: 'Validation Error',
-            message: 'Please provide a valid phone number (7 to 20 digits).',
-          });
-          setIsSaving(false);
-          return;
-        }
-
-        const payload: any = {
-          name: trimmedName,
-          phone: trimmedPhone,
-          countryId: selectedCountryId,
-        };
-
-        if (selectedPhoto) {
-          payload.profilePhoto = {
-            uri: selectedPhoto.uri,
-            type: selectedPhoto.type || 'image/jpeg',
-            fileName: selectedPhoto.fileName || 'profile.jpg',
-          };
-        }
-
-        const res = await updateUserProfileApi(payload);
-
-        // Update baseline reference so save button immediately reflects saved state
-        initialCustomerDataRef.current = {
-          name: trimmedName,
-          phone: trimmedPhone,
-          countryId: selectedCountryId,
-          countryName: selectedCountryName,
-          hasInitializedCountry: true,
-        };
-        setSelectedPhoto(null);
-
-        const updated: ProfileData = {
-          ...profile,
-          name: trimmedName,
-          phone: trimmedPhone,
-          country: selectedCountryName,
-          countryId: selectedCountryId,
-          avatarUri: res?.data?.user?.profileImage || (selectedPhoto?.uri || profile.avatarUri),
-        };
-
-        route?.params?.onSaveProfile?.(updated);
-        setAlertConfig({
-          visible: true,
-          type: 'success',
-          title: 'Profile Updated',
-          message: res?.message || res?.data?.message || 'Profile updated successfully',
-          onOk: () => navigation?.goBack(),
-        });
-      } else {
         const updated: ProfileData = {
           ...profile,
           name: `${firstName.trim()} ${fatherName.trim()}`.trim() || profile.name,
@@ -426,7 +210,6 @@ export default function EditProfileScreen({ navigation, route }: any) {
           message: res?.message || res?.data?.message || 'Profile updated successfully',
           onOk: () => navigation?.goBack(),
         });
-      }
     } catch (err: any) {
       setAlertConfig({
         visible: true,
@@ -475,242 +258,7 @@ export default function EditProfileScreen({ navigation, route }: any) {
           </Text>
         </View>
 
-        {isCustomer ? (
-          <>
-            {/* Customer Photo Card */}
-            <FadeUp delay={15} duration={300}>
-              <View
-                style={[
-                  styles.card,
-                  {
-                    backgroundColor: colors.surface,
-                    borderColor: colors.border,
-                    alignItems: 'center',
-                  },
-                ]}>
-                <View style={styles.avatarWrap}>
-                  <Image
-                    source={
-                      selectedPhoto?.uri
-                        ? { uri: selectedPhoto.uri }
-                        : (profile.avatarUri ? { uri: profile.avatarUri } : dummyProfileExtra)
-                    }
-                    style={[styles.avatarPreview, { borderColor: colors.avatarBorder }]}
-                  />
-                </View>
-                <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
-                  <Squeeze onPress={handlePickAvatar}>
-                    <View style={[styles.uploadPhotoBtn, { backgroundColor: colors.primary }]}>
-                      <Icon source={uploadBold} size={16} color={colors.onPrimary} />
-                      <Text style={[styles.uploadPhotoBtnText, { color: colors.onPrimary }]}>
-                        {selectedPhoto ? 'Change Photo' : 'Upload Profile Photo'}
-                      </Text>
-                    </View>
-                  </Squeeze>
-
-                  {(Boolean(selectedPhoto) || Boolean(profile.avatarUri)) && (
-                    <Squeeze onPress={() => setDeletePhotoConfirmVisible(true)}>
-                      <View
-                        style={[
-                          styles.uploadPhotoBtn,
-                          {
-                            backgroundColor: colors.surface,
-                            borderWidth: 1,
-                            borderColor: colors.error,
-                          },
-                        ]}>
-                        <Icon source={trashBold} size={16} color={colors.error} />
-                        <Text style={[styles.uploadPhotoBtnText, { color: colors.error }]}>
-                          Remove
-                        </Text>
-                      </View>
-                    </Squeeze>
-                  )}
-                </View>
-              </View>
-            </FadeUp>
-
-            {/* Customer Basic Info Card */}
-            <FadeUp delay={30} duration={300}>
-              <View
-                style={[
-                  styles.card,
-                  { backgroundColor: colors.surface, borderColor: colors.border },
-                ]}>
-                <View style={styles.cardHeader}>
-                  <Icon source={userBold} size={18} color={colors.primary} />
-                  <Text style={[styles.cardTitle, { color: colors.text }]}>Basic Information</Text>
-                </View>
-
-                <View style={styles.formGroup}>
-                  <Text style={[styles.label, { color: colors.text }]}>Full Name *</Text>
-                  <TextInput
-                    value={fullName}
-                    onChangeText={setFullName}
-                    placeholder="Enter your full name"
-                    placeholderTextColor={colors.textMuted}
-                    style={[
-                      styles.input,
-                      {
-                        backgroundColor: colors.surfaceAlt,
-                        color: colors.text,
-                        borderColor: colors.border,
-                      },
-                    ]}
-                  />
-                </View>
-
-                <View style={styles.formGroup}>
-                  <Text style={[styles.label, { color: colors.text }]}>Email Address (Read-only)</Text>
-                  <TextInput
-                    value={email}
-                    editable={false}
-                    style={[
-                      styles.input,
-                      {
-                        backgroundColor: colors.surfaceAlt,
-                        color: colors.textMuted,
-                        borderColor: colors.border,
-                      },
-                    ]}
-                  />
-                </View>
-              </View>
-            </FadeUp>
-
-            {/* Customer Contact Card */}
-            <FadeUp delay={60} duration={300}>
-              <View
-                style={[
-                  styles.card,
-                  { backgroundColor: colors.surface, borderColor: colors.border },
-                ]}>
-                <View style={styles.cardHeader}>
-                  <Icon source={phoneBold} size={18} color={colors.primary} />
-                  <Text style={[styles.cardTitle, { color: colors.text }]}>Contact Information</Text>
-                </View>
-
-                <View style={styles.formGroup}>
-                  <Text style={[styles.label, { color: colors.text }]}>Mobile Number</Text>
-                  <TextInput
-                    value={phone}
-                    onChangeText={setPhone}
-                    placeholder="+90 5XX XXX XXXX"
-                    placeholderTextColor={colors.textMuted}
-                    keyboardType="phone-pad"
-                    style={[
-                      styles.input,
-                      {
-                        backgroundColor: colors.surfaceAlt,
-                        color: colors.text,
-                        borderColor: colors.border,
-                      },
-                    ]}
-                  />
-                </View>
-              </View>
-            </FadeUp>
-
-            {/* Customer Country Dropdown Card */}
-            <FadeUp delay={90} duration={300}>
-              <View
-                style={[
-                  styles.card,
-                  { backgroundColor: colors.surface, borderColor: colors.border },
-                ]}>
-                <View style={styles.cardHeader}>
-                  <Icon source={mapPinBold} size={18} color={colors.primary} />
-                  <Text style={[styles.cardTitle, { color: colors.text }]}>Country</Text>
-                </View>
-
-                <View style={styles.formGroup}>
-                  <Text style={[styles.label, { color: colors.text }]}>Select Country</Text>
-                  <TouchableOpacity
-                    onPress={() => setShowCountryDropdown(!showCountryDropdown)}
-                    activeOpacity={0.7}
-                    style={[
-                      styles.input,
-                      {
-                        backgroundColor: colors.surfaceAlt,
-                        borderColor: colors.border,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                      },
-                    ]}>
-                    <Text
-                      style={{
-                        color: selectedCountryName ? colors.text : colors.textMuted,
-                        fontSize: 14,
-                        fontFamily: fonts.medium,
-                      }}>
-                      {selectedCountryName || 'Select your country'}
-                    </Text>
-                    <Icon
-                      source={chevronDownBold}
-                      size={14}
-                      color={colors.textMuted}
-                      style={showCountryDropdown ? { transform: [{ rotate: '180deg' }] } : undefined}
-                    />
-                  </TouchableOpacity>
-
-                  {showCountryDropdown && (
-                    <View
-                      style={{
-                        backgroundColor: colors.surface,
-                        borderColor: colors.border,
-                        borderWidth: 1,
-                        borderRadius: 8,
-                        marginTop: 6,
-                        maxHeight: 180,
-                        overflow: 'hidden',
-                      }}>
-                      <ScrollView nestedScrollEnabled showsVerticalScrollIndicator>
-                        {countries.length > 0 ? (
-                          countries.map(c => {
-                            const isSelected = selectedCountryId === c.id || selectedCountryName === c.name;
-                            return (
-                              <TouchableOpacity
-                                key={c.id}
-                                onPress={() => {
-                                  setSelectedCountryId(c.id);
-                                  setSelectedCountryName(c.name);
-                                  setShowCountryDropdown(false);
-                                }}
-                                style={{
-                                  paddingHorizontal: 14,
-                                  paddingVertical: 12,
-                                  borderBottomWidth: 1,
-                                  borderBottomColor: colors.border + '40',
-                                  backgroundColor: isSelected ? colors.primary + '18' : 'transparent',
-                                }}>
-                                <Text
-                                  style={{
-                                    color: isSelected ? colors.primary : colors.text,
-                                    fontFamily: isSelected ? fonts.bold : fonts.regular,
-                                    fontSize: 14,
-                                  }}>
-                                  {c.name}
-                                </Text>
-                              </TouchableOpacity>
-                            );
-                          })
-                        ) : (
-                          <View style={{ padding: 14, alignItems: 'center' }}>
-                            <Text style={{ color: colors.textMuted, fontSize: 13 }}>
-                              Loading countries...
-                            </Text>
-                          </View>
-                        )}
-                      </ScrollView>
-                    </View>
-                  )}
-                </View>
-              </View>
-            </FadeUp>
-          </>
-        ) : (
-          <>
+        <>
         {/* 1. Basic Information */}
         <FadeUp delay={30} duration={300}>
           <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -1450,7 +998,6 @@ export default function EditProfileScreen({ navigation, route }: any) {
           </View>
         </FadeUp>
         </>
-        )}
 
         {/* Action Buttons: Save Profile & Cancel */}
         <View style={styles.bottomButtonsSection}>
@@ -1458,10 +1005,9 @@ export default function EditProfileScreen({ navigation, route }: any) {
             <View
               style={[
                 styles.saveBtn,
-                !hasChanged && styles.saveBtnDisabled,
                 isSaving && styles.saveBtnSaving,
                 {
-                  backgroundColor: hasChanged ? colors.primary : colors.surfaceAlt,
+                  backgroundColor: colors.primary,
                   borderColor: colors.border,
                 },
               ]}>
@@ -1471,7 +1017,7 @@ export default function EditProfileScreen({ navigation, route }: any) {
                 <Text
                   style={[
                     styles.saveBtnText,
-                    { color: hasChanged ? colors.onPrimary : colors.textMuted },
+                    { color: colors.onPrimary },
                   ]}>
                   Save Profile
                 </Text>
@@ -1491,9 +1037,8 @@ export default function EditProfileScreen({ navigation, route }: any) {
         </View>
       </ScrollView>
 
-      {/* Provider-only Modals */}
-      {!isCustomer && (
-        <>
+      {/* Provider Modals */}
+      <>
           <AddEducationModal
             visible={showEduModal}
             itemToEdit={editingEdu}
@@ -1550,20 +1095,7 @@ export default function EditProfileScreen({ navigation, route }: any) {
               }
             }}
           />
-        </>
-      )}
-
-      {/* Confirm Delete Photo Modal */}
-      <ConfirmModal
-        visible={deletePhotoConfirmVisible}
-        title="Remove Profile Photo"
-        message="Are you sure you want to remove your profile photo?"
-        confirmText="Remove"
-        cancelText="Cancel"
-        danger
-        onConfirm={handleConfirmDeletePhoto}
-        onCancel={() => setDeletePhotoConfirmVisible(false)}
-      />
+      </>
 
       {/* Alert Modal */}
       <AlertModal

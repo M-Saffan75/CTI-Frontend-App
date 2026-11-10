@@ -4,7 +4,7 @@
 > **Target App**: React Native Bare CLI (Android & iOS) — `d:\React-Native-works\CTI`  
 > **Backend Reference**: Node.js & Express / MongoDB — `D:\Next-JS-Project\tbt-server`  
 > **Web App Reference**: Next.js 14 App Router — `D:\Next-JS-Project\frontend`  
-> **Last Updated**: 2026-11-07  
+> **Last Updated**: 2026-11-10 (Customer Phase 2 audit and cleanup)  
 
 ---
 
@@ -63,11 +63,11 @@ Per Section 2b of the project brief, **the mobile app does NOT have KYC, documen
 
 | Feature | Mobile Status | Where it Lives in Mobile | Web App Reference | Gap / Required Action |
 |---|---|---|---|---|
-| **Chat (List & Detail)** | **Exists** | `src/roles/Repairman/features/Chat/screens/ChatListScreen.tsx` & `ChatDetailScreen.tsx` (registered in `CustomerNavigator.tsx`). Header comment icon & repairman cards open chat. | `(website)/messages` (`GlobalChat.jsx`) | Reused from Repairman chat stack. Fully functional with `chatApi.ts` & `socketService.ts`. |
-| **Create Repair Job Request** | **Missing Screen** | None in mobile | `(website)/(myAccount)/my-account/add-job/page.jsx` | Web has a complete multi-step job creation form (Device category, brand, model, title, description, urgency, budget range, service preference, preferred time, photo upload), calling `POST /api/repair-jobs`. Mobile currently has no screen or button to post a job. |
-| **Hire / Book Repairman** | **Exists** | `src/roles/Customer/features/Jobs/components/BookingModal.tsx` in `RepairDetailScreen.tsx` | `(website)/(myAccount)/my-account/[id]/offer/[offerId]/check-out` | `BookingModal` handles accepting an offer and selecting service type, schedule date, and instructions (`customerJobApi.selectOffer`). `ExpertRepairmenScreen` provides "Book & Chat" to start direct negotiation. |
-| **Write Review for Completed Job** | **Missing Screen / Modal** | Static button in `JobsScreen.tsx` without an `onPress` action | Completed booking review trigger calling `POST /api/reviews` | Mobile needs a `WriteReviewModal` or dedicated review screen collecting rating, review text, aspect ratings, and recommendation. |
-| **Create Dispute** | **Missing Action / Modal for Customer** | `DisputeDetailScreen.tsx` only views and replies to an existing dispute | `(website)/(myAccount)/my-account/[id]/job-details/Disputes.jsx` | Web allows opening a dispute on a booking via `POST /api/disputes/create` (category, description, evidence). Mobile has a `CreateDisputeModal.tsx` in Repairman code that should be shared/adapted for Customer. |
+| **Chat (List & Detail)** | **Done (shared)** | `src/features/Chat/screens/ChatListScreen.tsx` and `ChatDetailScreen.tsx`, one shared set for all 3 roles. Each navigator mounts them with a `role` prop (`customer`, `repairman`, `seller`). | `(website)/messages` (`GlobalChat.jsx`) | Customer-only parts sit behind `role === 'customer'`: enquiry threads (`/customer/queries/*`), Accept/Decline on quotations. Seller header shows enquiry question and ID. |
+| **Create Repair Job Request** | **Web only (by decision)** | "New Job Request" button at the bottom of the All Jobs tab in `JobsScreen.tsx`. Opens `WEB_ADD_JOB_URL` with `Linking`. Not on Home. | `(website)/(myAccount)/my-account/add-job/page.jsx` | None. Form stays on the website. |
+| **Hire / Book Repairman** | **Exists** | `src/roles/Customer/features/Jobs/components/BookingModal.tsx` in `RepairDetailScreen.tsx` | `(website)/(myAccount)/my-account/[id]/offer/[offerId]/check-out` | `BookingModal` handles accepting an offer (`customerJobApi.selectOffer`). `ExpertRepairmenScreen` provides "Book & Chat". |
+| **Write Review for Completed Job** | **Done** | `src/components/modals/WriteReviewModal.tsx`, opened from `JobsScreen.tsx` (Reviews tab) and `RepairDetailScreen.tsx` (Booking tab) | `POST /api/reviews` | Backend needs booking status `delivered`; button shows only then. Device test pending. |
+| **Create Dispute** | **Done** | "Report a Problem" in `RepairDetailScreen.tsx` Booking tab opens shared `src/components/modals/CreateDisputeModal.tsx`, calls `customerJobApi.createDispute`, then opens `DisputeDetailScreen`. | `POST /api/disputes/create` (`bookingId`, `category`, `description`) | Backend accepts no photo evidence, so the modal has category and description only. Device test pending. |
 
 ---
 
@@ -75,8 +75,9 @@ Per Section 2b of the project brief, **the mobile app does NOT have KYC, documen
 
 ### 4.1 Seller Chat Access
 - In mobile, the Seller accesses the conversation list via the **comment icon in `SellerHeader.tsx`** (`navigation.navigate('ChatList')`).
-- `SellerNavigator.tsx` registers `ChatListScreen` (reusing `@/roles/Repairman/features/Chat/screens/ChatListScreen.tsx`).
-- In `EnquiriesScreen.tsx`, tapping "Chat with Customer" navigates directly to `ChatDetailScreen`.
+- `SellerNavigator.tsx` registers the shared `ChatListScreen` and `ChatDetailScreen` from `src/features/Chat/screens/` with `role="seller"`.
+- In `EnquiriesScreen.tsx`, tapping "Chat with Customer" navigates directly to `ChatDetail` (params `chatId`, `customerName`, `queryId`, `question`).
+- Known gap: `ServiceCatalogScreen.tsx` (Repairman) navigates to `ChatDetail` with Seller-style params and no `chatId`, so that chat opens empty.
 
 ### 4.2 Repairman Parts & Service Operations
 - **Parts Request Creation**:
@@ -168,7 +169,7 @@ Every screen is classified into:
 
 ```
 ========================================================================
-TOTAL APP SCREENS: 95
+TOTAL APP SCREENS: 95 (before cleanup; 3 duplicate chat screens and the customer EditProfile route have since been removed)
 ========================================================================
 
 1. SHARED & ROLE-AGNOSTIC (20 SCREENS):
@@ -191,8 +192,9 @@ TOTAL APP SCREENS: 95
                     WishlistScreen, OrdersScreen, OrderDetailScreen, 
                     ExpertRepairmenScreen, BlogsScreen, BlogDetailScreen, 
                     AcademyScreen, CoursesListScreen, CourseDetailScreen.
-   - Hybrid (3):    JobsScreen, RepairDetailScreen, Customer ProfileScreen (alias).
-   - Mock (1):      DisputeDetailScreen.
+   - Hybrid (0):    None. Demo job fallbacks and `Jobs/data/*` were removed; list and detail show real data, an empty state or an error state with retry.
+   - Mock (0):      None. DisputeDetailScreen uses the real API.
+   - Note: JobsScreen, RepairDetailScreen and DisputeDetailScreen are now counted as Real API. The per-role counts above were not recounted after the chat merge and the removed duplicates; recount in Phase 4.
    - Local (1):     SettingsScreen.
    - Clean (2):     ResetSuccessScreen, AboutScreen.
 
@@ -227,3 +229,13 @@ FINAL VERIFIED TOTALS:
 • Clean / Containers / Static: 12 (12.6%)
 ========================================================================
 ```
+
+---
+
+## 10. Known Static or Placeholder Content (open)
+
+- `src/features/Refurbished/data/refurbishedData.ts` still holds static lists: `REFURBISHED_TESTIMONIALS` (3 invented customer quotes, shown in Buy and Sell screens, not found in the web app), `REFURBISHED_CATEGORIES` and `REFURBISHED_BRANDS` (filter modal), grade texts, sell steps and condition questions.
+- `refurbishedApi.mapBackendToProduct` fills missing fields with defaults (rating 4.8, 15 reviews, stock 8, a generic SKU and spec texts). These can show as real data.
+- The related carousel on `RefurbishedProductDetailScreen` now uses `getRelatedRefurbishedProducts` (same category, else same brand, else top selling), like the web app.
+- `Repairman/features/Jobs/data/jobs.ts` and other Repairman and Seller mock screens are listed in section 9 and are not part of the Customer work.
+

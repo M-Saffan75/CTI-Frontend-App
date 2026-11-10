@@ -41,6 +41,7 @@ import customerJobApi, { MobileCustomerJob } from '../services/customerJobApi';
 import { useCart } from '@/roles/Customer/context/CartContext';
 import WriteReviewModal, { ReviewTargetJob } from '@/components/modals/WriteReviewModal';
 import { WEB_ADD_JOB_URL } from '@/constants/config';
+import ErrorState from '@/components/states/ErrorState';
 
 const PAGE_SIZE = 6;
 const DESCRIPTION_PREVIEW = 120;
@@ -378,6 +379,7 @@ export default function JobsScreen({ navigation }: any) {
   const [reviewedBookingIds, setReviewedBookingIds] = useState<Record<string, any>>({});
   const [completedReviewJobs, setCompletedReviewJobs] = useState<any[]>([]);
   const [loadingReviews, setLoadingReviews] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Themed AlertModal State (Replaces native Alert)
   const [alertConfig, setAlertConfig] = useState<{
@@ -568,9 +570,9 @@ export default function JobsScreen({ navigation }: any) {
     try {
       const data = await customerJobApi.getMyJobs();
       setJobs(data);
-    } catch (err) {
-      if (__DEV__) console.warn('Failed to fetch customer jobs:', err);
-      setJobs([]);
+      setLoadError(null);
+    } catch (err: any) {
+      setLoadError(err?.message || 'Failed to load your repair jobs.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -776,6 +778,13 @@ export default function JobsScreen({ navigation }: any) {
             size="md"
             text="Loading your repair jobs..."
             style={{ paddingVertical: 45 }}
+          />
+        ) : loadError && jobs.length === 0 ? (
+          <ErrorState
+            fullScreen={false}
+            title="Could not load jobs"
+            error={loadError}
+            onRetry={() => fetchJobs()}
           />
         ) : (
           <>

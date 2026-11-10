@@ -34,7 +34,6 @@ import RefurbishedHeader from '../components/RefurbishedHeader';
 import RefurbishedFilterModal from '../components/RefurbishedFilterModal';
 import CtiLoader from '@/components/CtiLoader';
 import {
-  REFURBISHED_PRODUCTS,
   REFURBISHED_TESTIMONIALS,
   RefurbishedProduct,
 } from '../data/refurbishedData';
@@ -68,7 +67,7 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
         const live = await getTopSellingProducts();
         setProductsList(Array.isArray(live) ? live : []);
       }
-    } catch (e) {
+    } catch {
       setProductsList([]);
     } finally {
       setLoading(false);

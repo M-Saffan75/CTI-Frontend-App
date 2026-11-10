@@ -23,7 +23,6 @@ import WishlistScreen from '../features/Product/screens/WishlistScreen';
 import { WishlistProvider } from '../context/WishlistContext';
 import { CartProvider } from '../context/CartContext';
 import ProfileScreen from '@/features/Profile/screens/ProfileScreen';
-import EditProfileScreen from '@/features/Profile/screens/EditProfileScreen';
 import ChangePasswordScreen from '@/features/Profile/screens/ChangePasswordScreen';
 
 // Refurbished screens
@@ -39,8 +38,8 @@ import QuoteApplicationScreen from '@/features/Refurbished/screens/QuoteApplicat
 import ApplicationSubmittedScreen from '@/features/Refurbished/screens/ApplicationSubmittedScreen';
 import MySellRequestsScreen from '@/features/Refurbished/screens/MySellRequestsScreen';
 import NotificationsScreen from '@/features/Notifications/screens/NotificationsScreen';
-import ChatListScreen from '../features/Chat/screens/ChatListScreen';
-import ChatDetailScreen from '../features/Chat/screens/ChatDetailScreen';
+import ChatListScreen from '@/features/Chat/screens/ChatListScreen';
+import ChatDetailScreen from '@/features/Chat/screens/ChatDetailScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -64,8 +63,12 @@ export default function CustomerNavigator({ onLogout }) {
         <Stack.Screen name="Settings">
           {props => <SettingsScreen {...props} onLogout={onLogout} />}
         </Stack.Screen>
-        <Stack.Screen name="ChatList" component={ChatListScreen} />
-        <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
+        <Stack.Screen name="ChatList">
+          {props => <ChatListScreen {...props} role="customer" />}
+        </Stack.Screen>
+        <Stack.Screen name="ChatDetail">
+          {props => <ChatDetailScreen {...props} role="customer" />}
+        </Stack.Screen>
         <Stack.Screen name="Notifications" component={NotificationsScreen} />
         <Stack.Screen name="RepairDetail" component={RepairDetailScreen} />
         <Stack.Screen name="DisputeDetail" component={DisputeDetailScreen} />
@@ -85,7 +88,6 @@ export default function CustomerNavigator({ onLogout }) {
         <Stack.Screen name="Checkout" component={CheckoutScreen} />
         <Stack.Screen name="Wishlist" component={WishlistScreen} />
         <Stack.Screen name="Profile" component={ProfileScreen} />
-        <Stack.Screen name="EditProfile" component={EditProfileScreen} />
         <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
 
         {/* Refurbished screens */}

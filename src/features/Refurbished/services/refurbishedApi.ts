@@ -166,6 +166,25 @@ export async function getRefurbishedProducts(params?: Record<string, any>): Prom
 }
 
 /**
+ * Related products for a detail page, same order as the web app:
+ * same category, else same brand, else top selling.
+ */
+export async function getRelatedRefurbishedProducts(product: RefurbishedProduct): Promise<RefurbishedProduct[]> {
+  const others = (list: RefurbishedProduct[]) => list.filter(p => p.id !== product.id).slice(0, 6);
+  const categorySlug = product.raw?.categoryId?.slug;
+  if (categorySlug) {
+    const related = others(await getCategoryProducts(categorySlug));
+    if (related.length > 0) return related;
+  }
+  const brandSlug = product.raw?.brandId?.slug || (typeof product.raw?.brandId === 'string' ? product.raw.brandId : undefined);
+  if (brandSlug) {
+    const related = others(await getRefurbishedProducts({ brand: brandSlug, limit: 7 }));
+    if (related.length > 0) return related;
+  }
+  return others(await getTopSellingProducts());
+}
+
+/**
  * 5. Fetch Refurbished Product Details
  */
 export async function getRefurbishedProductDetail(idOrSlug: string): Promise<RefurbishedProduct | null> {

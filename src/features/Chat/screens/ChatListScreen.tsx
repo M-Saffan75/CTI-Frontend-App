@@ -14,7 +14,8 @@ import CtiLoader from '@/components/CtiLoader';
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
 import { FadeUp } from '@/animations';
-import { arrowLeftBold, searchBold, dummyProfileExtra } from '@/assets/icons';
+import { arrowLeftBold, searchBold } from '@/assets/icons';
+import { dummyProfileExtra } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { ChatItem, fetchChatList } from '@/services/chatApi';
@@ -37,7 +38,15 @@ function formatChatTime(dateStr?: string): string {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
-function ChatRow({ chat, navigation }: { chat: ChatItem; navigation: any }) {
+function ChatRow({
+  chat,
+  navigation,
+  fallbackName,
+}: {
+  chat: ChatItem;
+  navigation: any;
+  fallbackName: string;
+}) {
   const { colors } = useTheme();
   const avatarSource = chat.participant?.avatar
     ? { uri: chat.participant.avatar }
@@ -51,7 +60,7 @@ function ChatRow({ chat, navigation }: { chat: ChatItem; navigation: any }) {
           queryId: chat.queryId,
           chatType: chat.chatType,
           participantId: chat.participant?.id || (chat.participant as any)?._id || '',
-          participantName: chat.participant?.name || 'Technician',
+          participantName: chat.participant?.name || fallbackName,
           participantAvatar: chat.participant?.avatar,
           isOnline: chat.participant?.isOnline,
         })
@@ -74,7 +83,7 @@ function ChatRow({ chat, navigation }: { chat: ChatItem; navigation: any }) {
 
         <View style={styles.rowBody}>
           <Text style={[styles.name, { color: colors.text }]} numberOfLines={1}>
-            {chat.participant?.name || 'Technician'}
+            {chat.participant?.name || fallbackName}
           </Text>
           <Text style={[styles.lastMessage, { color: colors.textMuted }]} numberOfLines={1}>
             {chat.lastMessage?.content || 'No messages yet'}
@@ -87,9 +96,7 @@ function ChatRow({ chat, navigation }: { chat: ChatItem; navigation: any }) {
           </Text>
           {chat.unreadCount > 0 && (
             <View style={[styles.unreadBadge, { backgroundColor: colors.success }]}>
-              <Text style={styles.unreadText}>
-                {chat.unreadCount > 99 ? '99+' : chat.unreadCount}
-              </Text>
+              <Text style={styles.unreadText}>{chat.unreadCount > 99 ? '99+' : chat.unreadCount}</Text>
             </View>
           )}
         </View>
@@ -98,7 +105,15 @@ function ChatRow({ chat, navigation }: { chat: ChatItem; navigation: any }) {
   );
 }
 
-export default function ChatListScreen({ navigation }: any) {
+export default function ChatListScreen({
+  navigation,
+  role,
+}: {
+  navigation: any;
+  role: 'customer' | 'repairman' | 'seller';
+}) {
+  const isCustomer = role === 'customer';
+  const fallbackName = isCustomer ? 'Technician' : 'User';
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
@@ -114,7 +129,7 @@ export default function ChatListScreen({ navigation }: any) {
       const data = await fetchChatList();
       setChats(data);
     } catch {
-      // Keep existing list on failure
+      // Keep existing
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -130,17 +145,17 @@ export default function ChatListScreen({ navigation }: any) {
     // Listen to real-time chat list updates
     const unsubListUpdate = socketService.onChatListUpdated((updateData: any) => {
       if (__DEV__) {
-        console.log('[CustomerChatListScreen] onChatListUpdated:', updateData);
+        console.log('[ChatListScreen] onChatListUpdated:', updateData);
       }
       loadChats(true);
     });
 
-    // Listen to new message to bump conversation immediately
+    // Listen to new message to bump conversation
     const unsubNewMsg = socketService.onNewMessage((msg: any) => {
       setChats(prev => {
         const index = prev.findIndex(c => c.chatId === msg.chatId);
         if (index !== -1) {
-          const updatedChat: ChatItem = {
+          const updatedChat = {
             ...prev[index],
             lastMessage: {
               content: msg.content || (msg.messageType ? `[${msg.messageType}]` : ''),
@@ -154,7 +169,7 @@ export default function ChatListScreen({ navigation }: any) {
           const rest = prev.filter((_, i) => i !== index);
           return [updatedChat, ...rest];
         }
-        // If chat isn't yet in list, refresh from API
+        // If not in list, reload from API
         loadChats(true);
         return prev;
       });
@@ -220,15 +235,19 @@ export default function ChatListScreen({ navigation }: any) {
             </Text>
             <Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>
               {search.trim()
-                ? 'Try searching with another technician or shop name.'
-                : 'When you chat with technicians or sellers, messages will appear here.'}
+                ? isCustomer
+                  ? 'Try searching with another technician or shop name.'
+                  : 'Try searching with another name.'
+                : isCustomer
+                ? 'When you chat with technicians or sellers, messages will appear here.'
+                : 'When customers reach out or orders begin, messages will appear here.'}
             </Text>
           </View>
         ) : (
           <View style={styles.list}>
             {filtered.map((chat, index) => (
               <FadeUp key={chat.chatId} delay={40 + index * 30} duration={350}>
-                <ChatRow chat={chat} navigation={navigation} />
+                <ChatRow chat={chat} navigation={navigation} fallbackName={fallbackName} />
                 <View style={[styles.divider, { backgroundColor: colors.border }]} />
               </FadeUp>
             ))}
@@ -303,4 +322,3 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 });
-

@@ -5,8 +5,8 @@ import JobBoardDetailScreen from '../features/Jobs/screens/JobBoardDetailScreen'
 import SendProposalScreen from '../features/Jobs/screens/SendProposalScreen';
 import MyJobDetailScreen from '../features/Jobs/screens/MyJobDetailScreen';
 import BankingInformationScreen from '../features/Earnings/screens/BankingInformationScreen';
-import ChatListScreen from '../features/Chat/screens/ChatListScreen';
-import ChatDetailScreen from '../features/Chat/screens/ChatDetailScreen';
+import ChatListScreen from '@/features/Chat/screens/ChatListScreen';
+import ChatDetailScreen from '@/features/Chat/screens/ChatDetailScreen';
 import NotificationsScreen from '@/features/Notifications/screens/NotificationsScreen';
 import SettingsScreen from '../features/Settings/screens/SettingsScreen';
 
@@ -73,8 +73,12 @@ export default function RepairmanNavigator({ onLogout }) {
         <Stack.Screen name="SendProposal" component={SendProposalScreen} />
         <Stack.Screen name="MyJobDetail" component={MyJobDetailScreen} />
         <Stack.Screen name="BankingInformation" component={BankingInformationScreen} />
-        <Stack.Screen name="ChatList" component={ChatListScreen} />
-        <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
+        <Stack.Screen name="ChatList">
+          {props => <ChatListScreen {...props} role="repairman" />}
+        </Stack.Screen>
+        <Stack.Screen name="ChatDetail">
+          {props => <ChatDetailScreen {...props} role="repairman" />}
+        </Stack.Screen>
         <Stack.Screen name="Notifications" component={NotificationsScreen} />
 
         <Stack.Screen name="Orders" component={OrdersScreen} />

@@ -29,7 +29,6 @@ import RefurbishedHeader from '../components/RefurbishedHeader';
 import RefurbishedFilterModal from '../components/RefurbishedFilterModal';
 import CtiLoader from '@/components/CtiLoader';
 import {
-  REFURBISHED_PRODUCTS,
   RefurbishedProduct,
 } from '../data/refurbishedData';
 import { getRefurbishedProducts } from '../services/refurbishedApi';
@@ -63,7 +62,7 @@ export default function AllGadgetsScreen({ navigation, route }: any) {
     try {
       const live = await getRefurbishedProducts();
       setRawProducts(Array.isArray(live) ? live : []);
-    } catch (e) {
+    } catch {
       setRawProducts([]);
     } finally {
       setLoading(false);
