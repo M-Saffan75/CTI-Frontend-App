@@ -14,6 +14,7 @@ import { exclamationCircleBold } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { ApiError } from '@/services/apiError';
+import { useTranslation } from 'react-i18next';
 
 export interface ErrorStateProps {
   /** Error instance or normalized string */
@@ -37,16 +38,17 @@ export interface ErrorStateProps {
 export default function ErrorState({
   error,
   onRetry,
-  title = 'Something went wrong',
-  retryLabel = 'Try Again',
+  title,
+  retryLabel,
   retrying = false,
   icon = exclamationCircleBold,
   fullScreen = true,
   style,
 }: ErrorStateProps) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
 
-  let message = 'An unexpected error occurred. Please try again.';
+  let message = t('apiErrors.unexpected');
   if (typeof error === 'string' && error.trim().length > 0) {
     message = error;
   } else if (error && typeof error === 'object' && 'message' in error && error.message) {
@@ -65,13 +67,13 @@ export default function ErrorState({
         </View>
       )}
 
-      <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
+      <Text style={[styles.title, { color: colors.text }]}>{title ?? t('common.somethingWentWrong')}</Text>
 
       <Text style={[styles.message, { color: colors.textMuted }]}>{message}</Text>
 
       {Boolean(onRetry) && (
         <Button
-          title={retryLabel}
+          title={retryLabel ?? t('common.tryAgain')}
           size="md"
           loading={retrying}
           onPress={onRetry}

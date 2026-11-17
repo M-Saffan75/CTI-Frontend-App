@@ -1,206 +1,355 @@
-import { useState } from 'react';
-import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  FlatList,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import Icon from '@/components/Icon';
+import AlertModal from '@/components/AlertModal';
 import Button from '@/components/Button';
-import Squeeze from '@/components/Squeeze';
-import { FadeUp } from '@/animations';
-import { clockBold, commentDotsBold, mobileBold, penBold, settingsBold, stopwatchBold, shieldIcon } from '@/assets/icons';
+import Icon from '@/components/Icon';
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  PaginationFooter,
+} from '@/components/states';
+import { searchBold, slidersHBold } from '@/assets/icons';
+import repairmanApi, {
+  MyBooking,
+  MyJobsPage,
+} from '@/roles/Repairman/api/repairmanApi';
+import {
+  subscribeOffersChanged,
+  useOffersChangedChecker,
+} from '@/roles/Repairman/utils/offerEvents';
+import usePagedList from '@/roles/Seller/utils/usePagedList';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
-import JobsFilterBar from '../components/JobsFilterBar';
-import { MY_JOBS, MY_JOB_STATUSES } from '../data/jobs';
+import Select from '../../../components/Select';
+import MyJobCard from '../components/MyJobCard';
+import {
+  bookingUrgency,
+  JOB_TABS,
+  JobsTabKey,
+  matchesBookingSearch,
+} from '../utils/bookings';
+import { PRIORITY_OPTIONS } from '../utils/jobBoard';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
+import { lower } from '@/i18n/locale';
 
-function MyJobCard({ job, navigation }) {
+const PAGE_SIZE = 10;
+
+function Tile({ label, value }: { label: string; value: number }) {
   const { colors } = useTheme();
 
   return (
-    <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-      <View style={styles.metaRow}>
-        <View style={styles.priorityRow}>
-          <Icon source={clockBold} size={12} color={colors.error} />
-          <Text style={[styles.priorityText, { color: colors.error }]}>{job.priority}</Text>
-        </View>
-        <View style={[styles.servicePill, { backgroundColor: colors.primary + '18' }]}>
-          <Text style={[styles.servicePillText, { color: colors.primary }]}>{job.serviceType}</Text>
-        </View>
-      </View>
-
-      <View style={styles.titleRow}>
-        <View style={[styles.deviceIcon, { borderColor: colors.border }]}>
-          <Icon source={mobileBold} size={16} color={colors.primary} />
-        </View>
-        <Text style={[styles.deviceName, { color: colors.text }]}>{job.device}</Text>
-      </View>
-
-      <View style={styles.metaRow2}>
-        <Text style={[styles.priceText, { color: colors.text }]}>TRY {job.price.toFixed(1)}</Text>
-        <View style={styles.metaItem}>
-          <Icon source={stopwatchBold} size={12} color={colors.textMuted} />
-          <Text style={[styles.metaText, { color: colors.textMuted }]}>Est {job.estDays} days</Text>
-        </View>
-        <View style={styles.metaItem}>
-          <Icon source={shieldIcon} size={12} color={colors.textMuted} />
-          <Text style={[styles.metaText, { color: colors.textMuted }]}>Warranty: {job.warrantyDays} Days</Text>
-        </View>
-      </View>
-
-      <Text style={[styles.description, { color: colors.textMuted }]}>{job.description}</Text>
-
-      <View style={[styles.partTag, { borderColor: colors.border }]}>
-        <Icon source={settingsBold} size={14} color={colors.text} />
-        <Text style={[styles.partTagText, { color: colors.text }]}>{job.part.name}</Text>
-      </View>
-      <Text style={[styles.partsQuality, { color: colors.textMuted }]}>Parts quality: {job.partsQuality}</Text>
-
-      <Button
-        title="View & Update Status"
-        icon={penBold}
-        iconPosition="left"
-        onPress={() => navigation.navigate('MyJobDetail', { jobId: job.id })}
-        style={styles.spaced}
-      />
-      <Button
-        title="Message Client"
-        variant="outline"
-        icon={commentDotsBold}
-        iconPosition="left"
-        onPress={() => navigation.navigate('ChatList')}
-        style={styles.spaced}
-      />
+    <View
+      style={[
+        styles.tile,
+        { backgroundColor: colors.surface, borderColor: colors.border },
+      ]}
+    >
+      <Text style={[styles.tileValue, { color: colors.primary }]}>{value}</Text>
+      <Text style={[styles.tileLabel, { color: colors.textMuted }]}>
+        {label}
+      </Text>
     </View>
   );
 }
 
-export default function MyJobsContent({ navigation }) {
+export default function MyJobsContent({ navigation }: { navigation: any }) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const focused = useIsFocused();
 
+  const [tab, setTab] = useState<JobsTabKey>('active');
   const [search, setSearch] = useState('');
-  const [priority, setPriority] = useState(null);
-  const [status, setStatus] = useState('Active');
+  const [priority, setPriority] = useState<
+    (typeof PRIORITY_OPTIONS)[number] | null
+  >(null);
 
+  // Every page comes unfiltered, because the backend counts per status only over what it returns.
+  // The status groups, search and priority are applied in the app, like the web does.
+  const fetchPage = useCallback(async (page: number) => {
+    const data = await repairmanApi.getMyJobs({ page, limit: PAGE_SIZE });
+    return {
+      items: data.jobs,
+      totalPages: data.pagination.total,
+      totalItems: data.pagination.totalJobs,
+      extra: data.summary,
+    };
+  }, []);
+
+  const jobsChanged = useOffersChangedChecker();
+  const list = usePagedList<MyBooking, MyJobsPage['summary']>(
+    fetchPage,
+    focused,
+    true,
+    jobsChanged,
+  );
+
+  // A status was updated or an offer was confirmed while this list is open: reload quietly
+  const silentReloadRef = useRef(list.silentReload);
+  silentReloadRef.current = list.silentReload;
+  const focusedRef = useRef(focused);
+  focusedRef.current = focused;
+  useEffect(
+    () =>
+      subscribeOffersChanged(() => {
+        if (focusedRef.current && jobsChanged()) silentReloadRef.current();
+      }),
+    [jobsChanged],
+  );
+
+  const summary = list.extra;
+  const counts = useMemo(() => {
+    const active = summary?.activeBookings ?? 0;
+    const completed = summary?.completedBookings ?? 0;
+    const cancelled = summary?.cancelledBookings ?? 0;
+    const disputed = summary?.disputedBookings ?? 0;
+    return {
+      active,
+      completed,
+      cancelled,
+      disputed,
+      closed: Math.max(
+        0,
+        (summary?.totalJobs ?? 0) - active - completed - cancelled - disputed,
+      ),
+    } as Record<JobsTabKey, number>;
+  }, [summary]);
+
+  const statuses = JOB_TABS.find(item => item.key === tab)?.statuses || [];
+  const visible = useMemo(
+    () =>
+      list.items.filter(booking => {
+        if (!statuses.includes(booking.bookingDetails?.status)) return false;
+        if (priority && bookingUrgency(booking) !== priority.value)
+          return false;
+        return matchesBookingSearch(booking, search);
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [list.items, tab, priority, search],
+  );
+
+  const hasFilters = Boolean(search.trim() || priority);
   const clearFilters = () => {
     setSearch('');
     setPriority(null);
   };
 
-  const filtered = MY_JOBS.filter(
-    job =>
-      job.status === status &&
-      (!priority || job.priority === priority) &&
-      (!search || job.device.toLowerCase().includes(search.toLowerCase())),
+  const header = (
+    <View>
+      <Text style={[styles.title, { color: colors.text }]}>{t('repairman.myJobs')}</Text>
+      <Text style={[styles.subtitle, { color: colors.textMuted }]}>
+        {t('repairman.manageYourRepairBookingsAnd')}
+      </Text>
+
+      <View style={styles.tiles}>
+        <Tile label={t('customer.totalJobs')} value={summary?.totalJobs ?? 0} />
+        <Tile label={t('repairman.jobPostings')} value={summary?.jobPostingBookings ?? 0} />
+        <Tile
+          label={t('repairman.directMessages')}
+          value={summary?.directMessageBookings ?? 0}
+        />
+        <Tile label={t('repairman.active')} value={summary?.activeBookings ?? 0} />
+      </View>
+
+      <View style={styles.filters}>
+        <View style={[styles.search, { borderColor: colors.border }]}>
+          <Icon source={searchBold} size={18} color={colors.textMuted} />
+          <TextInput
+            value={search}
+            onChangeText={setSearch}
+            placeholder={t('repairman.searchByDeviceCustomerService')}
+            placeholderTextColor={colors.textMuted}
+            style={[styles.searchInput, { color: colors.text }]}
+          />
+        </View>
+        <Select
+          icon={slidersHBold}
+          placeholder={t('repairman.allPriorities')}
+          value={priority?.label || null}
+          options={PRIORITY_OPTIONS.map(option => option.label)}
+          onChange={label =>
+            setPriority(
+              PRIORITY_OPTIONS.find(option => option.label === label) || null,
+            )
+          }
+        />
+        {hasFilters ? (
+          <Button
+            title={t('repairman.clearFilters2')}
+            variant="soft"
+            size="sm"
+            onPress={clearFilters}
+            style={styles.clear}
+          />
+        ) : null}
+      </View>
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.tabs}
+      >
+        {JOB_TABS.map(item => {
+          const active = item.key === tab;
+          return (
+            <TouchableOpacity
+              key={item.key}
+              onPress={() => setTab(item.key)}
+              style={[
+                styles.tab,
+                {
+                  backgroundColor: active ? colors.primary : colors.surfaceAlt,
+                  borderColor: active ? colors.primary : colors.border,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.tabText,
+                  { color: active ? colors.onPrimary : colors.textMuted },
+                ]}
+              >
+                {item.label}
+                {counts[item.key] > 0 ? `  ${counts[item.key]}` : ''}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+    </View>
   );
 
+  const emptyTabText =
+    lower(JOB_TABS.find(item => item.key === tab)?.label || '');
+
   return (
-      <ScrollView
-        contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled">
-        <Text style={[styles.title, { color: colors.text }]}>My Jobs</Text>
-        <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-          Manage your repair jobs and track progress with ease
-        </Text>
-
-        <JobsFilterBar
-          search={search}
-          onSearch={setSearch}
-          priority={priority}
-          onPriority={setPriority}
-          onClear={clearFilters}
-          showCity={false}
-          searchPlaceholder="Search by device"
-        />
-
-        {MY_JOBS[0] && (
-          <View style={styles.customerRow}>
-            <Image
-              source={{ uri: MY_JOBS[0].customer.avatar }}
-              style={[styles.avatar, { borderWidth: 1, borderColor: colors.avatarBorder }]}
+    <View style={styles.flex}>
+      <FlatList
+        data={visible}
+        keyExtractor={booking => booking._id}
+        renderItem={({ item }) => (
+          <MyJobCard
+            booking={item}
+            onOpen={() =>
+              navigation.navigate('MyJobDetail', { bookingId: item._id })
+            }
+          />
+        )}
+        ListHeaderComponent={header}
+        ListEmptyComponent={
+          list.loading ? (
+            <LoadingState fullScreen={false} text={t('repairman.loadingYourJobs')} />
+          ) : list.error ? (
+            <ErrorState
+              error={list.error}
+              onRetry={list.retry}
+              fullScreen={false}
             />
-            <Text style={[styles.customerName, { color: colors.text }]}>{MY_JOBS[0].customer.name}</Text>
-            <View style={[styles.messagePill, { backgroundColor: colors.error + '18' }]}>
-              <Text style={[styles.messagePillText, { color: colors.error }]}>{MY_JOBS[0].messageStatus}</Text>
-            </View>
-          </View>
-        )}
+          ) : (
+            <EmptyState
+              fullScreen={false}
+              title={i18n.t('repairmanMsg.noJobsTab', { tab: emptyTabText })}
+              message={
+                hasFilters
+                  ? t('repairman.tryAdjustingYourFilters')
+                  : tab === 'active'
+                  ? t('repairman.jobsYouWinOnThe')
+                  : t('repairman.nothingHereYet')
+              }
+              action={
+                hasFilters
+                  ? { label: t('repairman.clearFilters'), onPress: clearFilters }
+                  : undefined
+              }
+            />
+          )
+        }
+        ListFooterComponent={
+          list.items.length > 0 ? (
+            <PaginationFooter
+              loading={list.loadingMore}
+              hasMore={list.hasMore}
+              endText={t('repairman.youHaveSeenAllJobs')}
+            />
+          ) : null
+        }
+        contentContainerStyle={[
+          styles.body,
+          { paddingBottom: insets.bottom + 30 },
+        ]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        onEndReached={list.onEndReached}
+        onEndReachedThreshold={0.4}
+        refreshControl={
+          <RefreshControl
+            refreshing={list.refreshing}
+            onRefresh={list.onRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
+      />
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.statusTabs}>
-          {MY_JOB_STATUSES.map(item => {
-            const active = item === status;
-            const count = MY_JOBS.filter(job => job.status === item).length;
-            return (
-              <Squeeze key={item} onPress={() => setStatus(item)}>
-                <View style={[styles.statusTab, active && { borderBottomColor: colors.primary }]}>
-                  <Text
-                    style={[
-                      styles.statusTabText,
-                      { color: active ? colors.primary : colors.textMuted, fontFamily: active ? fonts.bold : fonts.regular },
-                    ]}>
-                    {item}
-                    {count ? ` ${count}` : ''}
-                  </Text>
-                </View>
-              </Squeeze>
-            );
-          })}
-        </ScrollView>
-
-        {filtered.length === 0 ? (
-          <Text style={[styles.empty, { color: colors.textMuted }]}>No {status.toLowerCase()} jobs.</Text>
-        ) : (
-          <View style={styles.list}>
-            {filtered.map((job, index) => (
-              <FadeUp key={job.id} delay={60 + index * 50} duration={450}>
-                <MyJobCard job={job} navigation={navigation} />
-              </FadeUp>
-            ))}
-          </View>
-        )}
-      </ScrollView>
+      <AlertModal
+        visible={Boolean(list.loadError)}
+        type="error"
+        title={t('repairman.couldNotLoad')}
+        message={list.loadError || ''}
+        onClose={list.clearLoadError}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 },
+  flex: { flex: 1 },
   body: { paddingHorizontal: 20, paddingTop: 16 },
   title: { fontFamily: fonts.bold, fontSize: 24 },
   subtitle: { fontFamily: fonts.regular, fontSize: 13, marginTop: 4 },
-  empty: { fontFamily: fonts.regular, fontSize: 14, textAlign: 'center', marginTop: 30 },
-
-  customerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 18 },
-  avatar: { width: 40, height: 40, borderRadius: 20 },
-  customerName: { fontFamily: fonts.bold, fontSize: 16, flex: 1 },
-  messagePill: { borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 },
-  messagePillText: { fontFamily: fonts.medium, fontSize: 11 },
-
-  statusTabs: { marginTop: 14, flexGrow: 0 },
-  statusTab: { paddingHorizontal: 12, paddingBottom: 10, borderBottomWidth: 2, borderBottomColor: 'transparent' },
-  statusTabText: { fontSize: 13 },
-
-  list: { marginTop: 16, gap: 14 },
-  card: { borderRadius: 14, borderWidth: 1, padding: 14 },
-  metaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  priorityRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  priorityText: { fontFamily: fonts.bold, fontSize: 12 },
-  servicePill: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
-  servicePillText: { fontFamily: fonts.bold, fontSize: 11 },
-
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
-  deviceIcon: { width: 30, height: 30, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  deviceName: { fontFamily: fonts.bold, fontSize: 16 },
-
-  metaRow2: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginTop: 8 },
-  priceText: { fontFamily: fonts.bold, fontSize: 14 },
-  metaItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  metaText: { fontFamily: fonts.regular, fontSize: 12 },
-
-  description: { fontFamily: fonts.regular, fontSize: 12, marginTop: 8 },
-
-  partTag: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, marginTop: 10 },
-  partTagText: { fontFamily: fonts.regular, fontSize: 12 },
-  partsQuality: { fontFamily: fonts.regular, fontSize: 12, marginTop: 8 },
-
-  spaced: { marginTop: 10 },
+  tiles: { flexDirection: 'row', gap: 8, marginTop: 16 },
+  tile: {
+    flex: 1,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    gap: 2,
+  },
+  tileValue: { fontFamily: fonts.bold, fontSize: 18 },
+  tileLabel: { fontFamily: fonts.regular, fontSize: 10, textAlign: 'center' },
+  filters: { marginTop: 16, gap: 10 },
+  clear: { alignSelf: 'flex-start', minWidth: 130 },
+  search: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    height: 48,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+  },
+  searchInput: { flex: 1, fontFamily: fonts.regular, fontSize: 13, padding: 0 },
+  tabs: { gap: 8, marginTop: 16 },
+  tab: {
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  tabText: { fontFamily: fonts.medium, fontSize: 12 },
 });

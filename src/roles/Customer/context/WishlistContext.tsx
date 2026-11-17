@@ -1,11 +1,14 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import AlertModal from '@/components/AlertModal';
+import { normalizeApiError } from '@/services/apiError';
 import { getWishlistApi, mapBackendWishlistItem, toggleWishlistApi } from '../features/Product/services/ecomApi';
 import {
   getRefurbishedWishlist,
   toggleRefurbishedWishlist,
 } from '@/features/Refurbished/services/refurbishedApi';
 import { demoProductPhoto } from '@/assets/images';
+import { useTranslation } from 'react-i18next';
 
 const STORAGE_KEY = 'customer_wishlist';
 
@@ -36,9 +39,9 @@ function mapRefurbishedWishlistItem(it: any): any {
     _id: pId,
     productId: pId,
     variantId: vId || undefined,
-    title: p.title || p.name || 'Refurbished Device',
-    brand: typeof p.brandId === 'object' ? p.brandId?.name : (p.brand || 'CTI'),
-    category: typeof p.categoryId === 'object' ? p.categoryId?.name : (p.category || 'Refurbished'),
+    title: p.title || p.name || '',
+    brand: typeof p.brandId === 'object' ? p.brandId?.name : (p.brand || ''),
+    category: typeof p.categoryId === 'object' ? p.categoryId?.name : (p.category || ''),
     price,
     originalPrice: Number(v.sellingPrice || p.originalPrice || price),
     discountPercent: Number(v.discountPercentage || p.discountPercent || 0),
@@ -56,66 +59,74 @@ interface WishlistContextType {
   loading: boolean;
   isSaved: (id: string | number) => boolean;
   toggle: (productOrId: any, extraOrProduct?: any) => Promise<boolean>;
-  refreshWishlist: () => Promise<void>;
+  // true when the lists were loaded; false when a request failed (the current items are kept)
+  refreshWishlist: () => Promise<boolean>;
 }
 
 const WishlistContext = createContext<WishlistContextType | null>(null);
 
 export function WishlistProvider({ children }: { children: React.ReactNode }) {
+  const { t } = useTranslation();
   const [ids, setIds] = useState<string[]>([]);
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  // 1. Initial Load: from AsyncStorage cache first, then sync with backend (Standard + Refurbished)
-  const loadWishlist = useCallback(async () => {
+  // Always holds the latest list so quick taps on different products do not use stale state
+  const itemsRef = useRef<any[]>([]);
+  // Products with a toggle request running (web: loadingIds)
+  const inFlightRef = useRef<Set<string>>(new Set());
+
+  const commit = useCallback((nextItems: any[]) => {
+    // Strictly one entry per unique product ID
+    const seen = new Set<string>();
+    const unique: any[] = [];
+    for (const item of nextItems) {
+      const pId = String(item?.id || item?._id || item?.productId || '');
+      if (pId && !seen.has(pId)) {
+        seen.add(pId);
+        unique.push(item);
+      }
+    }
+    const nextIds = Array.from(seen);
+    itemsRef.current = unique;
+    setItems(unique);
+    setIds(nextIds);
+    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ ids: nextIds, items: unique })).catch(() => {});
+  }, []);
+
+  // Cache first, then the backend (standard + refurbished, like the Next.js layout).
+  // Each list is replaced only when its own request worked: a failed request never wipes the wishlist.
+  const loadWishlist = useCallback(async (): Promise<boolean> => {
     try {
       const cached = await AsyncStorage.getItem(STORAGE_KEY);
-      if (cached) {
+      if (cached && itemsRef.current.length === 0) {
         const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed.items)) {
+          itemsRef.current = parsed.items;
+          setItems(parsed.items);
+        }
         if (Array.isArray(parsed.ids)) setIds(parsed.ids);
-        if (Array.isArray(parsed.items)) setItems(parsed.items);
       }
     } catch {}
 
-    // Fetch from backend (both regular marketplace + refurbished wishlist, matching Next.js)
-    try {
-      setLoading(true);
-      const [res, refurbRaw] = await Promise.all([
-        getWishlistApi().catch(() => null),
-        getRefurbishedWishlist().catch(() => []),
-      ]);
+    setLoading(true);
+    const [standard, refurbished] = await Promise.allSettled([getWishlistApi(), getRefurbishedWishlist()]);
+    setLoading(false);
 
-      const standardItems = res && Array.isArray(res.items) ? res.items : [];
-      const refurbMapped = Array.isArray(refurbRaw)
-        ? refurbRaw.map(mapRefurbishedWishlistItem).filter(Boolean)
-        : [];
+    const current = itemsRef.current;
+    const standardItems =
+      standard.status === 'fulfilled' ? standard.value.items : current.filter(it => !it?.isRefurbished);
+    const refurbItems =
+      refurbished.status === 'fulfilled'
+        ? refurbished.value.map(mapRefurbishedWishlistItem).filter(Boolean)
+        : current.filter(it => it?.isRefurbished);
 
-      // Combine standard + refurb items, strictly DEDUPLICATING by unique product ID
-      const seenIds = new Set<string>();
-      const dedupedItems: any[] = [];
-
-      for (const item of [...standardItems, ...refurbMapped]) {
-        const pId = String(item.id || item._id || item.productId);
-        if (pId && !seenIds.has(pId)) {
-          seenIds.add(pId);
-          dedupedItems.push(item);
-        }
-      }
-
-      const dedupedIds = Array.from(seenIds);
-
-      setItems(dedupedItems);
-      setIds(dedupedIds);
-      await AsyncStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({ ids: dedupedIds, items: dedupedItems })
-      );
-    } catch {
-      // Offline fallback
-    } finally {
-      setLoading(false);
+    if (standard.status === 'fulfilled' || refurbished.status === 'fulfilled') {
+      commit([...standardItems, ...refurbItems]);
     }
-  }, []);
+    return standard.status === 'fulfilled' && refurbished.status === 'fulfilled';
+  }, [commit]);
 
   useEffect(() => {
     loadWishlist();
@@ -146,87 +157,73 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
 
       if (!rawId) return false;
       const strId = String(rawId);
-      const currentlySaved = ids.includes(strId);
+      const currentItems = itemsRef.current;
+      const currentlySaved = currentItems.some(it => String(it.id || it._id || it.productId) === strId);
 
-      // Detect if refurbished product
+      // A toggle for this product is already running: ignore the tap (web: loadingIds)
+      if (inFlightRef.current.has(strId)) return currentlySaved;
+
       const isRefurb = Boolean(
         incomingProduct?.isRefurbished ||
         incomingProduct?.condition === 'Refurbished' ||
         incomingProduct?.grade ||
         incomingProduct?.rawItem ||
-        items.some(it => String(it.id || it._id) === strId && it.isRefurbished)
+        currentItems.some(it => String(it.id || it._id) === strId && it.isRefurbished)
       );
 
-      // Optimistic state calculation
-      let newIds: string[];
-      let newItems: any[];
-
-      if (currentlySaved) {
-        newIds = ids.filter(i => i !== strId);
-        newItems = items.filter(it => String(it.id || it._id) !== strId);
+      let resolvedVariantId: string | undefined;
+      if (typeof extraOrProduct === 'string') {
+        resolvedVariantId = extraOrProduct;
       } else {
-        newIds = [...ids, strId];
-        const productObj = incomingProduct
-          ? (isRefurb ? mapRefurbishedWishlistItem({ productId: incomingProduct }) : mapBackendWishlistItem(incomingProduct))
-          : { id: strId, _id: strId, title: 'Favorited Product', isRefurbished: isRefurb };
-        newItems = [...items, productObj];
+        const foundVid =
+          resolveId(extraOrProduct) ||
+          resolveId(incomingProduct?.variantId) ||
+          resolveId(incomingProduct?.defaultVariantId) ||
+          resolveId(incomingProduct?.variants?.[0]);
+        if (foundVid) resolvedVariantId = foundVid;
       }
 
-      // 1. Instant realtime local state update
-      setIds(newIds);
-      setItems(newItems);
-      AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ ids: newIds, items: newItems })).catch(() => {});
+      const previousItem = currentItems.find(it => String(it.id || it._id || it.productId) === strId);
 
-      // 2. Background sync with backend
+      inFlightRef.current.add(strId);
+
+      // Instant local update (the web store also flips the heart before the request finishes)
+      if (currentlySaved) {
+        commit(currentItems.filter(it => String(it.id || it._id || it.productId) !== strId));
+      } else {
+        const productObj = incomingProduct
+          ? (isRefurb
+              ? mapRefurbishedWishlistItem({ productId: incomingProduct, variantId: resolvedVariantId })
+              : mapBackendWishlistItem(incomingProduct))
+          : { id: strId, _id: strId, title: '', isRefurbished: isRefurb };
+        commit([...currentItems, productObj]);
+      }
+
       try {
-        let resolvedVariantId: string | undefined = undefined;
-        if (typeof extraOrProduct === 'string') {
-          resolvedVariantId = extraOrProduct;
-        } else {
-          const foundVid =
-            resolveId(extraOrProduct) ||
-            resolveId(incomingProduct?.variantId) ||
-            resolveId(incomingProduct?.defaultVariantId) ||
-            resolveId(incomingProduct?.variants?.[0]);
-          if (foundVid) resolvedVariantId = foundVid;
-        }
-
         if (isRefurb) {
-          if (currentlySaved) {
-            // User is removing item: check backend wishlist for any entries with this productId
-            const refurbList = await getRefurbishedWishlist().catch(() => []);
-            const matchingBackend = refurbList.filter((it: any) => {
-              const pId = resolveId(it.productId) || resolveId(it.product);
-              return pId === strId;
-            });
-
-            if (matchingBackend.length > 0) {
-              // Remove each matching entry to clean out any duplicates in DB
-              for (const match of matchingBackend) {
-                const vId = resolveId(match.variantId) || resolvedVariantId;
-                await toggleRefurbishedWishlist(strId, vId || undefined, incomingProduct).catch(() => {});
-              }
-            } else {
-              // Normal toggle remove
-              await toggleRefurbishedWishlist(strId, resolvedVariantId, incomingProduct);
-            }
-          } else {
-            // User is adding item
-            await toggleRefurbishedWishlist(strId, resolvedVariantId, incomingProduct);
-          }
+          // Web: one POST /refurbished/wishlist/toggle, then the list from the response replaces the refurbished items
+          const serverItems = await toggleRefurbishedWishlist(strId, resolvedVariantId);
+          const refurbItems = serverItems.map(mapRefurbishedWishlistItem).filter(Boolean);
+          commit([...itemsRef.current.filter(it => !it?.isRefurbished), ...refurbItems]);
         } else {
-          // Standard marketplace product
           await toggleWishlistApi(strId, resolvedVariantId);
         }
-
-        await loadWishlist();
         return !currentlySaved;
       } catch (err) {
-        if (__DEV__) console.warn('Wishlist toggle API sync fallback:', err);
-        return !currentlySaved;
+        // The request failed: flip the heart back and tell the customer why
+        const latest = itemsRef.current;
+        if (currentlySaved) {
+          if (previousItem) commit([...latest, previousItem]);
+        } else {
+          commit(latest.filter(it => String(it.id || it._id || it.productId) !== strId));
+        }
+        setNotice(normalizeApiError(err).message);
+        return currentlySaved;
+      } finally {
+        inFlightRef.current.delete(strId);
       }
     },
-    [ids, items, loadWishlist]
+    [commit]
   );
 
   return (
@@ -241,6 +238,13 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
         refreshWishlist: loadWishlist,
       }}>
       {children}
+      <AlertModal
+        visible={Boolean(notice)}
+        type="error"
+        title={t('glossary.wishlist')}
+        message={notice || ''}
+        onClose={() => setNotice(null)}
+      />
     </WishlistContext.Provider>
   );
 }
@@ -255,7 +259,7 @@ export function useWishlist() {
       loading: false,
       isSaved: () => false,
       toggle: async () => false,
-      refreshWishlist: async () => {},
+      refreshWishlist: async () => false,
     };
   }
   return value;

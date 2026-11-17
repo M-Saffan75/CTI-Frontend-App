@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { formatMoney } from '@/utils/money';
 import { Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { launchImageLibrary } from 'react-native-image-picker';
@@ -14,32 +15,31 @@ import {
   cameraBold,
   checkCircleBold,
   checkCircleIcon,
-  checkCircleFilled,
   closeIcon,
   commentDotsBold,
-  discountBold,
   heartExtra,
   heartFilled,
   menuBold,
   minusSquareBold,
   packageBold,
   plusSquareBold,
-  returnOfInvestmentIcon,
   shieldIcon,
   shoppingCartExtra,
   starExtra,
-  storeBold,
   trashBold,
+  dummyProfileExtra,
   videoBold,
 } from '@/assets/icons';
 import { ctiLogo } from '@/assets/images';
+import PlatformGuarantees from '@/components/PlatformGuarantees';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { useWishlist } from '../../../context/WishlistContext';
 import { useCart } from '../../../context/CartContext';
 import AuthService from '@/services/authService';
+import KeyboardSafeView from '@/components/KeyboardSafeView';
+import { normalizeApiError } from '@/services/apiError';
 import {
-  addToCartApi,
   checkReviewEligibilityApi,
   deleteProductReviewApi,
   getEcomProductDetail,
@@ -53,6 +53,10 @@ import {
 import { demoProductPhoto } from '@/assets/images';
 import { startChat } from '@/services/chatApi';
 import AskSellerModal from '../components/AskSellerModal';
+import { getLocaleTag, upper } from '@/i18n/locale';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
+import { tx } from '@/utils/labels';
 
 function ImageCarousel({ images }: { images?: any[] }) {
   const { colors } = useTheme();
@@ -105,48 +109,9 @@ function SpecRow({ label, value, alt = false }) {
   );
 }
 
-function VariantCard({ variant, selected, onPress }: any) {
-  const { colors } = useTheme();
-
-  return (
-    <Squeeze
-      onPress={onPress}
-      style={[
-        styles.variantCard,
-        {
-          borderColor: selected ? colors.primary : colors.border,
-          backgroundColor: selected ? colors.primary + '14' : colors.surface,
-        },
-      ]}>
-      {selected && (
-        <View style={[styles.variantCheck, { backgroundColor: colors.primary }]}>
-          <Icon source={checkCircleFilled} size={14} color={colors.onPrimary} />
-        </View>
-      )}
-
-      <View style={styles.variantHead}>
-        <Image source={resolveImageSource(variant.image, demoProductPhoto)} style={styles.variantImage} />
-        <View style={styles.variantHeadText}>
-          <Text style={[styles.variantLabel, { color: colors.text }]} numberOfLines={1}>{variant.label}</Text>
-          {variant.verified && (
-            <View style={[styles.verifiedPill, { backgroundColor: colors.success + '22' }]}>
-              <Text style={[styles.verifiedText, { color: colors.success }]}>VERIFIED</Text>
-            </View>
-          )}
-        </View>
-      </View>
-
-      <View style={styles.variantFoot}>
-        <Text style={[styles.variantPrice, { color: colors.primary }]}>${Number(variant.price || 0).toFixed(2)}</Text>
-        <View style={[styles.stockPill, { backgroundColor: colors.success + '22' }]}>
-          <Text style={[styles.stockText, { color: colors.success }]}>{variant.stockLeft ?? 5} left</Text>
-        </View>
-      </View>
-    </Squeeze>
-  );
-}
 
 function RelatedCard({ product, navigation }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const { isSaved, toggle } = useWishlist();
   const saved = isSaved(product.id);
@@ -167,18 +132,19 @@ function RelatedCard({ product, navigation }: any) {
       </View>
       <View style={styles.relatedBody}>
         <Text style={[styles.relatedBrand, { color: colors.textMuted }]} numberOfLines={1}>
-          {typeof product.brand === 'string' ? product.brand : (product.brand as any)?.title || (product.brand as any)?.name || 'CTI Store'}
+          {typeof product.brand === 'string' ? product.brand : (product.brand as any)?.title || (product.brand as any)?.name || t('customer.ctiStore')}
         </Text>
         <Text style={[styles.relatedTitle, { color: colors.text }]} numberOfLines={1}>
-          {typeof product.title === 'string' ? product.title : (product.title as any)?.title || (product.title as any)?.name || 'Product'}
+          {typeof product.title === 'string' ? product.title : (product.title as any)?.title || (product.title as any)?.name || i18n.t('tabs.product')}
         </Text>
-        <Text style={[styles.relatedPrice, { color: colors.text }]}>${Number(product.price || 0).toFixed(2)}</Text>
+        <Text style={[styles.relatedPrice, { color: colors.text }]}>{formatMoney(product.price)}</Text>
       </View>
     </Squeeze>
   );
 }
 
 export default function ProductDetailScreen({ navigation, route }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -188,7 +154,6 @@ export default function ProductDetailScreen({ navigation, route }: any) {
   const [product, setProduct] = useState<MobileEcomProduct | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [addingToCart, setAddingToCart] = useState(false);
-  const [buyingNow, setBuyingNow] = useState(false);
   const [askModalVisible, setAskModalVisible] = useState(false);
   const [related, setRelated] = useState<MobileEcomProduct[]>([]);
 
@@ -206,6 +171,10 @@ export default function ProductDetailScreen({ navigation, route }: any) {
   const [submittingReview, setSubmittingReview] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [deletingReviewId, setDeletingReviewId] = useState<string | null>(null);
+  // null = not known yet / the check failed; the backend only allows a review after a delivered order
+  const [canReview, setCanReview] = useState<boolean | null>(null);
+  const [reviewsFailed, setReviewsFailed] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Load current user ID for review owner actions
   useEffect(() => {
@@ -238,16 +207,20 @@ export default function ProductDetailScreen({ navigation, route }: any) {
     }
 
     setLoading(true);
+    setLoadError(null);
+    setReviewsFailed(false);
     try {
       const [liveProd, revs] = await Promise.all([
         getEcomProductDetail(lookupKey),
-        getProductReviewsApi(productSlug || lookupKey).catch(() => []),
+        getProductReviewsApi(productSlug || lookupKey).catch(() => null),
       ]);
 
       if (liveProd) {
         setProduct(liveProd);
         if (Array.isArray(revs)) {
           setReviewsList(revs);
+        } else {
+          setReviewsFailed(true);
         }
         if (liveProd.variants?.length) {
           const defaultOrFirst =
@@ -258,26 +231,37 @@ export default function ProductDetailScreen({ navigation, route }: any) {
             if (a.name && a.value) initialAttrs[a.name] = a.value;
           });
           setSelectedAttributes(initialAttrs);
-          const s = Number(defaultOrFirst.stockLeft ?? 0);
-          setQuantity(s > 0 ? 1 : 0);
+          const stock = Number(defaultOrFirst.stockLeft ?? 0);
+          setQuantity(stock > 0 ? 1 : 0);
         } else {
-          const s = Number(liveProd.stock ?? 0);
-          setQuantity(s > 0 ? 1 : 0);
+          const stock = Number(liveProd.stock ?? 0);
+          setQuantity(stock > 0 ? 1 : 0);
         }
 
-        // Fetch related products in background
-        getEcomProducts()
-          .then(prods => {
-            if (Array.isArray(prods)) {
-              setRelated(prods.filter(p => p.id !== liveProd.id).slice(0, 8));
-            }
-          })
-          .catch(() => {});
+        // The review form is only for customers with a delivered order of this product
+        checkReviewEligibilityApi(liveProd.slug || lookupKey)
+          .then(setCanReview)
+          .catch(() => setCanReview(null));
+
+        // Related products: other products of the same category
+        if (liveProd.categoryId) {
+          getEcomProducts({ categoryIds: liveProd.categoryId, limit: 9 })
+            .then(prods => {
+              if (Array.isArray(prods)) {
+                setRelated(prods.filter(p => p.id !== liveProd.id).slice(0, 8));
+              }
+            })
+            .catch(() => {});
+        } else {
+          setRelated([]);
+        }
       } else {
         setProduct(null);
       }
-    } catch {
+    } catch (err) {
+      // No connection or a server failure is shown as such, with a retry, not as "not found"
       setProduct(null);
+      setLoadError(normalizeApiError(err).message);
     } finally {
       setLoading(false);
     }
@@ -299,12 +283,14 @@ export default function ProductDetailScreen({ navigation, route }: any) {
   const inStock = activeStock > 0;
 
   const handleSelectAttribute = (attrName: string, value: string) => {
+    if (!product?.variants?.length) {
+      setSelectedAttributes({ ...selectedAttributes, [attrName]: value });
+      return;
+    }
+
     const next = { ...selectedAttributes, [attrName]: value };
-    setSelectedAttributes(next);
 
-    if (!product?.variants?.length) return;
-
-    // Find the variant that matches all selected attributes
+    // The variant that matches every selected option, or else the first one that has this option
     const match = product.variants.find(v => {
       return Object.entries(next).every(([k, val]) =>
         (v.attributes || []).some(
@@ -317,16 +303,23 @@ export default function ProductDetailScreen({ navigation, route }: any) {
       );
     });
 
-    if (match) {
-      setVariantId(match.id);
-      const newStock = Number(match.stockLeft ?? 0);
-      if (newStock <= 0) {
-        setQuantity(0);
-      } else if (quantity > newStock) {
-        setQuantity(newStock);
-      } else if (quantity === 0 && newStock > 0) {
-        setQuantity(1);
-      }
+    // No variant has this option: nothing changes, so price and stock always match what is selected
+    if (!match) return;
+
+    setVariantId(match.id);
+    const matchedAttrs: Record<string, string> = {};
+    (match.attributes || []).forEach((a: any) => {
+      if (a.name && a.value) matchedAttrs[a.name] = a.value;
+    });
+    setSelectedAttributes(matchedAttrs);
+
+    const newStock = Number(match.stockLeft ?? 0);
+    if (newStock <= 0) {
+      setQuantity(0);
+    } else if (quantity > newStock) {
+      setQuantity(newStock);
+    } else if (quantity === 0 && newStock > 0) {
+      setQuantity(1);
     }
   };
 
@@ -350,6 +343,12 @@ export default function ProductDetailScreen({ navigation, route }: any) {
     }
   };
 
+  // The rating bars are computed from the real reviews (no reviews: all bars empty)
+  const ratingRows = [5, 4, 3, 2, 1].map(stars => {
+    const count = reviewsList.filter(r => Math.round(Number(r.rating) || 0) === stars).length;
+    return { stars, percent: reviewsList.length ? Math.round((count / reviewsList.length) * 100) : 0 };
+  });
+
   const handleDecreaseQty = () => {
     if (!inStock) return;
     setQuantity(q => Math.max(1, q - 1));
@@ -361,7 +360,7 @@ export default function ProductDetailScreen({ navigation, route }: any) {
   };
 
   const handleAddToCart = async () => {
-    if (!product?.id || addingToCart || buyingNow) return;
+    if (!product?.id || addingToCart) return;
     try {
       setAddingToCart(true);
       const chosenVarId = activeVariant?.id || variantId;
@@ -371,50 +370,35 @@ export default function ProductDetailScreen({ navigation, route }: any) {
       setModal({
         visible: true,
         type: 'error',
-        title: 'Add to Cart Failed',
-        message: err?.message || 'Could not add product to cart. Please try again.',
+        title: i18n.t('customer.addToCartFailed'),
+        message: err?.message || i18n.t('customer.couldNotAddProductTo'),
       });
     } finally {
       setAddingToCart(false);
     }
   };
 
-  const handleBuyNow = async () => {
-    if (!product?.id || addingToCart || buyingNow) return;
-    try {
-      setBuyingNow(true);
-      const chosenVarId = activeVariant?.id || variantId;
-      await addToCart(product.id, chosenVarId, quantity);
-      const unitPrice = activePrice;
-      const subtotalVal = unitPrice * quantity;
-      const shippingVal = 10;
-      navigation.navigate('Checkout', {
-        cartItems: [
-          {
-            id: chosenVarId ? `${product.id}-${chosenVarId}` : product.id,
-            productId: product.id,
-            variantId: chosenVarId,
-            title: product.title,
-            price: unitPrice,
-            quantity,
-            image: activeVariant?.image || product.image,
-            product,
-          },
-        ],
-        subtotal: subtotalVal,
-        shipping: shippingVal,
-        total: subtotalVal + shippingVal,
-      });
-    } catch (err: any) {
-      setModal({
-        visible: true,
-        type: 'error',
-        title: 'Checkout Error',
-        message: err?.message || 'Could not proceed to checkout.',
-      });
-    } finally {
-      setBuyingNow(false);
-    }
+  // Like the web: Buy Now sends the chosen item straight to the checkout. The cart is not changed.
+  const handleBuyNow = () => {
+    if (!product?.id || addingToCart) return;
+    const chosenVarId = activeVariant?.id || variantId;
+    navigation.navigate('Checkout', {
+      cartItems: [
+        {
+          id: chosenVarId ? product.id + '-' + chosenVarId : product.id,
+          productId: product.id,
+          variantId: chosenVarId,
+          variantLabel: activeVariant?.label,
+          title: product.title,
+          price: activePrice,
+          quantity,
+          image: activeVariant?.image || product.image,
+          sellerId: product.seller?.id,
+          sellerName: product.seller?.name,
+          product,
+        },
+      ],
+    });
   };
 
   const handleVisitStore = () => {
@@ -433,24 +417,39 @@ export default function ProductDetailScreen({ navigation, route }: any) {
   const handleDirectChat = async () => {
     const sId = product?.seller?.id || product?.raw?.sellerId?._id || (typeof product?.raw?.sellerId === 'string' ? product?.raw?.sellerId : undefined);
     if (!sId) {
-      navigation.navigate('ChatList');
+      setModal({
+        visible: true,
+        type: 'error',
+        title: i18n.t('customer.couldNotOpenTheChat2'),
+        message: i18n.t('customer.thisSellerCannotBeMessaged'),
+      });
       return;
     }
     try {
       const res = await startChat({ sellerId: sId });
-      if (res.success && res.chat) {
+      const chatId = res.chat?._id || res.chat?.chatId;
+      if (res.success && chatId) {
         navigation.navigate('ChatDetail', {
-          conversationId: res.chat._id || res.chat.id,
-          participant: {
-            name: product.seller?.name || 'Seller',
-            avatar: product.seller?.avatar,
-          },
+          chatId,
+          participantId: sId,
+          participantName: res.chat?.user?.name || product.seller?.name || i18n.t('glossary.seller'),
+          participantAvatar: res.chat?.user?.avatar || product.seller?.avatar || null,
         });
       } else {
-        navigation.navigate('ChatList');
+        setModal({
+          visible: true,
+          type: 'error',
+          title: i18n.t('customer.couldNotOpenTheChat2'),
+          message: res.message || i18n.t('customer.pleaseTryAgain'),
+        });
       }
-    } catch {
-      navigation.navigate('ChatList');
+    } catch (err) {
+      setModal({
+        visible: true,
+        type: 'error',
+        title: i18n.t('customer.couldNotOpenTheChat2'),
+        message: normalizeApiError(err).message,
+      });
     }
   };
 
@@ -462,8 +461,8 @@ export default function ProductDetailScreen({ navigation, route }: any) {
       setModal({
         visible: true,
         type: 'warning',
-        title: 'Rating Required',
-        message: 'Please select a star rating (1 to 5 stars) for this product.',
+        title: i18n.t('customer.ratingRequired'),
+        message: i18n.t('customer.pleaseSelectAStarRating'),
       });
       return;
     }
@@ -473,8 +472,8 @@ export default function ProductDetailScreen({ navigation, route }: any) {
       setModal({
         visible: true,
         type: 'warning',
-        title: 'Review Message Required',
-        message: 'Please write your review comment. Both star rating and a message are required to submit a review.',
+        title: i18n.t('customer.reviewMessageRequired'),
+        message: i18n.t('customer.pleaseWriteYourReviewComment'),
       });
       return;
     }
@@ -483,8 +482,8 @@ export default function ProductDetailScreen({ navigation, route }: any) {
       setModal({
         visible: true,
         type: 'warning',
-        title: 'Review Too Short',
-        message: 'Please write at least a few words describing your experience with the product.',
+        title: i18n.t('customer.reviewTooShort'),
+        message: i18n.t('customer.pleaseWriteAtLeastA'),
       });
       return;
     }
@@ -509,8 +508,8 @@ export default function ProductDetailScreen({ navigation, route }: any) {
         setModal({
           visible: true,
           type: 'success',
-          title: 'Review Submitted',
-          message: 'Thank you! Your review has been submitted successfully.',
+          title: i18n.t('customer.reviewSubmitted'),
+          message: res.message || i18n.t('customer.thankYouYourReviewHas'),
         });
         setMyRating(0);
         setReviewText('');
@@ -535,13 +534,21 @@ export default function ProductDetailScreen({ navigation, route }: any) {
             if (live) setProduct(live);
           })
           .catch(() => {});
+        setCanReview(false);
+      } else {
+        setModal({
+          visible: true,
+          type: 'error',
+          title: i18n.t('customer.reviewSubmissionFailed'),
+          message: res.message || i18n.t('customer.yourReviewCouldNotBe'),
+        });
       }
     } catch (err: any) {
       setModal({
         visible: true,
         type: 'error',
-        title: 'Review Submission Failed',
-        message: err?.message || 'Unable to submit review. Please try again.',
+        title: i18n.t('customer.reviewSubmissionFailed'),
+        message: err?.message || i18n.t('customer.unableToSubmitReviewPlease'),
       });
     } finally {
       setSubmittingReview(false);
@@ -559,8 +566,8 @@ export default function ProductDetailScreen({ navigation, route }: any) {
       setModal({
         visible: true,
         type: 'success',
-        title: 'Review Deleted',
-        message: 'Your review has been removed.',
+        title: i18n.t('customer.reviewDeleted'),
+        message: i18n.t('customer.yourReviewHasBeenRemoved'),
       });
       getEcomProductDetail(lookupKey)
         .then(live => {
@@ -571,8 +578,8 @@ export default function ProductDetailScreen({ navigation, route }: any) {
       setModal({
         visible: true,
         type: 'error',
-        title: 'Delete Failed',
-        message: err?.message || 'Could not delete review.',
+        title: i18n.t('customer.deleteFailed'),
+        message: err?.message || i18n.t('customer.couldNotDeleteReview'),
       });
     } finally {
       setDeletingReviewId(null);
@@ -619,29 +626,31 @@ export default function ProductDetailScreen({ navigation, route }: any) {
 
       {loading ? (
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <CtiLoader size="lg" text="Loading product details..." />
+          <CtiLoader size="lg" text={t('customer.loadingProductDetails')} />
         </View>
       ) : !product ? (
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
           <Icon source={packageBold} size={54} color={colors.textMuted} />
           <Text style={{ fontFamily: fonts.bold, fontSize: 18, color: colors.text, marginTop: 16 }}>
-            Product Not Found
+            {loadError ? t('customer.couldNotLoadTheProduct') : t('customer.productNotFound')}
           </Text>
           <Text style={{ fontFamily: fonts.regular, fontSize: 14, color: colors.textMuted, marginTop: 8, textAlign: 'center' }}>
-            The requested product is not available or could not be loaded.
+            {loadError || t('customer.theRequestedProductIsNot')}
           </Text>
           <View style={{ flexDirection: 'row', gap: 12, marginTop: 24 }}>
             <Squeeze onPress={() => navigation.goBack()} style={{ paddingHorizontal: 20, paddingVertical: 12, borderWidth: 1, borderColor: colors.border, borderRadius: 12 }}>
-              <Text style={{ color: colors.text, fontFamily: fonts.bold }}>Go Back</Text>
+              <Text style={{ color: colors.text, fontFamily: fonts.bold }}>{t('customer.goBack')}</Text>
             </Squeeze>
             <Squeeze onPress={() => loadProductDetails()} style={{ paddingHorizontal: 24, paddingVertical: 12, backgroundColor: colors.primary, borderRadius: 12 }}>
-              <Text style={{ color: '#fff', fontFamily: fonts.bold }}>Retry</Text>
+              <Text style={{ color: '#fff', fontFamily: fonts.bold }}>{t('chat.retry')}</Text>
             </Squeeze>
           </View>
         </View>
       ) : (
+        <KeyboardSafeView>
         <ScrollView
           contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
+          keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}>
         <Squeeze onPress={() => navigation.goBack()} scale={0.9} style={styles.backWrap}>
           <View style={[styles.back, { backgroundColor: colors.primary }]}>
@@ -661,14 +670,14 @@ export default function ProductDetailScreen({ navigation, route }: any) {
             {product.brand ? (
               <View style={[styles.badgePill, { backgroundColor: colors.primary + '18', borderColor: colors.primary + '35' }]}>
                 <Text style={[styles.badgePillText, { color: colors.primary }]}>
-                  {typeof product.brand === 'string' ? product.brand : (product.brand as any)?.title || 'Store'}
+                  {upper(typeof product.brand === 'string' ? product.brand : (product.brand as any)?.title || t('customerMsg.store'))}
                 </Text>
               </View>
             ) : null}
             {product.category ? (
               <View style={[styles.badgePill, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
                 <Text style={[styles.badgePillText, { color: colors.textMuted }]}>
-                  {typeof product.category === 'string' ? product.category : (product.category as any)?.title || 'Electronics'}
+                  {upper(typeof product.category === 'string' ? product.category : (product.category as any)?.title || t('customerMsg.electronics'))}
                 </Text>
               </View>
             ) : null}
@@ -681,16 +690,16 @@ export default function ProductDetailScreen({ navigation, route }: any) {
           <View style={styles.priceContainer}>
             <View style={styles.priceRow}>
               <Text style={[styles.mainPrice, { color: colors.text }]}>
-                ${activePrice.toFixed(2)}
+                {formatMoney(activePrice)}
               </Text>
               {hasDiscount && (
                 <Text style={[styles.originalPrice, { color: colors.textMuted }]}>
-                  ${activeOriginalPrice.toFixed(2)}
+                  {formatMoney(activeOriginalPrice)}
                 </Text>
               )}
               {discountPercent ? (
                 <View style={[styles.discountBadge, { backgroundColor: colors.primary + '20' }]}>
-                  <Text style={[styles.discountText, { color: colors.primary }]}>-{discountPercent}% OFF</Text>
+                  <Text style={[styles.discountText, { color: colors.primary }]}>{t('customerMsg.discountOff', { percent: discountPercent })}</Text>
                 </View>
               ) : null}
             </View>
@@ -699,7 +708,7 @@ export default function ProductDetailScreen({ navigation, route }: any) {
               <View style={[styles.stockRow, { backgroundColor: inStock ? '#10B98118' : '#EF444418' }]}>
                 <View style={[styles.stockDot, { backgroundColor: inStock ? '#10B981' : '#EF4444' }]} />
                 <Text style={[styles.stockStatusText, { color: inStock ? '#10B981' : '#EF4444' }]}>
-                  {inStock ? `In Stock (${activeStock} left)` : 'Out of Stock'}
+                  {inStock ? t('customerMsg.inStockLeft', { count: activeStock }) : t('customer.outOfStock2')}
                 </Text>
               </View>
 
@@ -707,7 +716,7 @@ export default function ProductDetailScreen({ navigation, route }: any) {
                 <View style={[styles.warrantyPill, { backgroundColor: '#10B98114', borderColor: '#10B98135' }]}>
                   <Icon source={shieldIcon} size={14} color="#10B981" />
                   <Text style={[styles.warrantyPillText, { color: '#047857' }]}>
-                    {product.specs?.warranty || 'Official Warranty'}
+                    {tx(product.specs?.warranty) || t('customer.officialWarranty')}
                   </Text>
                 </View>
               )}
@@ -783,7 +792,7 @@ export default function ProductDetailScreen({ navigation, route }: any) {
           <FadeUp delay={140} duration={450}>
             <View style={{ marginTop: 16 }}>
               <View style={styles.sectionHeaderRow}>
-                <Text style={[styles.label, { color: colors.text, marginTop: 0 }]}>Select Option</Text>
+                <Text style={[styles.label, { color: colors.text, marginTop: 0 }]}>{t('customer.selectOption')}</Text>
                 {activeVariant && (
                   <Text style={[styles.selectedVariantNote, { color: colors.primary }]} numberOfLines={1}>
                     {activeVariant.label}
@@ -826,13 +835,13 @@ export default function ProductDetailScreen({ navigation, route }: any) {
         <FadeUp delay={180} duration={450}>
           <View style={[styles.quantityRow, { backgroundColor: colors.surfaceAlt }]}>
             <View>
-              <Text style={[styles.label, { color: colors.text, marginTop: 0 }]}>Quantity</Text>
+              <Text style={[styles.label, { color: colors.text, marginTop: 0 }]}>{t('customer.quantity')}</Text>
               <Text style={{ fontFamily: fonts.regular, fontSize: 11, color: colors.textMuted, marginTop: 2 }}>
                 {!inStock
-                  ? 'Out of stock'
+                  ? t('customer.outOfStock')
                   : quantity >= activeStock
-                  ? `Max stock reached (${activeStock})`
-                  : `Max available: ${activeStock}`}
+                  ? t('customerMsg.maxStockReached', { count: activeStock })
+                  : t('customerMsg.maxAvailable', { count: activeStock })}
               </Text>
             </View>
 
@@ -872,18 +881,17 @@ export default function ProductDetailScreen({ navigation, route }: any) {
           </View>
 
           <Button
-            title={inStock ? 'Buy Now' : 'Out of Stock'}
+            title={inStock ? t('customer.buyNow') : t('customer.outOfStock2')}
             variant="outline"
-            loading={buyingNow}
-            disabled={!inStock || addingToCart || buyingNow}
+            disabled={!inStock || addingToCart}
             onPress={handleBuyNow}
             style={[styles.spaced, { opacity: inStock ? 1 : 0.5 }]}
           />
           <Button
-            title={inStock ? 'Add to Cart' : 'Out of Stock'}
+            title={inStock ? t('customer.addToCart2') : t('customer.outOfStock2')}
             icon={shoppingCartExtra}
             loading={addingToCart}
-            disabled={!inStock || addingToCart || buyingNow}
+            disabled={!inStock || addingToCart}
             onPress={handleAddToCart}
             style={[styles.spaced, { opacity: inStock ? 1 : 0.5 }]}
           />
@@ -897,13 +905,13 @@ export default function ProductDetailScreen({ navigation, route }: any) {
                 onPress={handleVisitStore}
                 style={styles.sellerTouchable}>
                 <Image
-                  source={resolveImageSource(product.seller?.avatar, demoProductPhoto)}
+                  source={resolveImageSource(product.seller?.avatar, dummyProfileExtra)}
                   style={styles.sellerAvatar}
                 />
                 <View style={styles.sellerInfo}>
                   <View style={styles.sellerNameRow}>
                     <Text style={[styles.sellerName, { color: colors.text }]} numberOfLines={1}>
-                      {product.seller?.name || 'Verified Store'}
+                      {product.seller?.name || ''}
                     </Text>
                     {Boolean(product.seller?.isApproved) && (
                       <View style={styles.verifiedBadge}>
@@ -911,9 +919,11 @@ export default function ProductDetailScreen({ navigation, route }: any) {
                       </View>
                     )}
                   </View>
-                  <Text style={[styles.sellerLocation, { color: colors.textMuted }]} numberOfLines={1}>
-                    {product.seller?.location || 'Pakistan'}
-                  </Text>
+                  {product.seller?.location ? (
+                    <Text style={[styles.sellerLocation, { color: colors.textMuted }]} numberOfLines={1}>
+                      {product.seller.location}
+                    </Text>
+                  ) : null}
                   {product.seller?.isOnline !== undefined && (
                     <View style={styles.sellerOnlineRow}>
                       <View
@@ -931,14 +941,14 @@ export default function ProductDetailScreen({ navigation, route }: any) {
                             color: product.seller.isOnline ? '#10B981' : colors.textMuted,
                           },
                         ]}>
-                        {product.seller.isOnline ? 'Online' : 'Offline'}
+                        {product.seller.isOnline ? t('chat.online') : t('chat.offline')}
                       </Text>
                     </View>
                   )}
                 </View>
               </TouchableOpacity>
               <Button
-                title="Visit Store"
+                title={t('customer.visitStore2')}
                 size="xs"
                 variant="outline"
                 fullWidth={false}
@@ -949,7 +959,7 @@ export default function ProductDetailScreen({ navigation, route }: any) {
             <View style={[styles.divider, { backgroundColor: colors.border }]} />
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <Button
-                title="Ask Seller"
+                title={t('customer.askSeller')}
                 variant="outline"
                 size="sm"
                 icon={commentDotsBold}
@@ -958,7 +968,7 @@ export default function ProductDetailScreen({ navigation, route }: any) {
                 style={{ flex: 1 }}
               />
               <Button
-                title="Chat"
+                title={t('customer.chat')}
                 size="sm"
                 onPress={handleDirectChat}
                 style={{ flex: 1 }}
@@ -968,21 +978,25 @@ export default function ProductDetailScreen({ navigation, route }: any) {
         </FadeUp>
 
         <FadeUp delay={270} duration={450}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Product Information</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('customer.productInformation')}</Text>
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
           <Text style={[styles.description, { color: colors.textMuted }]}>{product.description}</Text>
         </FadeUp>
 
         <FadeUp delay={310} duration={450}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Specifications</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('customer.specifications')}</Text>
           <View style={[styles.specsTable, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <SpecRow label="Brand" value={product.specs?.brand || product.brand} alt />
-            <SpecRow label="SKU" value={activeVariant?.sku || product.specs?.sku || `SKU-${String(product.id || '').slice(-6)}`} />
-            <SpecRow label="Category" value={product.specs?.category || product.category || 'Electronics'} alt />
-            <SpecRow label="Total Variants" value={product.specs?.totalVariants || product.variants?.length || 1} />
-            <SpecRow label="Total Stock" value={product.specs?.totalStock ?? (product.inStock ? product.stock : 0)} alt />
-            <SpecRow label="Price Range" value={product.specs?.priceRange || `$${Number(product.price || 0).toFixed(2)}`} />
-            <SpecRow label="Warranty" value={product.specs?.warranty || 'No Warranty'} alt />
+            {[
+              [t('customerMsg.spec.brand'), product.specs?.brand || product.brand],
+              [t('customerMsg.spec.sku'), activeVariant?.sku || product.specs?.sku],
+              [t('customerMsg.spec.category'), product.specs?.category || product.category],
+              [t('customerMsg.spec.priceRange'), product.specs?.priceRange],
+              [t('customerMsg.spec.warranty'), tx(product.specs?.warranty)],
+            ]
+              .filter(([, value]) => Boolean(value))
+              .map(([label, value], idx) => (
+                <SpecRow key={label as string} label={label as string} value={value as string} alt={idx % 2 === 0} />
+              ))}
             {(activeVariant?.attributes || []).map((attr: any, idx: number) => (
               <SpecRow key={`attr-${idx}`} label={attr.name} value={attr.value} alt={idx % 2 === 1} />
             ))}
@@ -990,42 +1004,23 @@ export default function ProductDetailScreen({ navigation, route }: any) {
         </FadeUp>
 
         <FadeUp delay={390} duration={450}>
-          <View style={[styles.guaranteeCard, { backgroundColor: colors.primary + '14' }]}>
-            <View style={[styles.guaranteeIcon, { backgroundColor: colors.surface }]}>
-              <Icon source={shieldIcon} size={22} color={colors.primary} />
-            </View>
-            <Text style={[styles.guaranteeTitle, { color: colors.text }]}>
-              Platform Guarantee &amp; Buyer Protection
-            </Text>
-            <Text style={[styles.guaranteeText, { color: colors.textMuted }]}>
-              We stand behind every transaction on our platform. With our secure escrow system,
-              your payment is protected and is only released to the seller once you receive the
-              product exactly as described. Shop with confidence knowing our 24/7 support team is
-              here to assist you with any disputes or issues.
-            </Text>
-          </View>
+          <PlatformGuarantees padded={false} />
         </FadeUp>
 
         <FadeUp delay={430} duration={450}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Rating &amp; Reviews</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('customer.ratingAndReviews')}</Text>
           <View style={[styles.ratingsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.ratingsSummary}>
               <View>
-                <Text style={[styles.ourRating, { color: colors.textMuted }]}>Our Rating</Text>
-                <Text style={[styles.ratingNumber, { color: colors.text }]}>{Number(product.rating || 4.5).toFixed(1)}</Text>
+                <Text style={[styles.ourRating, { color: colors.textMuted }]}>{t('customer.ourRating')}</Text>
+                <Text style={[styles.ratingNumber, { color: colors.text }]}>{Number(product.rating) > 0 ? Number(product.rating).toFixed(1) : '-'}</Text>
                 <Text style={[styles.reviewCount, { color: colors.textMuted }]}>
-                  ({product.reviewCount || 0} Reviews)
+                  ({product.reviewCount || 0} {(product.reviewCount || 0) === 1 ? t('glossary.review') : t('sellerTabs.reviews')})
                 </Text>
               </View>
 
               <View style={styles.ratingBars}>
-                {(product.reviewBreakdown || [
-                  { stars: 5, percent: 80 },
-                  { stars: 4, percent: 15 },
-                  { stars: 3, percent: 5 },
-                  { stars: 2, percent: 0 },
-                  { stars: 1, percent: 0 },
-                ]).map(row => (
+                {ratingRows.map(row => (
                   <View key={row.stars} style={styles.ratingBarRow}>
                     <Text style={[styles.ratingBarLabel, { color: colors.textMuted }]}>{row.stars}</Text>
                     <Icon source={starExtra} size={13} color={colors.primary} />
@@ -1049,27 +1044,27 @@ export default function ProductDetailScreen({ navigation, route }: any) {
         <FadeUp delay={450} duration={450}>
           <View style={styles.reviewsListContainer}>
             <Text style={[styles.reviewsListTitle, { color: colors.text }]}>
-              Customer Reviews {reviewsList.length > 0 ? `(${reviewsList.length})` : ''}
+              {t('customerMsg.customerReviews')} {reviewsList.length > 0 ? `(${reviewsList.length})` : ''}
             </Text>
             {reviewsList.length === 0 ? (
               <View style={[styles.emptyReviewsCard, { borderColor: colors.border }]}>
                 <Text style={[styles.emptyReviewsText, { color: colors.textMuted }]}>
-                  No reviews yet. Be the first to review this product!
+                  {reviewsFailed ? t('customer.reviewsCouldNotBeLoaded') : t('customer.noReviewsYet2')}
                 </Text>
               </View>
             ) : (
-              reviewsList.map(item => {
-                const authorName = item.userId?.name || 'Customer';
-                const firstLetter = authorName.charAt(0).toUpperCase();
+              reviewsList.map((item, reviewIndex) => {
+                const authorName = item.userId?.name || t('glossary.customer');
+                const firstLetter = upper(authorName.charAt(0));
                 const isOwner =
                   currentUserId && item.userId?._id && String(item.userId._id) === String(currentUserId);
                 const reviewDate = item.createdAt
-                  ? new Date(item.createdAt).toLocaleDateString()
+                  ? new Date(item.createdAt).toLocaleDateString(getLocaleTag())
                   : '';
 
                 return (
                   <View
-                    key={item._id || Math.random().toString()}
+                    key={item._id || `review-${reviewIndex}`}
                     style={[styles.reviewCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
                   >
                     <View style={styles.reviewCardHeader}>
@@ -1078,7 +1073,7 @@ export default function ProductDetailScreen({ navigation, route }: any) {
                           {item.userId?.profilePhoto ? (
                             <Image source={{ uri: item.userId.profilePhoto }} style={styles.reviewAvatarImg} />
                           ) : (
-                            <Text style={styles.reviewAvatarText}>{firstLetter}</Text>
+                            <Text style={[styles.reviewAvatarText, { color: colors.onPrimary }]}>{firstLetter}</Text>
                           )}
                         </View>
                         <View style={styles.reviewUserInfo}>
@@ -1140,20 +1135,32 @@ export default function ProductDetailScreen({ navigation, route }: any) {
           </View>
         </FadeUp>
 
+        {canReview !== true ? (
+          <FadeUp delay={470} duration={450}>
+            <View style={[styles.reviewFormCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Text style={[styles.cardHeading, { color: colors.text }]}>{t('reviewModal.title')}</Text>
+              <Text style={[styles.cardSubheading, { color: colors.textMuted }]}>
+                {canReview === false
+                  ? t('customer.youCanReviewThisProduct')
+                  : t('customer.weCouldNotCheckIf')}
+              </Text>
+            </View>
+          </FadeUp>
+        ) : (
         <FadeUp delay={470} duration={450}>
           <View style={[styles.reviewFormCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <Text style={[styles.cardHeading, { color: colors.text }]}>Write a Review</Text>
+            <Text style={[styles.cardHeading, { color: colors.text }]}>{t('reviewModal.title')}</Text>
             <Text style={[styles.cardSubheading, { color: colors.textMuted }]}>
-              Share your experience with other customers
+              {t('customer.shareYourExperienceWithOther')}
             </Text>
 
             <View style={styles.reviewLabelRow}>
               <Text style={[styles.label, { color: colors.text, marginBottom: 0 }]}>
-                Your Rating <Text style={{ color: colors.error }}>*</Text>
+                {t('customerMsg.yourRating')} <Text style={{ color: colors.error }}>*</Text>
               </Text>
               {myRating > 0 && (
                 <Text style={[styles.selectedRatingText, { color: colors.primary }]}>
-                  {myRating} / 5 {myRating === 1 ? 'Star' : 'Stars'}
+                  {myRating} / 5 {myRating === 1 ? t('customer.star') : t('customer.stars')}
                 </Text>
               )}
             </View>
@@ -1166,12 +1173,12 @@ export default function ProductDetailScreen({ navigation, route }: any) {
             </View>
 
             <Text style={[styles.label, { color: colors.text, marginTop: 14 }]}>
-              Your Review <Text style={{ color: colors.error }}>*</Text>
+              {t('customerMsg.yourReview')} <Text style={{ color: colors.error }}>*</Text>
             </Text>
             <TextInput
               value={reviewText}
               onChangeText={setReviewText}
-              placeholder="Write your review here (required)..."
+              placeholder={t('customer.writeYourReviewHereRequired')}
               placeholderTextColor={colors.textMuted}
               multiline
               style={[styles.reviewInput, { color: colors.text, borderColor: colors.border }]}
@@ -1187,7 +1194,7 @@ export default function ProductDetailScreen({ navigation, route }: any) {
                       <Icon source={cameraBold} size={16} color={colors.text} />
                     )}
                     <Text style={[styles.photoBtnText, { color: colors.text }]} numberOfLines={1}>
-                      {reviewPhoto ? 'Photo added' : 'Add a photo'}
+                      {reviewPhoto ? t('customer.photoAdded') : t('customer.addAPhoto')}
                     </Text>
                   </View>
                 </Squeeze>
@@ -1203,7 +1210,7 @@ export default function ProductDetailScreen({ navigation, route }: any) {
                   <View style={styles.photoBtnInner}>
                     <Icon source={reviewVideo ? checkCircleIcon : videoBold} size={16} color={reviewVideo ? colors.success : colors.text} />
                     <Text style={[styles.photoBtnText, { color: colors.text }]} numberOfLines={1}>
-                      {reviewVideo ? 'Video added' : 'Add a video'}
+                      {reviewVideo ? t('customer.videoAdded') : t('customer.addAVideo')}
                     </Text>
                   </View>
                 </Squeeze>
@@ -1216,7 +1223,7 @@ export default function ProductDetailScreen({ navigation, route }: any) {
             </View>
 
             <Button
-              title={submittingReview ? 'Submitting...' : 'Submit Review'}
+              title={submittingReview ? t('dispute.submitting') : t('reviewModal.submit')}
               onPress={submitReview}
               loading={submittingReview}
               disabled={submittingReview}
@@ -1224,36 +1231,11 @@ export default function ProductDetailScreen({ navigation, route }: any) {
             />
           </View>
         </FadeUp>
-
-        <FadeUp delay={510} duration={450}>
-          <View style={styles.promoRow}>
-            <View style={[styles.promoCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <Icon source={discountBold} size={26} color={colors.primary} />
-              <Text style={[styles.promoTitle, { color: colors.text }]}>Seasonal Sales</Text>
-              <Text style={[styles.promoText, { color: colors.textMuted }]}>
-                Exclusive seasonal offers on selected items.
-              </Text>
-            </View>
-            <View style={[styles.promoCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <Icon source={returnOfInvestmentIcon} size={26} color={colors.primary} />
-              <Text style={[styles.promoTitle, { color: colors.text }]}>Money Back Guarantee</Text>
-              <Text style={[styles.promoText, { color: colors.textMuted }]}>
-                Love it or return it within 7 days, no questions asked.
-              </Text>
-            </View>
-            <View style={[styles.promoCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <Icon source={packageBold} size={26} color={colors.primary} />
-              <Text style={[styles.promoTitle, { color: colors.text }]}>Free Shipping</Text>
-              <Text style={[styles.promoText, { color: colors.textMuted }]}>
-                On all orders within 7 days delivery.
-              </Text>
-            </View>
-          </View>
-        </FadeUp>
+        )}
 
         {related.length > 0 && (
           <FadeUp delay={550} duration={450}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Related Products</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('customer.relatedProducts')}</Text>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -1266,6 +1248,7 @@ export default function ProductDetailScreen({ navigation, route }: any) {
           </FadeUp>
         )}
       </ScrollView>
+        </KeyboardSafeView>
       )}
 
       <AlertModal
@@ -1279,15 +1262,15 @@ export default function ProductDetailScreen({ navigation, route }: any) {
       <AskSellerModal
         visible={askModalVisible}
         sellerId={product?.seller?.id || product?.raw?.sellerId?._id || (typeof product?.raw?.sellerId === 'string' ? product?.raw?.sellerId : '')}
-        sellerName={product?.seller?.name || 'Seller'}
+        sellerName={product?.seller?.name || t('glossary.seller')}
         productTitle={product?.title || ''}
         onClose={() => setAskModalVisible(false)}
         onSuccess={() => {
           setModal({
             visible: true,
             type: 'success',
-            title: 'Message Sent',
-            message: 'Your message has been sent to the seller!',
+            title: i18n.t('customer.messageSent'),
+            message: i18n.t('customer.yourMessageHasBeenSent'),
           });
         }}
         onOpenLiveChat={handleDirectChat}
@@ -1326,7 +1309,7 @@ const styles = StyleSheet.create({
 
   badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, marginBottom: 4 },
   badgePill: { paddingHorizontal: 9, paddingVertical: 3, borderRadius: 6, borderWidth: 1 },
-  badgePillText: { fontFamily: fonts.bold, fontSize: 11, textTransform: 'uppercase' },
+  badgePillText: { fontFamily: fonts.bold, fontSize: 11 },
 
   title: { fontFamily: fonts.bold, fontSize: 20, lineHeight: 28, marginTop: 4 },
 
@@ -1372,7 +1355,7 @@ const styles = StyleSheet.create({
   },
   selectedVariantNote: { fontFamily: fonts.medium, fontSize: 12, maxWidth: '60%' },
 
-  label: { fontFamily: fonts.bold, fontSize: 14, marginTop: 16 },
+  label: { flexShrink: 1, fontFamily: fonts.bold, fontSize: 14, marginTop: 16 },
 
   attrOptionBtn: {
     flexDirection: 'row',
@@ -1496,10 +1479,6 @@ const styles = StyleSheet.create({
   stockPill: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
   stockText: { fontFamily: fonts.bold, fontSize: 11 },
 
-  guaranteeCard: { borderRadius: 14, padding: 16, marginTop: 22, gap: 10 },
-  guaranteeIcon: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  guaranteeTitle: { fontFamily: fonts.bold, fontSize: 15 },
-  guaranteeText: { fontFamily: fonts.regular, fontSize: 13, lineHeight: 19 },
 
   ratingsCard: { borderRadius: 14, borderWidth: 1, padding: 16 },
   ratingsSummary: { flexDirection: 'row', gap: 20 },

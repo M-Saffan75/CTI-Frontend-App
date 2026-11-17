@@ -1,469 +1,362 @@
-import { useCallback, useEffect, useState } from 'react';
-import {
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ReactElement, useCallback, useEffect, useState } from 'react';
+import { FlatList, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import CtiLoader from '@/components/CtiLoader';
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
-import AlertModal, { AlertModalType } from '@/components/AlertModal';
-import { FadeUp } from '@/animations';
-import {
-  calendarBold,
-  checkCircleBold,
-  chevronDownBold,
-  searchBold,
-} from '@/assets/icons';
+import ProductThumb from '@/components/ProductThumb';
+import AlertModal from '@/components/AlertModal';
+import { EmptyState, ErrorState, LoadingState, OfflineBanner, PaginationFooter } from '@/components/states';
+import { chevronDownBold, checkCircleBold, packageBold, searchBold } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import DateRangeField from '@/roles/Seller/components/DateRangeField';
+import DateRangeModal from '@/roles/Seller/components/DateRangeModal';
 import {
   fetchSellerOrdersApi,
-  updateSellerOrderStatusApi,
-  SellerOrderItem,
+  SellerOrderListItem,
 } from '@/roles/Seller/services/sellerApi';
+import { formatDate, formatMoney } from '@/roles/Seller/utils/sellerUtils';
+import { getStatusStyle, ORDER_STATUS_STYLE } from '@/roles/Seller/utils/statusStyles';
+import { subscribeOrderChanged, useOrdersChangedChecker } from '@/roles/Seller/utils/orderEvents';
+import usePagedList from '@/roles/Seller/utils/usePagedList';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
+
+const PAGE_SIZE = 10;
+const SEARCH_DEBOUNCE_MS = 500;
 
 const STATUS_OPTIONS = [
-  'All Order',
-  'Pending',
-  'Processing',
-  'Shipped',
+  { id: '', get label() { return i18n.t('sellerAuto.allStatuses'); } },
+  { id: 'pending', get label() { return i18n.t('chat.quoteStatus.pending'); } },
+  { id: 'processing', get label() { return i18n.t('sellerAuto.processing'); } },
+  { id: 'shipping', get label() { return i18n.t('sellerAuto.shipping'); } },
+  { id: 'shipped', get label() { return i18n.t('sellerAuto.shipped'); } },
+  { id: 'delivered', get label() { return i18n.t('sellerAuto.delivered'); } },
+  { id: 'cancelled', get label() { return i18n.t('seller.cancelledFallback'); } },
 ];
 
-const ORDERS = [
-  {
-    id: '1',
-    trackingId: 'TRB-985836',
-    orderNumber: 'ORD-20260701-8044XI - 7/1/2026',
-    customer: 'Customer Abbasi',
-    item: 'C.A ball',
-    itemSku: 'PRD11284766WSTL',
-    completedDate: '7/1/2026',
-    total: '$38.00',
-    status: 'Pending',
-  },
-  {
-    id: '2',
-    trackingId: 'TRB-985837',
-    orderNumber: 'ORD-20260701-8045XI - 7/1/2026',
-    customer: 'Customer Abbasi',
-    item: 'Reebok workout ready tee',
-    itemSku: 'PRD11284767WSTL',
-    completedDate: '7/1/2026',
-    total: '$209.00',
-    status: 'Processing',
-  },
-  {
-    id: '3',
-    trackingId: 'TRB-985838',
-    orderNumber: 'ORD-20260701-8046XI - 7/1/2026',
-    customer: 'Customer Abbasi',
-    item: 'Nike Air Max 270',
-    itemSku: 'PRD11284768WSTL',
-    completedDate: '7/1/2026',
-    total: '$150.00',
-    status: 'Shipped',
-  },
-  {
-    id: '4',
-    trackingId: 'TRB-985839',
-    orderNumber: 'ORD-20260701-8047XI - 7/1/2026',
-    customer: 'Customer Abbasi',
-    item: 'Puma Training Shorts',
-    itemSku: 'PRD11284769WSTL',
-    completedDate: '7/1/2026',
-    total: '$45.00',
-    status: 'Delivered',
-  },
-];
+interface DateRange {
+  from: string;
+  to: string;
+}
 
-export default function OrderManagementScreen({ navigation }: any) {
+const NO_RANGE: DateRange = { from: '', to: '' };
+
+const ItemSeparator = () => <View style={styles.separator} />;
+
+export default function OrderManagementScreen({ navigation, isActive = true }: any) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
-  const [selectedStatus, setSelectedStatus] = useState('All statuses');
+
+  const [status, setStatus] = useState('');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-
-  const [orders, setOrders] = useState<SellerOrderItem[]>(ORDERS as any);
-  const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-
-  // AlertModal State
-  const [alertConfig, setAlertConfig] = useState<{
-    visible: boolean;
-    type: AlertModalType;
-    title: string;
-    message: string;
-  }>({
-    visible: false,
-    type: 'info',
-    title: '',
-    message: '',
-  });
-
-  const loadOrders = useCallback(async (isRefresh = false) => {
-    if (isRefresh) setRefreshing(true);
-    else setLoading(true);
-
-    try {
-      const res = await fetchSellerOrdersApi({
-        status: selectedStatus !== 'All statuses' && selectedStatus !== 'All Order' ? selectedStatus : undefined,
-        search: searchQuery.trim() || undefined,
-      });
-
-      if (res.orders && res.orders.length > 0) {
-        setOrders(res.orders);
-      } else if (!searchQuery && selectedStatus === 'All statuses') {
-        setOrders(ORDERS as any);
-      } else {
-        setOrders([]);
-      }
-    } catch {
-      setOrders(ORDERS as any);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [searchQuery, selectedStatus]);
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+  const [orderRange, setOrderRange] = useState<DateRange>(NO_RANGE);
+  const [completionRange, setCompletionRange] = useState<DateRange>(NO_RANGE);
+  const [dateModal, setDateModal] = useState<'order' | 'completion' | null>(null);
 
   useEffect(() => {
-    loadOrders();
-  }, [loadOrders]);
+    const timer = setTimeout(() => setSearch(searchInput.trim()), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
-  const handleUpdateStatus = async (order: SellerOrderItem) => {
-    const nextStatus =
-      order.status.toLowerCase() === 'pending'
-        ? 'Processing'
-        : order.status.toLowerCase() === 'processing'
-        ? 'Shipped'
-        : order.status.toLowerCase() === 'shipped'
-        ? 'Delivered'
-        : 'Completed';
-
-    if (nextStatus === 'Completed') {
-      setAlertConfig({
-        visible: true,
-        type: 'info',
-        title: 'Order Completed',
-        message: `Order ${order.orderNumber} is already marked as Delivered.`,
+  const fetchPage = useCallback(
+    async (page: number) => {
+      const res = await fetchSellerOrdersApi({
+        page,
+        limit: PAGE_SIZE,
+        status,
+        search,
+        orderDateFrom: orderRange.from,
+        orderDateTo: orderRange.to,
+        completionDateFrom: completionRange.from,
+        completionDateTo: completionRange.to,
       });
-      return;
-    }
+      return {
+        items: res.orders,
+        totalPages: res.pagination.totalPages,
+        totalItems: res.pagination.totalItems,
+      };
+    },
+    [status, search, orderRange, completionRange],
+  );
 
-    try {
-      // Optimistic update
-      setOrders(prev =>
-        prev.map(o => (o.id === order.id ? { ...o, status: nextStatus } : o)),
-      );
+  const ordersChanged = useOrdersChangedChecker();
+  const list = usePagedList<SellerOrderListItem>(fetchPage, isActive, true, ordersChanged);
+  const { updateItem, removeItem } = list;
 
-      await updateSellerOrderStatusApi(order.id, nextStatus);
+  // A confirmed change on the detail screen shows on the list card at once
+  useEffect(() => {
+    return subscribeOrderChanged(change => {
+      if (status && change.status !== status) {
+        removeItem(item => item.id === change.id);
+      } else {
+        updateItem(item => item.id === change.id, {
+          status: change.status,
+          completionDate: change.completionDate,
+        });
+      }
+    });
+  }, [status, updateItem, removeItem]);
 
-      setAlertConfig({
-        visible: true,
-        type: 'success',
-        title: 'Status Updated',
-        message: `Order ${order.orderNumber} status changed to ${nextStatus}.`,
-      });
-    } catch (e: any) {
-      loadOrders();
-      setAlertConfig({
-        visible: true,
-        type: 'error',
-        title: 'Update Failed',
-        message: e?.response?.data?.message || 'Could not update order status right now.',
-      });
-    }
+  const hasFilters = !!(status || search || orderRange.from || completionRange.from);
+  const statusLabel = STATUS_OPTIONS.find(o => o.id === status)?.label || t('sellerAuto.allStatuses');
+
+  const renderOrder = ({ item }: { item: SellerOrderListItem }) => {
+    const badge = getStatusStyle(ORDER_STATUS_STYLE, item.status);
+    return (
+      <Squeeze
+        onPress={() => navigation?.navigate('SellerOrderDetail', { orderId: item.id })}
+        scale={0.98}>
+        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={styles.cardHeader}>
+            <Text style={[styles.orderNo, { color: colors.text }]}>{item.orderNo}</Text>
+            <View style={[styles.badge, { backgroundColor: badge.color + '20' }]}>
+              <Text style={[styles.badgeText, { color: badge.color }]}>{badge.label}</Text>
+            </View>
+          </View>
+
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+
+          <View style={styles.dataRow}>
+            <Text style={[styles.rowLabel, { color: colors.textMuted }]}>{i18n.t('glossary.customer')}</Text>
+            <Text style={[styles.rowValue, { color: colors.text }]}>{item.customer || '-'}</Text>
+          </View>
+
+          <View style={styles.itemLine}>
+            <ProductThumb uri={item.image} size={48} />
+            <View style={styles.itemText}>
+              <Text style={[styles.rowValue, styles.itemTitle, { color: colors.text }]}>
+                {item.firstItemTitle || '-'}
+              </Text>
+              {item.itemsCount > 1 ? (
+                <Text style={[styles.rowSub, { color: colors.textMuted }]}>
+                  {i18n.t('sellerMsg.moreItemsPlus', { count: item.itemsCount - 1 })}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+
+          <View style={styles.dataRow}>
+            <Text style={[styles.rowLabel, { color: colors.textMuted }]}>{i18n.t('sellerAuto.ordered')}</Text>
+            <Text style={[styles.rowValue, { color: colors.text }]}>{formatDate(item.createdAt)}</Text>
+          </View>
+
+          <View style={styles.dataRow}>
+            <Text style={[styles.rowLabel, { color: colors.textMuted }]}>{i18n.t('sellerAuto.completed')}</Text>
+            <Text style={[styles.rowValue, { color: colors.text }]}>
+              {item.completionDate ? formatDate(item.completionDate) : '-'}
+            </Text>
+          </View>
+
+          <View style={styles.dataRow}>
+            <Text style={[styles.rowLabel, { color: colors.textMuted }]}>{i18n.t('sellerAuto.total')}</Text>
+            <Text style={[styles.totalValue, { color: colors.success }]}>
+              {formatMoney(item.total)}
+            </Text>
+          </View>
+        </View>
+      </Squeeze>
+    );
   };
 
-  const getBadgeColors = (status: string) => {
-    switch (status.toLowerCase()) {
-      case 'pending':
-        return { bg: '#FEF3C7', text: '#D97706' };
-      case 'processing':
-        return { bg: '#DBEAFE', text: '#2563EB' };
-      case 'shipped':
-        return { bg: '#EDE9FE', text: '#7C3AED' };
-      case 'delivered':
-      default:
-        return { bg: '#ECFDF5', text: '#10B981' };
-    }
-  };
+  const header = (
+    <View style={styles.headerWrap}>
+      <Text style={[styles.mainTitle, { color: colors.text }]}>{t('sellerAuto.orderManagement')}</Text>
+      <Text style={[styles.mainSub, { color: colors.textMuted }]}>{t('sellerAuto.trackAndUpdateAllYour')}</Text>
 
-  const filteredOrders = orders.filter(order => {
-    const matchesSearch =
-      order.customer.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      order.item.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      order.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      order.trackingId.toLowerCase().includes(searchQuery.toLowerCase());
+      <View style={styles.topBtnRow}>
+        <Squeeze onPress={() => navigation?.navigate('CancelledOrders')} style={styles.flex1}>
+          <View style={[styles.topActionBtn, { borderColor: colors.border, backgroundColor: colors.surface }]}>
+            <Text style={[styles.topActionText, { color: colors.text }]}>{t('sellerAuto.cancelledOrder')}</Text>
+          </View>
+        </Squeeze>
+        <Squeeze onPress={() => navigation?.navigate('ReturnRequests')} style={styles.flex1}>
+          <View style={[styles.topActionBtn, { borderColor: colors.border, backgroundColor: colors.surface }]}>
+            <Text style={[styles.topActionText, { color: colors.text }]}>{t('sellerAuto.returnOrder')}</Text>
+          </View>
+        </Squeeze>
+      </View>
 
-    const matchesStatus =
-      selectedStatus === 'All statuses' ||
-      selectedStatus === 'All Order' ||
-      order.status.toLowerCase() === selectedStatus.toLowerCase();
+      <View style={[styles.searchBar, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+        <Icon source={searchBold} size={16} color={colors.textMuted} />
+        <TextInput
+          placeholder={t('sellerAuto.searchOrderCustomerOrProduct')}
+          placeholderTextColor={colors.textMuted}
+          value={searchInput}
+          onChangeText={setSearchInput}
+          returnKeyType="search"
+          style={[styles.searchInput, { color: colors.text }]}
+        />
+      </View>
 
-    return matchesSearch && matchesStatus;
-  });
+      <View style={styles.dropdownContainer}>
+        <Squeeze onPress={() => setIsDropdownOpen(prev => !prev)}>
+          <View
+            style={[
+              styles.dropdownBox,
+              {
+                backgroundColor: colors.surfaceAlt,
+                borderColor: isDropdownOpen ? colors.primary : colors.border,
+              },
+            ]}>
+            <Text style={[styles.dropdownText, { color: colors.text }]}>{statusLabel}</Text>
+            <Icon
+              source={chevronDownBold}
+              size={14}
+              color={isDropdownOpen ? colors.primary : colors.textMuted}
+              style={isDropdownOpen ? styles.rotated : undefined}
+            />
+          </View>
+        </Squeeze>
+
+        {isDropdownOpen ? (
+          <View style={[styles.dropdownMenu, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            {STATUS_OPTIONS.map((option, index) => {
+              const selected = option.id === status;
+              return (
+                <Squeeze
+                  key={option.id || 'all'}
+                  onPress={() => {
+                    setStatus(option.id);
+                    setIsDropdownOpen(false);
+                  }}>
+                  <View
+                    style={[
+                      styles.dropdownItem,
+                      index < STATUS_OPTIONS.length - 1 && styles.dropdownItemBorder,
+                      index < STATUS_OPTIONS.length - 1 && { borderBottomColor: colors.border },
+                      selected && { backgroundColor: colors.surfaceAlt },
+                    ]}>
+                    <Text
+                      style={[
+                        styles.dropdownItemText,
+                        {
+                          color: selected ? colors.primary : colors.text,
+                          fontFamily: selected ? fonts.bold : fonts.regular,
+                        },
+                      ]}>
+                      {option.label}
+                    </Text>
+                    {selected ? <Icon source={checkCircleBold} size={14} color={colors.primary} /> : null}
+                  </View>
+                </Squeeze>
+              );
+            })}
+          </View>
+        ) : null}
+      </View>
+
+      <DateRangeField
+        label={t('sellerAuto.orderDate')}
+        from={orderRange.from}
+        to={orderRange.to}
+        onPress={() => setDateModal('order')}
+        onClear={() => setOrderRange(NO_RANGE)}
+      />
+      <DateRangeField
+        label={t('sellerAuto.completionDate')}
+        from={completionRange.from}
+        to={completionRange.to}
+        onPress={() => setDateModal('completion')}
+        onClear={() => setCompletionRange(NO_RANGE)}
+      />
+
+      <Text style={[styles.ordersHeading, { color: colors.text }]}>
+        {!list.loading && !list.error ? i18n.t('sellerMsg.ordersHeadingCount', { count: list.total }) : i18n.t('sellerMsg.ordersHeading')}
+      </Text>
+    </View>
+  );
+
+  let body: ReactElement | null = null;
+  if (list.loading && list.items.length === 0) {
+    body = <LoadingState text={t('sellerAuto.loadingOrders')} style={styles.stateWrap} />;
+  } else if (list.error && list.items.length === 0) {
+    body = <ErrorState error={list.error} onRetry={list.retry} style={styles.stateWrap} />;
+  } else if (list.items.length === 0) {
+    body = (
+      <EmptyState
+        icon={packageBold}
+        title={t('customer.noOrdersFound')}
+        message={hasFilters ? t('sellerAuto.noOrdersMatchYourSearch') : t('sellerAuto.youHaveNotReceivedAny')}
+        style={styles.stateWrap}
+      />
+    );
+  }
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <ScrollView
-        contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 40 }]}
+    <View style={[styles.screen, { backgroundColor: colors.background }]}>
+      <OfflineBanner />
+      <FlatList
+        data={list.items}
+        keyExtractor={item => item.id}
+        renderItem={renderOrder}
+        ListHeaderComponent={header}
+        ListEmptyComponent={body}
+        ListFooterComponent={<PaginationFooter loading={list.loadingMore} hasMore={list.hasMore} />}
+        ItemSeparatorComponent={ItemSeparator}
+        contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 32 }]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        onEndReached={list.onEndReached}
+        onEndReachedThreshold={0.4}
         refreshControl={
           <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => loadOrders(true)}
+            refreshing={list.refreshing}
+            onRefresh={list.onRefresh}
             colors={[colors.primary]}
             tintColor={colors.primary}
           />
-        }>
-      {/* Title & Subtitle */}
-      <FadeUp delay={20} duration={300}>
-        <View style={styles.topHeader}>
-          <Text style={[styles.mainTitle, { color: colors.text }]}>Order management</Text>
-          <Text style={[styles.mainSub, { color: colors.textMuted }]}>
-            Track and update all your orders
-          </Text>
+        }
+      />
 
-          {/* Top Action Buttons: [Cancelled Order] and [Return Order] */}
-          <View style={styles.topBtnRow}>
-            <Squeeze onPress={() => navigation?.navigate('CancelledOrders')} style={{ flex: 1 }}>
-              <View style={[styles.topActionBtn, { borderColor: colors.border, backgroundColor: colors.surface }]}>
-                <Text style={[styles.topActionText, { color: colors.text }]}>Cancelled Order</Text>
-              </View>
-            </Squeeze>
+      <DateRangeModal
+        visible={dateModal !== null}
+        title={dateModal === 'completion' ? t('sellerAuto.completionDate2') : t('sellerAuto.orderDate2')}
+        from={dateModal === 'completion' ? completionRange.from : orderRange.from}
+        to={dateModal === 'completion' ? completionRange.to : orderRange.to}
+        onApply={(from, to) => {
+          if (dateModal === 'completion') setCompletionRange({ from, to });
+          else setOrderRange({ from, to });
+          setDateModal(null);
+        }}
+        onClose={() => setDateModal(null)}
+      />
 
-            <Squeeze onPress={() => navigation?.navigate('ReturnRequests')} style={{ flex: 1 }}>
-              <View style={[styles.topActionBtn, { borderColor: colors.border, backgroundColor: colors.surface }]}>
-                <Text style={[styles.topActionText, { color: colors.text }]}>Return Order</Text>
-              </View>
-            </Squeeze>
-          </View>
-        </View>
-
-        {/* Search Bar */}
-        <View
-          style={[
-            styles.searchBar,
-            { backgroundColor: colors.surfaceAlt, borderColor: colors.border },
-          ]}>
-          <Icon source={searchBold} size={16} color={colors.textMuted} />
-          <TextInput
-            placeholder="Search order custom product"
-            placeholderTextColor={colors.textMuted}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            style={[styles.searchInput, { color: colors.text }]}
-          />
-        </View>
-
-        {/* Status Dropdown with All statuses (All Order, Pending, Processing, Shipped) */}
-        <View style={styles.dropdownContainer}>
-          <Squeeze onPress={() => setIsDropdownOpen(prev => !prev)}>
-            <View
-              style={[
-                styles.dropdownBox,
-                {
-                  backgroundColor: colors.surfaceAlt,
-                  borderColor: isDropdownOpen ? colors.primary : colors.border,
-                },
-              ]}>
-              <Text style={[styles.dropdownText, { color: colors.text }]}>
-                {selectedStatus}
-              </Text>
-              <Icon
-                source={chevronDownBold}
-                size={14}
-                color={isDropdownOpen ? colors.primary : colors.textMuted}
-                style={isDropdownOpen ? { transform: [{ rotate: '180deg' }] } : undefined}
-              />
-            </View>
-          </Squeeze>
-
-          {isDropdownOpen && (
-            <View
-              style={[
-                styles.dropdownMenu,
-                { backgroundColor: colors.surface, borderColor: colors.border },
-              ]}>
-              {STATUS_OPTIONS.map((status, index) => {
-                const isSelected =
-                  selectedStatus === status ||
-                  (selectedStatus === 'All statuses' && status === 'All Order');
-                return (
-                  <Squeeze
-                    key={status}
-                    onPress={() => {
-                      setSelectedStatus(status);
-                      setIsDropdownOpen(false);
-                    }}>
-                    <View
-                      style={[
-                        styles.dropdownItem,
-                        index < STATUS_OPTIONS.length - 1 && {
-                          borderBottomWidth: 1,
-                          borderBottomColor: colors.border,
-                        },
-                        isSelected && { backgroundColor: colors.surfaceAlt },
-                      ]}>
-                      <Text
-                        style={[
-                          styles.dropdownItemText,
-                          {
-                            color: isSelected ? colors.primary : colors.text,
-                            fontFamily: isSelected ? fonts.bold : fonts.regular,
-                          },
-                        ]}>
-                        {status}
-                      </Text>
-                      {isSelected && (
-                        <Icon source={checkCircleBold} size={14} color={colors.primary} />
-                      )}
-                    </View>
-                  </Squeeze>
-                );
-              })}
-            </View>
-          )}
-        </View>
-
-        {/* Order Date Section */}
-        <View style={styles.dateSection}>
-          <Text style={[styles.dateSectionLabel, { color: colors.text }]}>Order Date</Text>
-          <View style={styles.datePickersRow}>
-            <View style={[styles.dateInputBox, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
-              <Text style={[styles.datePlaceholder, { color: colors.textMuted }]}>mm/dd/yyy</Text>
-              <Icon source={calendarBold} size={16} color={colors.textMuted} />
-            </View>
-            <View style={[styles.dateInputBox, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
-              <Text style={[styles.datePlaceholder, { color: colors.textMuted }]}>mm/dd/yyy</Text>
-              <Icon source={calendarBold} size={16} color={colors.textMuted} />
-            </View>
-          </View>
-        </View>
-
-        {/* Orders List Heading */}
-        <Text style={[styles.ordersHeading, { color: colors.text }]}>Orders</Text>
-      </FadeUp>
-
-      {/* Orders List matching Figma cards */}
-      <View style={styles.ordersList}>
-        {loading && !refreshing ? (
-          <CtiLoader
-            size="md"
-            text="Loading orders..."
-            style={{ paddingVertical: 40 }}
-          />
-        ) : filteredOrders.length === 0 ? (
-          <View style={[styles.emptyBox, { borderColor: colors.border, backgroundColor: colors.surface }]}>
-            <Text style={[styles.emptyText, { color: colors.textMuted }]}>
-              No orders found
-            </Text>
-          </View>
-        ) : (
-          filteredOrders.map((order, idx) => {
-            const badge = getBadgeColors(order.status);
-            return (
-              <FadeUp key={order.id} delay={60 + idx * 40} duration={300}>
-                <View style={[styles.orderCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                  <View style={styles.cardHeaderRow}>
-                    <Text style={[styles.trackingId, { color: colors.text }]}>{order.trackingId}</Text>
-                    <TouchableOpacity
-                      onPress={() => handleUpdateStatus(order)}
-                      activeOpacity={0.7}
-                      style={[styles.deliveredBadge, { backgroundColor: badge.bg }]}>
-                      <Text style={[styles.deliveredBadgeText, { color: badge.text }]}>{order.status} ✎</Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  <Text style={[styles.orderSubNum, { color: colors.textMuted }]}>
-                    {order.orderNumber}
-                  </Text>
-
-                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-                  <View style={styles.dataRow}>
-                    <Text style={[styles.rowLabel, { color: colors.textMuted }]}>Customer</Text>
-                    <Text style={[styles.rowValue, { color: colors.text }]}>{order.customer}</Text>
-                  </View>
-
-                  <View style={styles.dataRow}>
-                    <Text style={[styles.rowLabel, { color: colors.textMuted }]}>Item</Text>
-                    <View style={{ alignItems: 'flex-end' }}>
-                      <Text style={[styles.rowValue, { color: colors.text }]}>{order.item}</Text>
-                      <Text style={[styles.rowSubSku, { color: colors.textMuted }]}>{order.itemSku}</Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.dataRow}>
-                    <Text style={[styles.rowLabel, { color: colors.textMuted }]}>Completed</Text>
-                    <Text style={[styles.rowValue, { color: colors.text }]}>{order.completedDate}</Text>
-                  </View>
-
-                  <View style={styles.dataRow}>
-                    <Text style={[styles.rowLabel, { color: colors.textMuted }]}>Total</Text>
-                    <Text style={styles.totalValue}>{order.total}</Text>
-                  </View>
-                </View>
-              </FadeUp>
-            );
-          })
-        )}
-      </View>
-    </ScrollView>
-
-    {/* Alert Modal */}
-    <AlertModal
-      visible={alertConfig.visible}
-      type={alertConfig.type}
-      title={alertConfig.title}
-      message={alertConfig.message}
-      onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
-    />
-  </View>
+      <AlertModal
+        visible={!!list.loadError}
+        type="error"
+        title={t('sellerAuto.couldNotLoadOrders')}
+        message={list.loadError || ''}
+        onClose={list.clearLoadError}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    gap: 14,
-  },
-  topHeader: {
-    gap: 6,
-  },
-  mainTitle: {
-    fontFamily: fonts.bold,
-    fontSize: 26,
-  },
-  mainSub: {
-    fontFamily: fonts.regular,
-    fontSize: 13,
-  },
-  topBtnRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 10,
-  },
+  screen: { flex: 1 },
+  container: { paddingHorizontal: 16, paddingTop: 14, flexGrow: 1 },
+  flex1: { flex: 1 },
+  rotated: { transform: [{ rotate: '180deg' }] },
+  separator: { height: 14 },
+  stateWrap: { paddingVertical: 40 },
+  headerWrap: { gap: 12, marginBottom: 14 },
+  mainTitle: { fontFamily: fonts.bold, fontSize: 26 },
+  mainSub: { fontFamily: fonts.regular, fontSize: 13, marginTop: -6 },
+  topBtnRow: { flexDirection: 'row', gap: 12, marginTop: 4 },
   topActionBtn: {
     borderRadius: 10,
     borderWidth: 1,
     paddingVertical: 14,
+    paddingHorizontal: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  topActionText: {
-    fontFamily: fonts.medium,
-    fontSize: 13,
-  },
-
+  topActionText: { fontFamily: fonts.medium, fontSize: 13, textAlign: 'center' },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -472,19 +365,9 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 10,
     borderWidth: 1,
-    marginTop: 14,
   },
-  searchInput: {
-    flex: 1,
-    fontFamily: fonts.regular,
-    fontSize: 13,
-    padding: 0,
-  },
-
-  dropdownContainer: {
-    marginTop: 12,
-    marginBottom: 12,
-  },
+  searchInput: { flex: 1, fontFamily: fonts.regular, fontSize: 13, padding: 0 },
+  dropdownContainer: {},
   dropdownBox: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -494,16 +377,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     height: 44,
   },
-  dropdownText: {
-    fontFamily: fonts.regular,
-    fontSize: 13,
-  },
-  dropdownMenu: {
-    marginTop: 6,
-    borderRadius: 10,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
+  dropdownText: { fontFamily: fonts.regular, fontSize: 13 },
+  dropdownMenu: { marginTop: 6, borderRadius: 10, borderWidth: 1, overflow: 'hidden' },
   dropdownItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -511,115 +386,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
-  dropdownItemText: {
-    fontSize: 13,
-  },
-
-  emptyBox: {
-    padding: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 12,
-    borderWidth: 1,
-    marginTop: 8,
-  },
-  emptyText: {
-    fontFamily: fonts.medium,
-    fontSize: 13,
-  },
-
-  dateSection: {
-    gap: 8,
-    marginTop: 4,
-  },
-  dateSectionLabel: {
-    fontFamily: fonts.bold,
-    fontSize: 14,
-  },
-  datePickersRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  dateInputBox: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderRadius: 10,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  datePlaceholder: {
-    fontFamily: fonts.regular,
-    fontSize: 13,
-  },
-
-  ordersHeading: {
-    fontFamily: fonts.bold,
-    fontSize: 18,
-    marginTop: 10,
-  },
-  ordersList: {
-    gap: 14,
-  },
-  orderCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 16,
-    gap: 10,
-  },
-  cardHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  trackingId: {
-    fontFamily: fonts.bold,
-    fontSize: 15,
-  },
-  deliveredBadge: {
-    backgroundColor: '#ECFDF5',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  deliveredBadgeText: {
-    color: '#10B981',
-    fontFamily: fonts.bold,
-    fontSize: 11,
-  },
-  orderSubNum: {
-    fontFamily: fonts.regular,
-    fontSize: 12,
-    marginTop: -4,
-  },
-  divider: {
-    height: 1,
-    marginVertical: 4,
-  },
-  dataRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 4,
-  },
-  rowLabel: {
-    fontFamily: fonts.regular,
-    fontSize: 13,
-  },
-  rowValue: {
-    fontFamily: fonts.medium,
-    fontSize: 13,
-  },
-  rowSubSku: {
-    fontFamily: fonts.regular,
-    fontSize: 11,
-    marginTop: 2,
-  },
-  totalValue: {
-    color: '#10B981',
-    fontFamily: fonts.bold,
-    fontSize: 15,
-  },
+  dropdownItemBorder: { borderBottomWidth: 1 },
+  dropdownItemText: { fontSize: 13 },
+  ordersHeading: { fontFamily: fonts.bold, fontSize: 18, marginTop: 4 },
+  card: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 10 },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  orderNo: { flexShrink: 1, fontFamily: fonts.bold, fontSize: 15 },
+  badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  badgeText: { fontFamily: fonts.bold, fontSize: 11 },
+  divider: { height: 1 },
+  dataRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
+  rowLabel: { flexShrink: 1, fontFamily: fonts.regular, fontSize: 13 },
+  rowValue: { flexShrink: 1, textAlign: 'right', fontFamily: fonts.medium, fontSize: 13 },
+  itemLine: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  itemText: { flex: 1 },
+  itemTitle: { textAlign: 'left' },
+  rowSub: { fontFamily: fonts.regular, fontSize: 11, marginTop: 2 },
+  totalValue: { fontFamily: fonts.bold, fontSize: 15 },
 });

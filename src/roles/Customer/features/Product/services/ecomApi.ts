@@ -1,6 +1,9 @@
 import { Platform } from 'react-native';
+import { formatMoney } from '@/utils/money';
 import apiClient from '@/services/apiClient';
 import { demoProductPhoto } from '@/assets/images';
+import i18n from '@/i18n';
+import { Msg } from '@/utils/labels';
 
 export const COLOR_HEX_MAP: Record<string, string> = {
   black: '#18181b',
@@ -87,7 +90,7 @@ export interface MobileEcomProduct {
     totalVariants: number;
     totalStock: number;
     priceRange: string;
-    warranty: string;
+    warranty: Msg;
   };
   warranty?: {
     type?: string;
@@ -136,7 +139,7 @@ export function mapBackendToEcomProduct(raw: any): MobileEcomProduct {
     return {
       id: '',
       brand: '',
-      title: 'Product',
+      title: '',
       description: '',
       price: 0,
       originalPrice: 0,
@@ -159,7 +162,7 @@ export function mapBackendToEcomProduct(raw: any): MobileEcomProduct {
         category: '',
         totalVariants: 0,
         totalStock: 0,
-        priceRange: '$0',
+        priceRange: formatMoney(0),
         warranty: '',
       },
       variants: [],
@@ -222,8 +225,8 @@ export function mapBackendToEcomProduct(raw: any): MobileEcomProduct {
     attrOptions[type] = Array.from(map.values());
   });
 
-  const colors = attrOptions['Color'] || attrOptions['Colour'] || [];
-  const storageList = attrOptions['Storage'] || [];
+  const colors = attrOptions.Color || attrOptions.Colour || [];
+  const storageList = attrOptions.Storage || [];
   const storageDefault = storageList[0]?.value || '';
 
   const totalStock = variants.length > 0
@@ -236,9 +239,9 @@ export function mapBackendToEcomProduct(raw: any): MobileEcomProduct {
     : raw.shortDescription || '';
 
   const sellerObj = raw.seller || (raw.sellerId && typeof raw.sellerId === 'object' ? raw.sellerId : {});
-  const sellerName = sellerObj.businessName || sellerObj.storeName || sellerObj.name || raw.sellerName || 'Verified Store';
-  const sellerLoc = sellerObj.storeAddress || sellerObj.address || sellerObj.city || 'Pakistan';
-  const sellerAvatar = sellerObj.profilePictureOrLogo || sellerObj.avatar || `https://picsum.photos/seed/${raw._id || 'seller'}/200/200`;
+  const sellerName = sellerObj.businessName || sellerObj.storeName || sellerObj.name || raw.sellerName || '';
+  const sellerLoc = sellerObj.storeAddress || sellerObj.address || sellerObj.city || '';
+  const sellerAvatar = sellerObj.profilePictureOrLogo || sellerObj.avatar || '';
   const rawSellerId = sellerObj._id || sellerObj.id || sellerObj.userId || (typeof raw.sellerId === 'string' ? raw.sellerId : '');
 
   const mappedVariants = variants.map((v: any, idx: number) => {
@@ -292,50 +295,41 @@ export function mapBackendToEcomProduct(raw: any): MobileEcomProduct {
   // 1. Resolve Brand (strictly never an ObjectId string)
   const brandFromObj = resolveDisplayName(raw.brand);
   const brandFromName = resolveDisplayName(raw.brandName);
-  let finalBrand = brandFromObj || brandFromName;
-
-  if (!finalBrand) {
-    const rawTitle = typeof raw.title === 'string' ? raw.title : (typeof raw.name === 'string' ? raw.name : '');
-    const knownBrands = [
-      'Lenovo', 'Samsung', 'Apple', 'Dell', 'HP', 'Sony', 'Asus', 'Acer',
-      'Xiaomi', 'Google', 'OnePlus', 'Logitech', 'Microsoft', 'Huawei', 'Oppo', 'Vivo', 'Realme',
-    ];
-    const matched = knownBrands.find(b => new RegExp(`\\b${b}\\b`, 'i').test(rawTitle));
-    finalBrand = matched || 'CTI Store';
-  }
+  // The brand is only what the backend sends; it is never guessed from the title
+  const finalBrand = brandFromObj || brandFromName || '';
 
   // 2. Resolve Category (strictly never an ObjectId string)
   const catFromObj = resolveDisplayName(raw.category);
   const catFromName = resolveDisplayName(raw.categoryName);
   const subcatFromObj = resolveDisplayName(raw.subcategory || raw.subCategory);
-  const finalCategory = catFromObj || catFromName || subcatFromObj || 'Electronics';
+  const finalCategory = catFromObj || catFromName || subcatFromObj || '';
 
-  const finalTitle = resolveDisplayName(raw.title) || resolveDisplayName(raw.name) || 'Electronic Gadget';
+  const finalTitle = resolveDisplayName(raw.title) || resolveDisplayName(raw.name) || '';
   const rawCategoryId = String(raw.category?._id || (isMongoId(raw.categoryId) ? raw.categoryId : raw.categoryId?._id || ''));
   const rawBrandId = String(raw.brand?._id || (isMongoId(raw.brandId) ? raw.brandId : raw.brandId?._id || ''));
 
   // Real warranty format matching Next.js
-  let warrantyText = 'No Warranty';
+  let warrantyText: Msg = { key: 'customerMsg.noWarranty' };
   if (typeof raw.warranty === 'string') {
     warrantyText = raw.warranty;
   } else if (raw.warranty?.type === 'yes') {
     const m = Number(raw.warranty.months || 0);
     if (m >= 12) {
       const yrs = Math.floor(m / 12);
-      warrantyText = `${yrs} Year${yrs > 1 ? 's' : ''} Official Warranty Included`;
+      warrantyText = { key: yrs > 1 ? 'customerMsg.yearWarrantyMany' : 'customerMsg.yearWarrantyOne', params: { count: yrs } };
     } else if (m > 0) {
-      warrantyText = `${m} Month${m > 1 ? 's' : ''} Official Warranty Included`;
+      warrantyText = { key: m > 1 ? 'customerMsg.monthWarrantyMany' : 'customerMsg.monthWarrantyOne', params: { count: m } };
     } else {
-      warrantyText = 'Official Warranty Included';
+      warrantyText = { key: 'customerMsg.officialWarranty' };
     }
   }
 
   const minPrice = mappedVariants.length > 0 ? Math.min(...mappedVariants.map(v => v.price)) : price;
   const maxPrice = mappedVariants.length > 0 ? Math.max(...mappedVariants.map(v => v.originalPrice || v.price)) : originalPrice;
-  const priceRange = minPrice === maxPrice ? `$${minPrice.toFixed(2)}` : `$${minPrice.toFixed(2)} - $${maxPrice.toFixed(2)}`;
+  const priceRange = minPrice === maxPrice ? formatMoney(minPrice) : `${formatMoney(minPrice)} - ${formatMoney(maxPrice)}`;
 
   return {
-    id: String(raw._id || raw.id || Math.random().toString()),
+    id: String(raw._id || raw.id || ''),
     slug: raw.slug || String(raw._id || raw.id || ''),
     brand: finalBrand,
     brandId: rawBrandId,
@@ -367,7 +361,7 @@ export function mapBackendToEcomProduct(raw: any): MobileEcomProduct {
     },
     specs: {
       brand: finalBrand,
-      sku: typeof raw.sku === 'string' ? raw.sku : (defaultVar?.sku || `SKU-${String(raw._id || 'CTI-V1').slice(-8)}`),
+      sku: typeof raw.sku === 'string' ? raw.sku : (defaultVar?.sku || ''),
       category: finalCategory,
       totalVariants: mappedVariants.length || 1,
       totalStock,
@@ -376,13 +370,7 @@ export function mapBackendToEcomProduct(raw: any): MobileEcomProduct {
     },
     warranty: raw.warranty,
     variants: mappedVariants,
-    reviewBreakdown: [
-      { stars: 5, percent: 80 },
-      { stars: 4, percent: 15 },
-      { stars: 3, percent: 5 },
-      { stars: 2, percent: 0 },
-      { stars: 1, percent: 0 },
-    ],
+    reviewBreakdown: [],
     raw,
   };
 }
@@ -395,7 +383,7 @@ export async function getHomeFeed(): Promise<any> {
     const res = await apiClient.get('/home');
     return res.data?.data || null;
   } catch (err: any) {
-    console.warn('getHomeFeed error fallback:', err?.message);
+    if (__DEV__) console.warn('getHomeFeed error fallback:', err?.message);
     return null;
   }
 }
@@ -443,14 +431,29 @@ export async function getEcomProductFiltersApi(): Promise<EcomFilterData | null>
 /**
  * 2. Fetch All E-Commerce Marketplace Products
  */
+export interface EcomProductsPage {
+  products: MobileEcomProduct[];
+  page: number;
+  pages: number;
+  total: number;
+}
+
+// One page of products. A failed request throws, so the screen can show an error and a retry.
+export async function fetchEcomProductsPage(params?: Record<string, any>): Promise<EcomProductsPage> {
+  const res = await apiClient.get('/e-commerce/products', { params });
+  const data = res.data?.data;
+  const list = data?.products || (Array.isArray(data) ? data : null) || res.data?.products;
+  const products = Array.isArray(list) ? list.map(mapBackendToEcomProduct).filter(p => p.id) : [];
+  const pagination = data?.pagination || res.data?.pagination || {};
+  const page = Number(pagination.page || params?.page || 1);
+  const pages = Number(pagination.pages || pagination.totalPages || 1);
+  return { products, page, pages, total: Number(pagination.total || products.length) };
+}
+
+// Used where an empty list is an acceptable answer (related products, product lookup)
 export async function getEcomProducts(params?: Record<string, any>): Promise<MobileEcomProduct[]> {
   try {
-    const res = await apiClient.get('/e-commerce/products', { params });
-    const list = res.data?.data?.products || res.data?.data || res.data?.products;
-    if (Array.isArray(list) && list.length > 0) {
-      return list.map(mapBackendToEcomProduct);
-    }
-    return [];
+    return (await fetchEcomProductsPage(params)).products;
   } catch (err: any) {
     if (__DEV__) console.warn('getEcomProducts error:', err?.message);
     return [];
@@ -487,6 +490,8 @@ export async function getEcomProductDetail(slugOrId: string): Promise<MobileEcom
     }
     return matched || null;
   } catch (err: any) {
+    // No connection or a server failure is not "product not found": let the screen offer a retry
+    if (err?.isNetworkError || err?.isTimeout || (err?.status && err.status >= 500)) throw err;
     try {
       const all = await getEcomProducts();
       const matched = all.find(p => p.id === slugOrId || p.slug === slugOrId);
@@ -511,6 +516,8 @@ export interface MobileCartItem {
   image: any;
   product?: any;
   isRefurbished?: boolean;
+  sellerId?: string;
+  sellerName?: string;
 }
 
 /**
@@ -543,6 +550,8 @@ export function mapBackendCartItems(cartData: any): MobileCartItem[] {
     );
     const quantity = Math.max(1, Number(item.quantity || item.qty || 1));
 
+    const seller = p.sellerId && typeof p.sellerId === 'object' ? p.sellerId : null;
+    const sellerId = seller ? String(seller._id || seller.id || '') : typeof p.sellerId === 'string' ? p.sellerId : '';
     const rawImg = p.images?.[0]?.url || p.images?.[0] || p.image?.url || p.image || item.image;
     const image = rawImg
       ? (typeof rawImg === 'string' ? { uri: rawImg } : rawImg)
@@ -558,6 +567,8 @@ export function mapBackendCartItems(cartData: any): MobileCartItem[] {
       quantity,
       image,
       product: p,
+      sellerId: sellerId || undefined,
+      sellerName: seller?.name || undefined,
     };
   });
 }
@@ -565,21 +576,17 @@ export function mapBackendCartItems(cartData: any): MobileCartItem[] {
 /**
  * 4. Fetch Cart Items (/e-commerce/cart/my-cart)
  */
-export async function getCartApi(): Promise<{ items: MobileCartItem[]; subtotal: number; raw?: any }> {
-  try {
-    const res = await apiClient.get('/e-commerce/cart/my-cart');
-    const data = res.data?.data || res.data;
-    const items = mapBackendCartItems(data);
-    const subtotal = Number(
-      data?.totalPrice ||
-      data?.subtotal ||
-      items.reduce((sum, it) => sum + it.price * it.quantity, 0)
-    );
-    return { items, subtotal, raw: data };
-  } catch (err: any) {
-    console.warn('getCartApi error fallback:', err?.message);
-    return { items: [], subtotal: 0 };
-  }
+export async function getCartApi(): Promise<{ items: MobileCartItem[]; subtotal: number; cartId?: string; raw?: any }> {
+  // A failed request throws: the cart screen keeps what it already has instead of showing an empty cart
+  const res = await apiClient.get('/e-commerce/cart/my-cart');
+  const data = res.data?.data || res.data;
+  const items = mapBackendCartItems(data);
+  const subtotal = Number(
+    data?.totalPrice ||
+    data?.subtotal ||
+    items.reduce((sum, it) => sum + it.price * it.quantity, 0)
+  );
+  return { items, subtotal, cartId: data?._id ? String(data._id) : undefined, raw: data };
 }
 
 /**
@@ -604,7 +611,7 @@ export async function addToCartApi(
     });
     return res.data;
   } catch (err: any) {
-    const msg = err?.response?.data?.message || err?.message || 'Could not add to cart';
+    const msg = err?.response?.data?.message || err?.message || i18n.t('customer.couldNotAddToCart2');
     throw new Error(msg);
   }
 }
@@ -630,7 +637,7 @@ export async function updateCartItemApi(
     const res = await apiClient.put('/e-commerce/cart/my-cart/items', payload);
     return res.data;
   } catch (err: any) {
-    const msg = err?.response?.data?.message || err?.message || 'Could not update quantity';
+    const msg = err?.response?.data?.message || err?.message || i18n.t('customer.couldNotUpdateQuantity');
     throw new Error(msg);
   }
 }
@@ -645,7 +652,7 @@ export async function removeCartItemApi(productId: string, variantId?: string): 
     });
     return res.data;
   } catch (err: any) {
-    const msg = err?.response?.data?.message || err?.message || 'Could not remove item';
+    const msg = err?.response?.data?.message || err?.message || i18n.t('customer.couldNotRemoveItem');
     throw new Error(msg);
   }
 }
@@ -663,16 +670,12 @@ export function mapBackendWishlistItem(item: any): any {
  * 8. Fetch Wishlist Items (/e-commerce/wishlist)
  */
 export async function getWishlistApi(): Promise<{ items: any[]; raw?: any }> {
-  try {
-    const res = await apiClient.get('/e-commerce/wishlist');
-    const data = res.data?.data || res.data;
-    const rawItems = Array.isArray(data?.items) ? data.items : (Array.isArray(data) ? data : []);
-    const items = rawItems.map(mapBackendWishlistItem).filter(Boolean);
-    return { items, raw: data };
-  } catch (err: any) {
-    if (__DEV__) console.warn('getWishlistApi error fallback:', err?.message);
-    return { items: [] };
-  }
+  // A failed request throws: the wishlist keeps its current items instead of being wiped
+  const res = await apiClient.get('/e-commerce/wishlist');
+  const data = res.data?.data || res.data;
+  const rawItems = Array.isArray(data?.items) ? data.items : (Array.isArray(data) ? data : []);
+  const items = rawItems.map(mapBackendWishlistItem).filter(Boolean);
+  return { items, raw: data };
 }
 
 /**
@@ -686,7 +689,7 @@ export async function toggleWishlistApi(productId: string, variantId?: string): 
     });
     return res.data;
   } catch (err: any) {
-    const msg = err?.response?.data?.message || err?.message || 'Could not toggle wishlist';
+    const msg = err?.response?.data?.message || err?.message || i18n.t('customer.couldNotToggleWishlist');
     throw new Error(msg);
   }
 }
@@ -696,23 +699,19 @@ export async function toggleWishlistApi(productId: string, variantId?: string): 
  */
 export async function getSellerStoreApi(
   sellerId: string,
-): Promise<{ seller: any; products: MobileEcomProduct[] } | null> {
+  page = 1,
+): Promise<{ seller: any; products: MobileEcomProduct[]; pages: number } | null> {
   if (!sellerId) return null;
-  try {
-    const res = await apiClient.get(`/e-commerce/sellers/${sellerId}`, {
-      params: { limit: 20 },
-    });
-    if (res.data?.success && res.data?.data) {
-      const seller = res.data.data.seller;
-      const rawProducts = res.data.data.products || [];
-      const products = rawProducts.map(mapBackendToEcomProduct);
-      return { seller, products };
-    }
-    return null;
-  } catch (err: any) {
-    if (__DEV__) console.warn('getSellerStoreApi error:', err?.message);
-    return null;
+  const res = await apiClient.get(`/e-commerce/sellers/${sellerId}`, {
+    params: { limit: 20, page },
+  });
+  if (res.data?.success && res.data?.data) {
+    const data = res.data.data;
+    const products = (data.products || []).map(mapBackendToEcomProduct).filter((p: MobileEcomProduct) => p.id);
+    const pagination = data.pagination || res.data.pagination || {};
+    return { seller: data.seller, products, pages: Number(pagination.pages || pagination.totalPages || 1) };
   }
+  return null;
 }
 
 /**
@@ -732,7 +731,7 @@ export async function sendProductQueryApi(params: {
     });
     return res.data;
   } catch (err: any) {
-    throw new Error(err?.response?.data?.message || err?.message || 'Failed to send message to seller');
+    throw new Error(err?.response?.data?.message || err?.message || i18n.t('customer.failedToSendMessageTo'));
   }
 }
 
@@ -740,27 +739,23 @@ export async function sendProductQueryApi(params: {
  * 12. Fetch Product Reviews (/e-commerce/products/:slug/reviews)
  */
 export async function getProductReviewsApi(slugOrId: string): Promise<any[]> {
-  try {
-    const res = await apiClient.get(`/e-commerce/products/${slugOrId}/reviews`);
-    if (res.data?.success && Array.isArray(res.data?.data)) {
-      return res.data.data;
-    }
-    return [];
-  } catch (err: any) {
-    if (__DEV__) console.log('[ecomApi] getProductReviewsApi error:', err?.message);
-    return [];
+  const res = await apiClient.get(`/e-commerce/products/${slugOrId}/reviews`);
+  if (res.data?.success && Array.isArray(res.data?.data)) {
+    return res.data.data;
   }
+  return [];
 }
 
 /**
  * 13. Check Review Eligibility (/e-commerce/products/:slug/review-eligibility)
  */
-export async function checkReviewEligibilityApi(slugOrId: string): Promise<boolean> {
+// null means the answer is unknown (the request failed)
+export async function checkReviewEligibilityApi(slugOrId: string): Promise<boolean | null> {
   try {
     const res = await apiClient.get(`/e-commerce/products/${slugOrId}/review-eligibility`);
     return Boolean(res.data?.success && res.data?.canReview);
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -834,7 +829,7 @@ export async function submitProductReviewApi(
       err?.response?.data?.message ||
       err?.response?.data?.error ||
       err?.message ||
-      'Failed to submit review. Please try again.';
+      i18n.t('customer.failedToSubmitReviewPlease');
     throw new Error(errorMsg);
   }
 }
@@ -854,7 +849,7 @@ export async function deleteProductReviewApi(
       err?.response?.data?.message ||
       err?.response?.data?.error ||
       err?.message ||
-      'Failed to delete review.';
+      i18n.t('customer.failedToDeleteReview');
     throw new Error(errorMsg);
   }
 }

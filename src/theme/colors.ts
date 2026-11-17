@@ -2,8 +2,8 @@
  * All colours live here. Screens never write a hex value directly —
  * they read from useTheme(), so switching theme changes the whole app.
  *
- * There are 5 themes. Every theme has the SAME set of names, so a screen
- * written once works in all 5 without any change.
+ * There are 3 themes. Every theme has the SAME set of names, so a screen
+ * written once works in all 3 without any change.
  */
 
 /* The raw colours from Figma. Themes below pick from these. */
@@ -109,46 +109,10 @@ const sand = {
   backdrop: '#3D2B1F80',
 };
 
-// 4. OCEAN — deep navy, blue accent.
-const ocean = {
-  barStyle: 'light-content',
-  primary: palette.blue,
-  onPrimary: palette.white,
-  background: '#0B1B3A',
-  surface: '#132749',
-  surfaceAlt: '#162E55',
-  text: palette.white,
-  textMuted: '#FFFFFF99',
-  border: '#FFFFFF1A',
-  avatarBorder: '#FFFFFF55',
-  inputBg: '#1B3159',
-  error: palette.redRose,
-  success: palette.greenMint,
-  backdrop: '#04102BB3',
-};
-
-// 5. FOREST — deep green, mint accent.
-const forest = {
-  barStyle: 'light-content',
-  primary: palette.greenMint,
-  onPrimary: '#062018',
-  background: '#0A1F17',
-  surface: '#122C22',
-  surfaceAlt: '#153327',
-  text: palette.white,
-  textMuted: '#FFFFFF99',
-  border: '#FFFFFF1A',
-  avatarBorder: '#FFFFFF55',
-  inputBg: '#173729',
-  error: palette.redRose,
-  success: palette.greenMint,
-  backdrop: '#04120CB3',
-};
-
-export const themes = { white, black, sand, ocean, forest };
+export const themes = { white, black, sand };
 
 /** The names, in the order they should appear in a theme picker. */
-export const themeNames = ['white', 'black', 'sand', 'ocean', 'forest'];
+export const themeNames = ['white', 'black', 'sand'];
 
 /**
  * Status badge colours. These stay the same in every theme on purpose —

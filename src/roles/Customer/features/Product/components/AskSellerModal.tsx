@@ -1,8 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -21,21 +19,24 @@ import Animated, {
 import Icon from '@/components/Icon';
 import Button from '@/components/Button';
 import Squeeze from '@/components/Squeeze';
+import KeyboardSafeView from '@/components/KeyboardSafeView';
 import { closeIcon, commentDotsBold } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { sendProductQueryApi } from '../services/ecomApi';
-import { sendChatMessageHttp, startChat } from '@/services/chatApi';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 const OPEN_MS = 220;
 const CLOSE_MS = 160;
 const EASING = Easing.bezier(0.4, 0, 0.2, 1);
 
+// translation keys; the chip shows (and sends) the text in the app language
 const ASK_QUICK_SUBJECTS = [
-  'Warranty details?',
-  'Shipping to my city?',
-  'Stock availability',
-  'Condition details',
+  'customerMsg.topic.warranty',
+  'customerMsg.topic.shippingCity',
+  'customerMsg.topic.stock',
+  'customerMsg.topic.condition',
 ];
 
 export default function AskSellerModal({
@@ -55,11 +56,16 @@ export default function AskSellerModal({
   onSuccess?: () => void;
   onOpenLiveChat?: () => void;
 }) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const [mounted, setMounted] = useState(false);
+  // The open/close effect only reacts to `visible`; it reads the latest mounted flag from a ref
+  const mountedRef = useRef(false);
+  mountedRef.current = mounted;
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
+  const busy = useRef(false);
   const [error, setError] = useState('');
   const progress = useSharedValue(0);
 
@@ -70,12 +76,12 @@ export default function AskSellerModal({
       setSubject('');
       setMessage('');
       progress.value = withTiming(1, { duration: OPEN_MS, easing: EASING });
-    } else if (mounted) {
+    } else if (mountedRef.current) {
       progress.value = withTiming(0, { duration: CLOSE_MS, easing: EASING }, finished => {
         if (finished) runOnJS(setMounted)(false);
       });
     }
-  }, [visible]);
+  }, [visible, progress]);
 
   const backdrop = useAnimatedStyle(() => ({ opacity: progress.value }));
   const card = useAnimatedStyle(() => ({
@@ -85,17 +91,19 @@ export default function AskSellerModal({
 
   const handleSend = async () => {
     if (!subject.trim()) {
-      setError('Please enter or select a subject');
+      setError(i18n.t('customer.pleaseEnterOrSelectA'));
       return;
     }
     if (!message.trim()) {
-      setError('Please enter your message');
+      setError(i18n.t('customer.pleaseEnterYourMessage'));
       return;
     }
     if (!sellerId) {
-      setError('Seller details not found');
+      setError(i18n.t('customer.sellerDetailsNotFound'));
       return;
     }
+    if (busy.current) return;
+    busy.current = true;
 
     try {
       setLoading(true);
@@ -113,8 +121,9 @@ export default function AskSellerModal({
       onSuccess?.();
       onClose();
     } catch (err: any) {
-      setError(err?.message || 'Failed to send message to seller');
+      setError(err?.message || i18n.t('customer.failedToSendMessageTo'));
     } finally {
+      busy.current = false;
       setLoading(false);
     }
   };
@@ -123,9 +132,7 @@ export default function AskSellerModal({
 
   return (
     <Modal visible={mounted} transparent animationType="none" onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.keyboardWrap}>
+      <KeyboardSafeView style={styles.keyboardWrap}>
         <Animated.View style={[styles.backdrop, backdrop]}>
           <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         </Animated.View>
@@ -140,7 +147,7 @@ export default function AskSellerModal({
           <View style={[styles.header, { borderBottomColor: colors.border }]}>
             <View style={{ flex: 1, paddingRight: 10 }}>
               <Text style={[styles.title, { color: colors.text }]}>
-                Ask {sellerName || 'Seller'}
+                {t('customerMsg.askSeller', { name: sellerName || t('glossary.seller') })}
               </Text>
               <Text style={[styles.productName, { color: colors.textMuted }]} numberOfLines={1}>
                 {productTitle}
@@ -157,9 +164,10 @@ export default function AskSellerModal({
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled">
             {/* Quick Chips */}
-            <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>Quick Topics:</Text>
+            <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>{t('customer.quickTopics')}</Text>
             <View style={styles.chipsRow}>
-              {ASK_QUICK_SUBJECTS.map(item => {
+              {ASK_QUICK_SUBJECTS.map(key => {
+                const item = t(key);
                 const active = subject === item;
                 return (
                   <Squeeze key={item} onPress={() => setSubject(item)}>
@@ -185,11 +193,11 @@ export default function AskSellerModal({
             </View>
 
             {/* Subject Input */}
-            <Text style={[styles.inputLabel, { color: colors.text }]}>Subject</Text>
+            <Text style={[styles.inputLabel, { color: colors.text }]}>{t('customer.subject')}</Text>
             <TextInput
               value={subject}
               onChangeText={setSubject}
-              placeholder="e.g. Warranty details?"
+              placeholder={t('customer.eGWarrantyDetails')}
               placeholderTextColor={colors.textMuted}
               style={[
                 styles.input,
@@ -202,11 +210,11 @@ export default function AskSellerModal({
             />
 
             {/* Message Input */}
-            <Text style={[styles.inputLabel, { color: colors.text, marginTop: 12 }]}>Message</Text>
+            <Text style={[styles.inputLabel, { color: colors.text, marginTop: 12 }]}>{t('customer.message')}</Text>
             <TextInput
               value={message}
               onChangeText={setMessage}
-              placeholder="Type your question or query for the seller..."
+              placeholder={t('customer.typeYourQuestionOrQuery')}
               placeholderTextColor={colors.textMuted}
               multiline
               numberOfLines={4}
@@ -226,13 +234,13 @@ export default function AskSellerModal({
             {/* Buttons */}
             <View style={styles.buttonRow}>
               <Button
-                title="Cancel"
+                title={t('common.cancel')}
                 variant="outline"
                 onPress={onClose}
                 style={{ flex: 1 }}
               />
               <Button
-                title="Send Message"
+                title={t('customer.sendMessage')}
                 loading={loading}
                 onPress={handleSend}
                 style={{ flex: 1.3 }}
@@ -248,13 +256,13 @@ export default function AskSellerModal({
                 style={styles.liveChatRow}>
                 <Icon source={commentDotsBold} size={16} color={colors.primary} />
                 <Text style={[styles.liveChatText, { color: colors.primary }]}>
-                  Or start instant live chat with seller
+                  {t('customer.orStartInstantLiveChat')}
                 </Text>
               </Squeeze>
             )}
           </ScrollView>
         </Animated.View>
-      </KeyboardAvoidingView>
+      </KeyboardSafeView>
     </Modal>
   );
 }
@@ -372,6 +380,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   liveChatText: {
+    flexShrink: 1,
     fontFamily: fonts.bold,
     fontSize: 13,
   },

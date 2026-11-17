@@ -8,7 +8,6 @@ import {
   commentDotsBold,
   creditCardBold,
   fileBold,
-  homeBold,
   packageBold,
   starBold,
   storeBold,
@@ -16,21 +15,22 @@ import {
 } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import { useTranslation } from 'react-i18next';
 
 export const SELLER_TABS = [
-  { key: 'Dashboard', label: 'Dashboard', icon: homeBold },
-  { key: 'Product', label: 'Product', icon: packageBold },
-  { key: 'OrderManagement', label: 'Order Management', icon: storeBold },
-  { key: 'Wallet', label: 'Wallet', icon: creditCardBold },
-  { key: 'Ads', label: 'Ads', icon: volumeUpBold },
-  { key: 'Reported', label: 'Reported', icon: chartPieBold },
-  { key: 'Invoices', label: 'Invoices', icon: fileBold },
-  { key: 'Enquiries', label: 'Enquiries', icon: commentDotsBold },
-  { key: 'Reviews', label: 'Reviews', icon: starBold },
+  { key: 'Product', label: 'sellerTabs.product', icon: packageBold },
+  { key: 'OrderManagement', label: 'sellerTabs.orderManagement', icon: storeBold },
+  { key: 'Wallet', label: 'sellerTabs.wallet', icon: creditCardBold },
+  { key: 'Ads', label: 'sellerTabs.ads', icon: volumeUpBold },
+  { key: 'Reported', label: 'sellerTabs.reports', icon: chartPieBold },
+  { key: 'Invoices', label: 'sellerTabs.invoices', icon: fileBold },
+  { key: 'Enquiries', label: 'sellerTabs.enquiries', icon: commentDotsBold },
+  { key: 'Reviews', label: 'sellerTabs.reviews', icon: starBold },
 ];
 
 export default function SellerTopTabs({ activeTab, onChange }) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const scrollRef = useRef(null);
   const positions = useRef({});
 
@@ -69,7 +69,7 @@ export default function SellerTopTabs({ activeTab, onChange }) {
                         fontFamily: isActive ? fonts.bold : fonts.regular,
                       },
                     ]}>
-                    {tab.label}
+                    {t(tab.label)}
                   </Text>
                 </View>
               </Squeeze>
@@ -93,5 +93,5 @@ const styles = StyleSheet.create({
     borderBottomWidth: 2,
     borderBottomColor: 'transparent',
   },
-  label: { fontSize: 13 },
+  label: { flexShrink: 1, fontSize: 13 },
 });

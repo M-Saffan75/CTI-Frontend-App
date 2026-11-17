@@ -1,8 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -21,6 +19,7 @@ import Animated, {
 import Icon from '@/components/Icon';
 import Button from '@/components/Button';
 import Squeeze from '@/components/Squeeze';
+import KeyboardSafeView from '@/components/KeyboardSafeView';
 import { closeIcon } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
@@ -31,6 +30,8 @@ const CLOSE_MS = 160;
 const EASING = Easing.bezier(0.4, 0, 0.2, 1);
 
 import { sendOrderQueryApi } from '../services/orderApi';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 export default function ContactSellerModal({
   visible,
@@ -47,11 +48,16 @@ export default function ContactSellerModal({
   onClose: () => void;
   onSuccess?: () => void;
 }) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const [mounted, setMounted] = useState(false);
+  // The open/close effect only reacts to `visible`; it reads the latest mounted flag from a ref
+  const mountedRef = useRef(false);
+  mountedRef.current = mounted;
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
+  const busy = useRef(false);
   const [error, setError] = useState('');
   const progress = useSharedValue(0);
 
@@ -60,12 +66,12 @@ export default function ContactSellerModal({
       setMounted(true);
       setError('');
       progress.value = withTiming(1, { duration: OPEN_MS, easing: EASING });
-    } else if (mounted) {
+    } else if (mountedRef.current) {
       progress.value = withTiming(0, { duration: CLOSE_MS, easing: EASING }, finished => {
         if (finished) runOnJS(setMounted)(false);
       });
     }
-  }, [visible]);
+  }, [visible, progress]);
 
   const backdrop = useAnimatedStyle(() => ({ opacity: progress.value }));
   const card = useAnimatedStyle(() => ({
@@ -75,13 +81,15 @@ export default function ContactSellerModal({
 
   const send = async () => {
     if (!subject.trim()) {
-      setError('Please select or enter a subject.');
+      setError(i18n.t('customer.pleaseSelectOrEnterA'));
       return;
     }
     if (!message.trim()) {
-      setError('Please enter your message for the seller.');
+      setError(i18n.t('customer.pleaseEnterYourMessageFor'));
       return;
     }
+    if (busy.current) return;
+    busy.current = true;
 
     try {
       setLoading(true);
@@ -97,8 +105,9 @@ export default function ContactSellerModal({
       onSuccess?.();
       onClose();
     } catch (err: any) {
-      setError(err?.message || 'Failed to send message.');
+      setError(err?.message || i18n.t('customer.failedToSendMessage'));
     } finally {
+      busy.current = false;
       setLoading(false);
     }
   };
@@ -108,49 +117,47 @@ export default function ContactSellerModal({
       {/* Modal opens its own window, so it doesn't get the app's usual
           adjustResize behaviour for free — without this the keyboard covers
           Subject/Message instead of the card shrinking to make room. */}
-      <KeyboardAvoidingView
-        style={styles.center}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <KeyboardSafeView style={styles.center}>
         <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: colors.backdrop }, backdrop]}>
           <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         </Animated.View>
 
         <Animated.View style={[styles.card, { backgroundColor: colors.background }, card]}>
           <View style={styles.header}>
-            <Text style={[styles.title, { color: colors.text }]}>Contact Seller</Text>
+            <Text style={[styles.title, { color: colors.text }]}>{t('customer.contactSeller')}</Text>
             <Squeeze onPress={onClose} scale={0.85}>
               <Icon source={closeIcon} size={18} color={colors.text} />
             </Squeeze>
           </View>
-          <Text style={[styles.orderId, { color: colors.textMuted }]}>Order: {orderNo || orderId}</Text>
+          <Text style={[styles.orderId, { color: colors.textMuted }]}>{t('customerMsg.orderNo', { orderNo: orderNo || orderId })}</Text>
 
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
           <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             <View style={styles.topics}>
               {CONTACT_TOPICS.map(topic => (
-                <Squeeze key={topic} onPress={() => setSubject(topic)} style={styles.topicWrap}>
+                <Squeeze key={topic} onPress={() => setSubject(t(topic))} style={styles.topicWrap}>
                   <View style={[styles.topic, { backgroundColor: colors.surfaceAlt }]}>
-                    <Text style={[styles.topicText, { color: colors.text }]}>{topic}</Text>
+                    <Text style={[styles.topicText, { color: colors.text }]}>{t(topic)}</Text>
                   </View>
                 </Squeeze>
               ))}
             </View>
 
-            <Text style={[styles.label, { color: colors.text }]}>Subject</Text>
+            <Text style={[styles.label, { color: colors.text }]}>{t('customer.subject')}</Text>
             <TextInput
               value={subject}
               onChangeText={setSubject}
-              placeholder="What would you like to ask the seller?"
+              placeholder={t('customer.whatWouldYouLikeTo')}
               placeholderTextColor={colors.textMuted}
               style={[styles.input, { backgroundColor: colors.inputBg, color: colors.text }]}
             />
 
-            <Text style={[styles.label, { color: colors.text }]}>Message</Text>
+            <Text style={[styles.label, { color: colors.text }]}>{t('customer.message')}</Text>
             <TextInput
               value={message}
               onChangeText={setMessage}
-              placeholder="Describe your issue or question in detail..."
+              placeholder={t('customer.describeYourIssueOrQuestion')}
               placeholderTextColor={colors.textMuted}
               multiline
               numberOfLines={4}
@@ -169,14 +176,14 @@ export default function ContactSellerModal({
 
             <View style={styles.actions}>
               <Button
-                title="Send Message"
+                title={t('customer.sendMessage')}
                 size="sm"
                 loading={loading}
                 onPress={send}
                 style={styles.action}
               />
               <Button
-                title="Cancel"
+                title={t('common.cancel')}
                 variant="soft"
                 size="sm"
                 disabled={loading}
@@ -186,7 +193,7 @@ export default function ContactSellerModal({
             </View>
           </ScrollView>
         </Animated.View>
-      </KeyboardAvoidingView>
+      </KeyboardSafeView>
     </Modal>
   );
 }
@@ -205,7 +212,7 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  title: { fontFamily: fonts.bold, fontSize: 18 },
+  title: { flexShrink: 1, fontFamily: fonts.bold, fontSize: 18 },
   orderId: { fontFamily: fonts.regular, fontSize: 13, marginTop: 4 },
   divider: { height: 1, marginTop: 14, marginBottom: 16 },
 

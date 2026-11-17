@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useIsFocused } from '@react-navigation/native';
 import {
   Image,
   Linking,
@@ -40,29 +41,36 @@ import { fonts } from '@/theme/fonts';
 import customerJobApi, { MobileCustomerJob } from '../services/customerJobApi';
 import { useCart } from '@/roles/Customer/context/CartContext';
 import WriteReviewModal, { ReviewTargetJob } from '@/components/modals/WriteReviewModal';
-import { WEB_ADD_JOB_URL } from '@/constants/config';
+import { getWebAddJobUrl } from '@/constants/config';
 import ErrorState from '@/components/states/ErrorState';
+import { formatMoney } from '@/utils/money';
+import useRefreshOnActive from '@/utils/useRefreshOnActive';
+import { subscribeJobChanges, useJobChangedChecker } from '../utils/jobLive';
+import { getLocaleTag } from '@/i18n/locale';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
+import { statusLabel, tx } from '@/utils/labels';
 
 const PAGE_SIZE = 6;
 const DESCRIPTION_PREVIEW = 120;
 
 // Tabs aligned with Next.js web application (/my-account)
 const TABS = [
-  { key: 'all', label: 'All Jobs', icon: menuBold },
-  { key: 'open', label: 'Open', icon: clockBold },
-  { key: 'offers_received', label: 'Offer Received', icon: inboxBold },
-  { key: 'booked', label: 'Booked', icon: calendarBold },
-  { key: 'in_progress', label: 'In Progress', icon: settingsBold },
-  { key: 'completed', label: 'Completed', icon: checkCircleIcon },
-  { key: 'disputed', label: 'Disputed', icon: exclamationCircleBold },
-  { key: 'reviews', label: 'Reviews', icon: starBold },
+  { key: 'all', get label() { return i18n.t('customer.allJobs'); }, icon: menuBold },
+  { key: 'open', get label() { return i18n.t('seller.status.query.open'); }, icon: clockBold },
+  { key: 'offers_received', get label() { return i18n.t('customer.offerReceived'); }, icon: inboxBold },
+  { key: 'booked', get label() { return i18n.t('customer.booked'); }, icon: calendarBold },
+  { key: 'in_progress', get label() { return i18n.t('customer.inProgress'); }, icon: settingsBold },
+  { key: 'completed', get label() { return i18n.t('seller.status.withdraw.completed'); }, icon: checkCircleIcon },
+  { key: 'disputed', get label() { return i18n.t('customer.disputed'); }, icon: exclamationCircleBold },
+  { key: 'reviews', get label() { return i18n.t('sellerTabs.reviews'); }, icon: starBold },
 ];
 
 const formatPrice = (min?: number, max?: number) => {
   const safeMin = Number(min || 0);
   const safeMax = Number(max || 0);
-  if (safeMin === 0 && safeMax === 0) return 'Price on inquiry';
-  const one = (n: number) => `TRY ${n.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+  if (safeMin === 0 && safeMax === 0) return i18n.t('customerMsg.priceOnInquiry');
+  const one = (n: number) => formatMoney(n);
   return safeMin === safeMax ? one(safeMin) : `${one(safeMin)} - ${one(safeMax)}`;
 };
 
@@ -81,12 +89,13 @@ function JobCard({
   job: any;
   onPress: () => void;
 }) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const [expanded, setExpanded] = useState(false);
 
   const tagBadge = job.tag === 'job_posting' ? badges.booked : badges.inProgress;
-  const tagLabel = job.tag === 'job_posting' ? 'Job Posting' : 'Direct Message';
-  const offerBadge = job.offerLabel === 'Confirmed' ? badges.accepted : badges.pending;
+  const tagLabel = statusLabel(job.tag === 'job_posting' ? 'job_posting' : 'direct_message');
+  const offerBadge = job.offerConfirmed ? badges.accepted : badges.pending;
 
   return (
     <Squeeze
@@ -94,7 +103,7 @@ function JobCard({
       scale={0.98}
       style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
       <View style={styles.cardHead}>
-        <Text style={[styles.device, { color: colors.text }]}>{job.device}</Text>
+        <Text style={[styles.device, { color: colors.text }]}>{tx(job.device)}</Text>
         <Text style={[styles.price, { color: colors.text }]}>
           {formatPrice(job.priceMin, job.priceMax)}
         </Text>
@@ -112,16 +121,16 @@ function JobCard({
           {job.description.length > DESCRIPTION_PREVIEW && (
             <Pressable onPress={() => setExpanded(!expanded)} hitSlop={6}>
               <Text style={[styles.seeMore, { color: colors.primary }]}>
-                {expanded ? 'See less' : 'See more'}
+                {expanded ? t('customer.seeLess') : t('customer.seeMore')}
               </Text>
             </Pressable>
           )}
         </>
       )}
 
-      <Text style={[styles.servicesLabel, { color: colors.text }]}>Required Services</Text>
+      <Text style={[styles.servicesLabel, { color: colors.text }]}>{t('customer.requiredServices')}</Text>
       <View style={styles.services}>
-        {(job.requiredServices || job.services || ['Diagnostics & Repair']).map(service => (
+        {(job.requiredServices || job.services || []).map(service => (
           <View key={service} style={[styles.servicePill, { borderColor: palette.rust }]}>
             <Text style={[styles.servicePillText, { color: palette.rust }]}>{service}</Text>
           </View>
@@ -131,7 +140,7 @@ function JobCard({
       <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
       <View style={styles.footer}>
-        <StatusPill label={job.offerLabel} badge={offerBadge} />
+        <StatusPill label={statusLabel(job.offerConfirmed ? 'confirmed' : 'pending')} badge={offerBadge} />
 
         {job.assignedTo ? (
           <View style={styles.assignee}>
@@ -154,7 +163,7 @@ function JobCard({
           <View style={styles.expiry}>
             <Icon source={clockBold} size={13} color={colors.textMuted} />
             <Text style={[styles.expiryText, { color: colors.textMuted }]}>
-              Expires: {job.expiresAt}
+              {t('customerMsg.expires', { date: job.expiresAt })}
             </Text>
           </View>
         ) : null}
@@ -170,16 +179,17 @@ function ReviewCard({
   item: any;
   onWriteReview?: (item: any) => void;
 }) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
 
-  const device = item.jobId?.title || item.device || 'Device Repair';
+  const device = item.jobId?.title || tx(item.device) || t('customer.deviceRepair');
   const completedDate = item.completedAt
-    ? new Date(item.completedAt).toLocaleDateString()
-    : item.date || item.completedDate || 'Recently';
+    ? new Date(item.completedAt).toLocaleDateString(getLocaleTag())
+    : item.date || item.completedDate || t('customerMsg.recently');
   const repairmanName =
-    item.repairmanId?.name || item.assignedTo || item.repairman || 'Technician';
+    item.repairmanId?.name || item.assignedTo || item.repairman || t('chat.technician');
   const shopName =
-    item.repairmanId?.repairmanProfile?.shopName || item.shop || 'Certified Service Center';
+    item.repairmanId?.repairmanProfile?.shopName || item.shop || '';
   const amountPaid = Number(
     item.pricing?.totalAmount || item.amountPaid || item.priceMin || 0,
   );
@@ -194,14 +204,14 @@ function ReviewCard({
           <View style={styles.reviewMeta}>
             <Icon source={calendarBold} size={13} color={colors.textMuted} />
             <Text style={[styles.reviewMetaText, { color: colors.textMuted }]}>
-              Completed {completedDate}
+              {t('customerMsg.completedOn', { date: completedDate })}
             </Text>
           </View>
         </View>
-        <StatusPill label="Completed" badge={badges.completed} />
+        <StatusPill label={t('seller.status.withdraw.completed')} badge={badges.completed} />
       </View>
 
-      <StatusPill label="Job posting" badge={badges.booked} style={styles.tag} />
+      <StatusPill label={t('customer.jobPosting')} badge={badges.booked} style={styles.tag} />
 
       <View style={[styles.repairmanRow, { backgroundColor: colors.surfaceAlt }]}>
         <View
@@ -221,19 +231,19 @@ function ReviewCard({
         </View>
         <View style={styles.repairmanPrice}>
           <Text style={[styles.price, { color: colors.text }]}>
-            TRY {amountPaid.toLocaleString('en-US')}
+            {formatMoney(amountPaid)}
           </Text>
-          <Text style={[styles.reviewMetaText, { color: colors.textMuted }]}>Total paid</Text>
+          <Text style={[styles.reviewMetaText, { color: colors.textMuted }]}>{t('customer.totalPaid')}</Text>
         </View>
       </View>
 
       {review ? (
         <View style={[styles.reviewDone, { borderColor: colors.border }]}>
           <View style={styles.reviewHead}>
-            <Text style={[styles.cardTitle, { color: colors.text }]}>Your Review</Text>
+            <Text style={[styles.cardTitle, { color: colors.text }]}>{t('customer.yourReview')}</Text>
             {Boolean(review.createdAt || review.submittedAt) && (
               <Text style={[styles.reviewMetaText, { color: colors.textMuted }]}>
-                {new Date(review.createdAt || review.submittedAt).toLocaleDateString()}
+                {new Date(review.createdAt || review.submittedAt).toLocaleDateString(getLocaleTag())}
               </Text>
             )}
           </View>
@@ -248,7 +258,7 @@ function ReviewCard({
               />
             ))}
             <Text style={[styles.reviewMetaText, { color: colors.textMuted }]}>
-              {rating} out of 5
+              {t('customerMsg.ratingOutOf', { rating })}
             </Text>
           </View>
 
@@ -261,13 +271,13 @@ function ReviewCard({
           <View style={styles.submittedRow}>
             <Icon source={checkCircleIcon} size={14} color={colors.success} />
             <Text style={[styles.submittedText, { color: colors.success }]}>
-              Review submitted successfully
+              {t('customer.reviewSubmittedSuccessfully')}
             </Text>
           </View>
         </View>
       ) : (
         <Button
-          title="Write a Review for this Job"
+          title={t('customer.writeAReviewForThis')}
           icon={starExtra}
           iconPosition="left"
           size="md"
@@ -292,52 +302,52 @@ function EmptyState({
     switch (activeTab) {
       case 'open':
         return {
-          title: 'No Open Repair Requests',
-          desc: 'Open jobs are requests you have posted that are waiting for offers from certified repair technicians.',
-          btnText: 'Find Expert Repairmen',
+          title: i18n.t('customer.noOpenRepairRequests'),
+          desc: i18n.t('customer.openJobsAreRequestsYou'),
+          btnText: i18n.t('customerMsg.findExpert'),
         };
       case 'offers_received':
       case 'offer_received':
         return {
-          title: 'No Offers Received Yet',
-          desc: 'When technicians send quotes for your open repair jobs, they will appear here so you can compare and accept.',
-          btnText: 'Explore Repair Services',
+          title: i18n.t('customer.noOffersReceivedYet'),
+          desc: i18n.t('customer.whenTechniciansSendQuotesFor'),
+          btnText: i18n.t('customerMsg.exploreServices'),
         };
       case 'booked':
         return {
-          title: 'No Booked Repairs',
-          desc: 'Repairs where you have accepted an offer and scheduled a technician will be listed here.',
-          btnText: 'Find Expert Repairmen',
+          title: i18n.t('customer.noBookedRepairs'),
+          desc: i18n.t('customer.repairsWhereYouHaveAccepted'),
+          btnText: i18n.t('customerMsg.findExpert'),
         };
       case 'in_progress':
         return {
-          title: 'No Repairs In Progress',
-          desc: 'Devices currently being diagnosed or repaired by technicians appear here.',
+          title: i18n.t('customer.noRepairsInProgress'),
+          desc: i18n.t('customer.devicesCurrentlyBeingDiagnosedOr'),
           btnText: undefined,
         };
       case 'completed':
         return {
-          title: 'No Completed Repairs',
-          desc: 'Repairs that have been successfully finished and delivered will appear here.',
+          title: i18n.t('customer.noCompletedRepairs'),
+          desc: i18n.t('customer.repairsThatHaveBeenSuccessfully'),
           btnText: undefined,
         };
       case 'disputed':
         return {
-          title: 'No Disputed Jobs',
-          desc: 'Any jobs with active dispute cases or mediation will appear here.',
+          title: i18n.t('customer.noDisputedJobs'),
+          desc: i18n.t('customer.anyJobsWithActiveDispute'),
           btnText: undefined,
         };
       case 'reviews':
         return {
-          title: 'No Reviews Pending',
-          desc: 'Completed jobs eligible for feedback and ratings will appear here.',
+          title: i18n.t('customer.noReviewsPending'),
+          desc: i18n.t('customer.completedJobsEligibleForFeedback'),
           btnText: undefined,
         };
       default:
         return {
-          title: 'No Repair Jobs Found',
-          desc: 'Try adjusting your search or switching to a different tab.',
-          btnText: 'Explore Repair Services',
+          title: i18n.t('customer.noRepairJobsFound'),
+          desc: i18n.t('customer.tryAdjustingYourSearchOr'),
+          btnText: i18n.t('customerMsg.exploreServices'),
         };
     }
   };
@@ -362,6 +372,7 @@ function EmptyState({
 }
 
 export default function JobsScreen({ navigation }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -376,9 +387,11 @@ export default function JobsScreen({ navigation }: any) {
   const [reviewModalVisible, setReviewModalVisible] = useState(false);
   const [targetJobForReview, setTargetJobForReview] = useState<ReviewTargetJob | null>(null);
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const reviewBusy = useRef(false);
   const [reviewedBookingIds, setReviewedBookingIds] = useState<Record<string, any>>({});
   const [completedReviewJobs, setCompletedReviewJobs] = useState<any[]>([]);
   const [loadingReviews, setLoadingReviews] = useState(false);
+  const [reviewsError, setReviewsError] = useState('');
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // Themed AlertModal State (Replaces native Alert)
@@ -403,21 +416,21 @@ export default function JobsScreen({ navigation }: any) {
     setAlertConfig({
       visible: true,
       type: 'info',
-      title: 'New Job Request',
-      message: `To submit a new repair job request with diagnostic requirements and receive bids from certified technicians, please visit our web portal:\n\n${WEB_ADD_JOB_URL}`,
-      buttonText: 'Open Web Portal',
-      secondaryButtonText: 'Close',
+      title: i18n.t('customer.newJobRequest'),
+      message: i18n.t('customerMsg.webPortalMsg', { url: getWebAddJobUrl() }),
+      buttonText: i18n.t('customer.openWebPortal'),
+      secondaryButtonText: i18n.t('common.close'),
       onButtonPress: async () => {
         setAlertConfig(prev => ({ ...prev, visible: false }));
         try {
-          await Linking.openURL(WEB_ADD_JOB_URL);
+          await Linking.openURL(getWebAddJobUrl());
         } catch {
           setAlertConfig({
             visible: true,
             type: 'info',
-            title: 'Web Portal Link',
-            message: WEB_ADD_JOB_URL,
-            buttonText: 'Okay',
+            title: i18n.t('customer.webPortalLink'),
+            message: getWebAddJobUrl(),
+            buttonText: i18n.t('common.okay'),
           });
         }
       },
@@ -429,11 +442,13 @@ export default function JobsScreen({ navigation }: any) {
 
   const fetchReviewJobs = useCallback(async () => {
     setLoadingReviews(true);
+    setReviewsError('');
     try {
       const list = await customerJobApi.getCompletedJobsForReview();
       setCompletedReviewJobs(list);
-    } catch {
-      setCompletedReviewJobs([]);
+    } catch (err: any) {
+      // keep the list already on screen; "nothing to review" is only shown when the request worked
+      setReviewsError(err?.message || i18n.t('customer.couldNotLoadYourCompleted'));
     } finally {
       setLoadingReviews(false);
     }
@@ -465,10 +480,10 @@ export default function JobsScreen({ navigation }: any) {
         : item.repairmanId || item.raw?.repairmanId || item.raw?.selectedOffer?.repairmanId;
 
     let repairmanName =
-      item.repairmanId?.name || item.assignedTo || 'Technician';
+      item.repairmanId?.name || item.assignedTo || i18n.t('chat.technician');
     let repairmanAvatar =
       item.repairmanId?.avatar || item.repairmanId?.profilePhoto || null;
-    let deviceTitle = item.jobId?.title || item.device || 'Device Repair';
+    let deviceTitle = item.jobId?.title || tx(item.device) || i18n.t('customer.deviceRepair');
 
     // Fallback: fetch detail if bookingId or repairmanId is missing on list item
     if ((!bookingId || !repairmanId) && item.id) {
@@ -483,7 +498,7 @@ export default function JobsScreen({ navigation }: any) {
             repairmanId;
           repairmanName = full.repairman?.name || repairmanName;
           repairmanAvatar = full.repairman?.avatar || repairmanAvatar;
-          deviceTitle = full.title || deviceTitle;
+          deviceTitle = tx(full.title) || deviceTitle;
         }
       } catch {}
     }
@@ -492,8 +507,8 @@ export default function JobsScreen({ navigation }: any) {
       setAlertConfig({
         visible: true,
         type: 'warning',
-        title: 'Notice',
-        message: 'Booking details are incomplete for writing a review.',
+        title: i18n.t('common.notice'),
+        message: i18n.t('customer.bookingDetailsAreIncompleteFor'),
       });
       return;
     }
@@ -516,6 +531,8 @@ export default function JobsScreen({ navigation }: any) {
     overallRating: number;
     reviewText: string;
   }) => {
+    if (reviewBusy.current) return;
+    reviewBusy.current = true;
     try {
       setIsSubmittingReview(true);
       const res = await customerJobApi.createReview(reviewData);
@@ -546,8 +563,8 @@ export default function JobsScreen({ navigation }: any) {
       setAlertConfig({
         visible: true,
         type: 'success',
-        title: 'Review Submitted',
-        message: res.message || 'Review submitted successfully!',
+        title: i18n.t('customer.reviewSubmitted'),
+        message: res.message || i18n.t('customer.reviewSubmittedSuccessfully2'),
       });
       fetchJobs(true);
       fetchReviewJobs();
@@ -555,24 +572,25 @@ export default function JobsScreen({ navigation }: any) {
       setAlertConfig({
         visible: true,
         type: 'error',
-        title: 'Submission Error',
-        message: err?.message || 'Failed to submit review',
+        title: i18n.t('customer.submissionError'),
+        message: err?.message || i18n.t('customer.failedToSubmitReview'),
       });
     } finally {
+      reviewBusy.current = false;
       setIsSubmittingReview(false);
     }
   };
 
-  const fetchJobs = useCallback(async (isRefresh = false) => {
+  const fetchJobs = useCallback(async (isRefresh = false, silent = false) => {
     if (isRefresh) setRefreshing(true);
-    else setLoading(true);
+    else if (!silent) setLoading(true);
 
     try {
       const data = await customerJobApi.getMyJobs();
       setJobs(data);
       setLoadError(null);
     } catch (err: any) {
-      setLoadError(err?.message || 'Failed to load your repair jobs.');
+      if (!silent) setLoadError(err?.message || i18n.t('customer.failedToLoadYourRepair'));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -583,6 +601,29 @@ export default function JobsScreen({ navigation }: any) {
     fetchJobs();
   }, [fetchJobs]);
 
+  // A repairman sent an offer or changed a booking: reload quietly now if this screen is open,
+  // or when it comes back into view
+  const isFocused = useIsFocused();
+  const focusedRef = useRef(isFocused);
+  focusedRef.current = isFocused;
+  const jobChanged = useJobChangedChecker();
+  const reloadQuietly = () => {
+    fetchJobs(false, true);
+  };
+  const reloadRef = useRef(reloadQuietly);
+  reloadRef.current = reloadQuietly;
+  const markLoaded = useRefreshOnActive(isFocused, reloadQuietly, jobChanged);
+  useEffect(() => {
+    if (!loading) markLoaded();
+  }, [loading, markLoaded]);
+  useEffect(
+    () =>
+      subscribeJobChanges(() => {
+        if (focusedRef.current && jobChanged()) reloadRef.current();
+      }),
+    [jobChanged],
+  );
+
   useEffect(() => setPage(1), [activeTab, search]);
 
   const onRefresh = () => {
@@ -592,7 +633,7 @@ export default function JobsScreen({ navigation }: any) {
   const query = search.trim().toLowerCase();
   const matches = (job: MobileCustomerJob) => {
     if (!query) return true;
-    const device = (job.device || '').toLowerCase();
+    const device = (tx(job.device)).toLowerCase();
     const desc = (job.description || '').toLowerCase();
     const assigned = (job.assignedTo || '').toLowerCase();
     const services = (job.services || []).join(' ').toLowerCase();
@@ -629,7 +670,7 @@ export default function JobsScreen({ navigation }: any) {
   if (activeTab === 'reviews') {
     const listToRender = completedReviewJobs.filter(item => {
       if (!query) return true;
-      const device = (item.jobId?.title || item.device || '').toLowerCase();
+      const device = (item.jobId?.title || tx(item.device) || '').toLowerCase();
       const assigned = (item.repairmanId?.name || item.assignedTo || '').toLowerCase();
       const services = (item.services || []).join(' ').toLowerCase();
       return device.includes(query) || assigned.includes(query) || services.includes(query);
@@ -658,17 +699,19 @@ export default function JobsScreen({ navigation }: any) {
           <TabsRow activeTab={activeTab} onChange={setActiveTab} counts={jobCounts} />
           <SearchBar value={search} onChangeText={setSearch} />
 
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Review Completed Jobs</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('customer.reviewCompletedJobs')}</Text>
           <Text style={[styles.sectionSubtitle, { color: colors.textMuted }]}>
-            Share your experience and help other customers
+            {t('customer.shareYourExperienceAndHelp')}
           </Text>
 
           {(loading && !refreshing) || loadingReviews ? (
             <CtiLoader
               size="md"
-              text="Loading completed jobs..."
+              text={t('customer.loadingCompletedJobs')}
               style={{ paddingVertical: 45 }}
             />
+          ) : reviewsError && completedReviewJobs.length === 0 ? (
+            <ErrorState error={reviewsError} onRetry={fetchReviewJobs} fullScreen={false} />
           ) : listToRender.length === 0 ? (
             <EmptyState
               activeTab="reviews"
@@ -707,7 +750,7 @@ export default function JobsScreen({ navigation }: any) {
           type={alertConfig.type}
           title={alertConfig.title}
           message={alertConfig.message}
-          buttonText={alertConfig.buttonText || 'Okay'}
+          buttonText={alertConfig.buttonText || i18n.t('common.okay')}
           secondaryButtonText={alertConfig.secondaryButtonText}
           onButtonPress={alertConfig.onButtonPress}
           onSecondaryButtonPress={alertConfig.onSecondaryButtonPress}
@@ -776,13 +819,13 @@ export default function JobsScreen({ navigation }: any) {
         {loading && !refreshing ? (
           <CtiLoader
             size="md"
-            text="Loading your repair jobs..."
+            text={t('customer.loadingYourRepairJobs')}
             style={{ paddingVertical: 45 }}
           />
         ) : loadError && jobs.length === 0 ? (
           <ErrorState
             fullScreen={false}
-            title="Could not load jobs"
+            title={t('customer.couldNotLoadJobs')}
             error={loadError}
             onRetry={() => fetchJobs()}
           />
@@ -791,8 +834,7 @@ export default function JobsScreen({ navigation }: any) {
             {!isEmpty && (
               <View style={styles.metaRow}>
                 <Text style={[styles.metaText, { color: colors.textMuted }]}>
-                  Showing {(page - 1) * PAGE_SIZE + 1} to{' '}
-                  {Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length} jobs
+                  {t('customerMsg.showingRange', { from: (page - 1) * PAGE_SIZE + 1, to: Math.min(page * PAGE_SIZE, filtered.length), total: filtered.length })}
                 </Text>
               </View>
             )}
@@ -826,7 +868,7 @@ export default function JobsScreen({ navigation }: any) {
                       styles.pageNav,
                       { color: page === 1 ? colors.border : colors.text },
                     ]}>
-                    Previous
+                    {t('customer.previous')}
                   </Text>
                 </Squeeze>
 
@@ -860,7 +902,7 @@ export default function JobsScreen({ navigation }: any) {
                       styles.pageNav,
                       { color: page === totalPages ? colors.border : colors.text },
                     ]}>
-                    Next
+                    {t('roleSelect.next')}
                   </Text>
                 </Squeeze>
               </View>
@@ -874,7 +916,7 @@ export default function JobsScreen({ navigation }: any) {
     {activeTab === 'all' && (
       <View style={styles.bottomPostJobWrap}>
         <Button
-          title="New Job Request"
+          title={t('customer.newJobRequest')}
           size="md"
           variant="primary"
           fullWidth
@@ -897,7 +939,7 @@ export default function JobsScreen({ navigation }: any) {
     type={alertConfig.type}
     title={alertConfig.title}
     message={alertConfig.message}
-    buttonText={alertConfig.buttonText || 'Okay'}
+    buttonText={alertConfig.buttonText || i18n.t('common.okay')}
     secondaryButtonText={alertConfig.secondaryButtonText}
     onButtonPress={alertConfig.onButtonPress}
     onSecondaryButtonPress={alertConfig.onSecondaryButtonPress}
@@ -939,14 +981,15 @@ function Header({ navigation }) {
 }
 
 function Title() {
+  const { t } = useTranslation();
   const { colors } = useTheme();
 
   return (
     <View style={styles.titleRow}>
       <View style={{ flex: 1 }}>
-        <Text style={[styles.title, { color: colors.text }]}>My Repair Jobs</Text>
+        <Text style={[styles.title, { color: colors.text }]}>{t('customer.myRepairJobs')}</Text>
         <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-          Manage and track your device repair requests
+          {t('customer.manageAndTrackYourDevice')}
         </Text>
       </View>
     </View>
@@ -988,6 +1031,7 @@ function TabsRow({ activeTab, onChange, counts }: any) {
 }
 
 function SearchBar({ value, onChangeText }) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
 
   return (
@@ -996,7 +1040,7 @@ function SearchBar({ value, onChangeText }) {
       <TextInput
         value={value}
         onChangeText={onChangeText}
-        placeholder="Search by brand, service, location, color..."
+        placeholder={t('customer.searchByBrandServiceLocation')}
         placeholderTextColor={colors.textMuted}
         style={[styles.searchInput, { color: colors.text }]}
       />
@@ -1098,7 +1142,7 @@ const styles = StyleSheet.create({
   assigneeText: { fontFamily: fonts.regular, fontSize: 12 },
 
   expiry: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  expiryText: { fontFamily: fonts.regular, fontSize: 12 },
+  expiryText: { flexShrink: 1, fontFamily: fonts.regular, fontSize: 12 },
 
   empty: {
     alignItems: 'center',
@@ -1130,7 +1174,7 @@ const styles = StyleSheet.create({
   reviewHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 },
   reviewHeadText: { flex: 1, gap: 4 },
   reviewMeta: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
-  reviewMetaText: { fontFamily: fonts.regular, fontSize: 12 },
+  reviewMetaText: { flexShrink: 1, fontFamily: fonts.regular, fontSize: 12 },
 
   reviewButton: { marginTop: 14 },
   repairmanRow: {
@@ -1143,12 +1187,12 @@ const styles = StyleSheet.create({
   },
   repairmanText: { flex: 1, gap: 2 },
   repairmanPrice: { alignItems: 'flex-end', gap: 2 },
-  cardTitle: { fontFamily: fonts.bold, fontSize: 14 },
+  cardTitle: { flexShrink: 1, fontFamily: fonts.bold, fontSize: 14 },
 
   reviewDone: { borderTopWidth: 1, marginTop: 14, paddingTop: 14, gap: 10 },
   stars: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   submittedRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  submittedText: { fontFamily: fonts.regular, fontSize: 12 },
+  submittedText: { flexShrink: 1, fontFamily: fonts.regular, fontSize: 12 },
   bottomPostJobWrap: {
     marginTop: 20,
     marginBottom: 8,

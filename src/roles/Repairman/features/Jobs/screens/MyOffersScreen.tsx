@@ -1,149 +1,294 @@
-import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  FlatList,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
+import Button from '@/components/Button';
 import Icon from '@/components/Icon';
-import { FadeUp } from '@/animations';
-import { calendarBold, checkCircleIcon, clockBold, mobileBold } from '@/assets/icons';
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  PaginationFooter,
+} from '@/components/states';
+import { searchBold, slidersHBold } from '@/assets/icons';
+import repairmanApi, { MyOffer } from '@/roles/Repairman/api/repairmanApi';
+import {
+  markOffersChanged,
+  subscribeOffersChanged,
+  useOffersChangedChecker,
+} from '@/roles/Repairman/utils/offerEvents';
+import usePagedList from '@/roles/Seller/utils/usePagedList';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
-import JobsFilterBar from '../components/JobsFilterBar';
-import { MY_OFFERS } from '../data/jobs';
+import Select from '../../../components/Select';
+import MyOfferCard from '../components/MyOfferCard';
+import WithdrawOfferModal from '../components/WithdrawOfferModal';
+import { PRIORITY_OPTIONS } from '../utils/jobBoard';
+import { OFFER_STATUS_OPTIONS, offerTitle } from '../utils/offers';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
-function OfferCard({ offer }) {
+const PAGE_SIZE = 10;
+
+export default function MyOffersContent({ navigation }: { navigation: any }) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  const focused = useIsFocused();
+
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState<
+    (typeof OFFER_STATUS_OPTIONS)[number] | null
+  >(null);
+  const [priority, setPriority] = useState<
+    (typeof PRIORITY_OPTIONS)[number] | null
+  >(null);
+  const [withdrawTarget, setWithdrawTarget] = useState<MyOffer | null>(null);
+  const [notice, setNotice] = useState<{
+    type: AlertModalType;
+    title: string;
+    message: string;
+  } | null>(null);
+
+  // The status filter is sent to the backend like the web. The backend applies its search and priority filters to one
+  // page only and returns wrong page counts, so those two filter the loaded offers in the app instead.
+  const fetchPage = useCallback(
+    async (page: number) => {
+      const data = await repairmanApi.getMyOffers({
+        page,
+        limit: PAGE_SIZE,
+        status: status?.value,
+      });
+      const items = data.offers.filter(
+        offer => offer.jobId && offer.status !== 'in_progress',
+      );
+      return {
+        items,
+        // The backend page count is always 1, so a full page means there may be one more
+        totalPages: data.offers.length >= PAGE_SIZE ? page + 1 : page,
+        totalItems: data.pagination.totalOffers,
+      };
+    },
+    [status],
+  );
+
+  const offersChanged = useOffersChangedChecker();
+  const list = usePagedList<MyOffer>(fetchPage, focused, true, offersChanged);
+
+  // A proposal was sent, withdrawn or answered while this list is open: reload quietly
+  const silentReloadRef = useRef(list.silentReload);
+  silentReloadRef.current = list.silentReload;
+  const focusedRef = useRef(focused);
+  focusedRef.current = focused;
+  useEffect(
+    () =>
+      subscribeOffersChanged(() => {
+        if (focusedRef.current && offersChanged()) silentReloadRef.current();
+      }),
+    [offersChanged],
+  );
+
+  const visible = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return list.items.filter(offer => {
+      if (priority && offer.jobId?.urgency !== priority.value) return false;
+      if (!term) return true;
+      return (
+        offerTitle(offer).toLowerCase().includes(term) ||
+        (offer.description || '').toLowerCase().includes(term)
+      );
+    });
+  }, [list.items, search, priority]);
+
+  const hasFilters = Boolean(search.trim() || status || priority);
+  const clearFilters = () => {
+    setSearch('');
+    setStatus(null);
+    setPriority(null);
+  };
+
+  const header = (
+    <View>
+      <Text style={[styles.title, { color: colors.text }]}>{t('repairman.myOffers')}</Text>
+      <Text style={[styles.subtitle, { color: colors.textMuted }]}>
+        {t('repairman.manageYourProposals')}
+      </Text>
+
+      <View style={styles.filters}>
+        <View style={[styles.search, { borderColor: colors.border }]}>
+          <Icon source={searchBold} size={18} color={colors.textMuted} />
+          <TextInput
+            value={search}
+            onChangeText={setSearch}
+            placeholder={t('repairman.searchByDeviceOrDescription')}
+            placeholderTextColor={colors.textMuted}
+            style={[styles.searchInput, { color: colors.text }]}
+          />
+        </View>
+        <View style={styles.row}>
+          <Select
+            placeholder={t('repairman.allStatus')}
+            value={status?.label || null}
+            options={OFFER_STATUS_OPTIONS.map(o => o.label)}
+            onChange={label =>
+              setStatus(
+                OFFER_STATUS_OPTIONS.find(o => o.label === label) || null,
+              )
+            }
+          />
+          <Select
+            icon={slidersHBold}
+            placeholder={t('repairman.allPriorities')}
+            value={priority?.label || null}
+            options={PRIORITY_OPTIONS.map(o => o.label)}
+            onChange={label =>
+              setPriority(PRIORITY_OPTIONS.find(o => o.label === label) || null)
+            }
+          />
+        </View>
+        {hasFilters ? (
+          <Button
+            title={t('repairman.clearFilters2')}
+            variant="soft"
+            size="sm"
+            onPress={clearFilters}
+            style={styles.clear}
+          />
+        ) : null}
+      </View>
+    </View>
+  );
 
   return (
-    <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-      <View style={styles.metaRow}>
-        <View style={[styles.priorityPill, { backgroundColor: colors.error + '18' }]}>
-          <Icon source={clockBold} size={12} color={colors.error} />
-          <Text style={[styles.priorityText, { color: colors.error }]}>{offer.priority}</Text>
-        </View>
-        <Text style={[styles.expiresText, { color: colors.primary }]}>{offer.expiresIn}</Text>
-      </View>
-
-      <View style={styles.titleRow}>
-        <View style={[styles.deviceIcon, { borderColor: colors.border }]}>
-          <Icon source={mobileBold} size={16} color={colors.primary} />
-        </View>
-        <Text style={[styles.deviceName, { color: colors.text }]}>{offer.device}</Text>
-      </View>
-
-      <Text style={[styles.priceText, { color: colors.textMuted }]}>
-        TRY {offer.priceMin}-{offer.priceMax}{' '}
-        <Text style={{ color: colors.primary }}>Posted {offer.postedDaysAgo} days ago</Text>
-      </Text>
-
-      <Text style={[styles.description, { color: colors.textMuted }]} numberOfLines={4}>
-        {offer.description}
-      </Text>
-
-      <View style={[styles.tag, { borderColor: colors.border }]}>
-        <Text style={[styles.tagText, { color: colors.text }]}>{offer.tag}</Text>
-      </View>
-
-      <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-      <View style={styles.footer}>
-        <View style={styles.submittedRow}>
-          <Icon source={calendarBold} size={13} color={colors.textMuted} />
-          <Text style={[styles.submittedText, { color: colors.textMuted }]}>Submitted: {offer.submittedDate}</Text>
-        </View>
-        {offer.viewed && (
-          <View style={styles.viewedRow}>
-            <Icon source={checkCircleIcon} size={13} color={colors.success} />
-            <Text style={[styles.viewedText, { color: colors.success }]}>Viewed</Text>
-          </View>
+    <View style={styles.flex}>
+      <FlatList
+        data={visible}
+        keyExtractor={offer => offer._id}
+        renderItem={({ item }) => (
+          <MyOfferCard
+            offer={item}
+            onOpen={() =>
+              navigation.navigate('MyOfferDetail', {
+                offerId: item._id,
+                offer: item,
+              })
+            }
+            onWithdraw={() => setWithdrawTarget(item)}
+          />
         )}
-      </View>
+        ListHeaderComponent={header}
+        ListEmptyComponent={
+          list.loading ? (
+            <LoadingState fullScreen={false} text={t('repairman.fetchingYourOffers')} />
+          ) : list.error ? (
+            <ErrorState
+              error={list.error}
+              onRetry={list.retry}
+              fullScreen={false}
+            />
+          ) : (
+            <EmptyState
+              fullScreen={false}
+              title={t('repairman.noOffersFound')}
+              message={
+                hasFilters
+                  ? t('repairman.tryAdjustingYourFilters')
+                  : t('repairman.youHaveNotSentAny')
+              }
+              action={
+                hasFilters
+                  ? { label: t('repairman.clearAllFilters'), onPress: clearFilters }
+                  : {
+                      label: t('repairman.openJobBoard'),
+                      onPress: () =>
+                        navigation.navigate('JobsTab', {
+                          tab: 'JobBoard',
+                          at: Date.now(),
+                        }),
+                    }
+              }
+            />
+          )
+        }
+        ListFooterComponent={
+          list.items.length > 0 ? (
+            <PaginationFooter
+              loading={list.loadingMore}
+              hasMore={list.hasMore}
+              endText={t('repairman.youHaveSeenAllOffers')}
+            />
+          ) : null
+        }
+        contentContainerStyle={[
+          styles.body,
+          { paddingBottom: insets.bottom + 30 },
+        ]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        onEndReached={list.onEndReached}
+        onEndReachedThreshold={0.4}
+        refreshControl={
+          <RefreshControl
+            refreshing={list.refreshing}
+            onRefresh={list.onRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
+      />
+
+      <WithdrawOfferModal
+        visible={Boolean(withdrawTarget)}
+        offerId={withdrawTarget?._id || ''}
+        title={withdrawTarget ? offerTitle(withdrawTarget) : ''}
+        onClose={() => setWithdrawTarget(null)}
+        onWithdrawn={message => {
+          setWithdrawTarget(null);
+          setNotice({ type: 'success', title: i18n.t('repairman.offerWithdrawn'), message });
+          // This list reloads, the Job Board shows the job again, the Dashboard counts change
+          markOffersChanged();
+        }}
+      />
+
+      <AlertModal
+        visible={Boolean(notice) || Boolean(list.loadError)}
+        type={notice?.type || 'error'}
+        title={notice?.title || t('repairman.couldNotLoad')}
+        message={notice?.message || list.loadError || ''}
+        onClose={() => {
+          setNotice(null);
+          list.clearLoadError();
+        }}
+      />
     </View>
   );
 }
 
-export default function MyOffersContent() {
-  const { colors } = useTheme();
-  const insets = useSafeAreaInsets();
-
-  const [search, setSearch] = useState('');
-  const [city, setCity] = useState(null);
-  const [priority, setPriority] = useState(null);
-
-  const clearFilters = () => {
-    setSearch('');
-    setCity(null);
-    setPriority(null);
-  };
-
-  const filtered = MY_OFFERS.filter(
-    offer =>
-      (!priority || offer.priority === priority) &&
-      (!search || offer.device.toLowerCase().includes(search.toLowerCase())),
-  );
-
-  return (
-      <ScrollView
-        contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled">
-        <Text style={[styles.title, { color: colors.text }]}>My Offers</Text>
-        <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-          Track the proposals you've sent to customers
-        </Text>
-
-        <JobsFilterBar
-          search={search}
-          onSearch={setSearch}
-          city={city}
-          onCity={setCity}
-          priority={priority}
-          onPriority={setPriority}
-          onClear={clearFilters}
-        />
-
-        {filtered.length === 0 ? (
-          <Text style={[styles.empty, { color: colors.textMuted }]}>No offers found.</Text>
-        ) : (
-          <View style={styles.list}>
-            {filtered.map((offer, index) => (
-              <FadeUp key={offer.id} delay={60 + index * 50} duration={450}>
-                <OfferCard offer={offer} />
-              </FadeUp>
-            ))}
-          </View>
-        )}
-      </ScrollView>
-  );
-}
-
 const styles = StyleSheet.create({
-  screen: { flex: 1 },
+  flex: { flex: 1 },
   body: { paddingHorizontal: 20, paddingTop: 16 },
   title: { fontFamily: fonts.bold, fontSize: 24 },
   subtitle: { fontFamily: fonts.regular, fontSize: 13, marginTop: 4 },
-  empty: { fontFamily: fonts.regular, fontSize: 14, textAlign: 'center', marginTop: 30 },
-
-  list: { marginTop: 16, gap: 14 },
-  card: { borderRadius: 14, borderWidth: 1, padding: 14 },
-  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  priorityPill: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
-  priorityText: { fontFamily: fonts.bold, fontSize: 11 },
-  expiresText: { fontFamily: fonts.medium, fontSize: 11 },
-
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
-  deviceIcon: { width: 30, height: 30, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  deviceName: { fontFamily: fonts.bold, fontSize: 15 },
-
-  priceText: { fontFamily: fonts.regular, fontSize: 12, marginTop: 8 },
-  description: { fontFamily: fonts.regular, fontSize: 12, lineHeight: 18, marginTop: 8 },
-
-  tag: { alignSelf: 'flex-start', borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, marginTop: 12 },
-  tagText: { fontFamily: fonts.regular, fontSize: 12 },
-
-  divider: { height: 1, marginTop: 14, marginBottom: 10 },
-  footer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  submittedRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  submittedText: { fontFamily: fonts.regular, fontSize: 12 },
-  viewedRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  viewedText: { fontFamily: fonts.bold, fontSize: 12 },
+  filters: { marginTop: 16, gap: 10 },
+  row: { flexDirection: 'row', gap: 10 },
+  clear: { alignSelf: 'flex-start', minWidth: 130 },
+  search: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    height: 48,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+  },
+  searchInput: { flex: 1, fontFamily: fonts.regular, fontSize: 13, padding: 0 },
 });

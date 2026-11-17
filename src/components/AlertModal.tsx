@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   Easing,
@@ -13,6 +13,7 @@ import Button from '@/components/Button';
 import { checkCircleBold, exclamationCircleBold, infoCircleBold } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import { useTranslation } from 'react-i18next';
 
 const OPEN_MS = 220;
 const CLOSE_MS = 160;
@@ -32,31 +33,39 @@ export interface AlertModalProps {
   onClose?: () => void;
 }
 
-export default function AlertModal({
-  visible,
-  type = 'error',
-  title,
-  message,
-  buttonText = 'Okay',
-  secondaryButtonText,
-  onButtonPress,
-  onSecondaryButtonPress,
-  onClose,
-}: AlertModalProps) {
+export default function AlertModal(props: AlertModalProps) {
+  // While the modal fades out the screen has already cleared its text and type; keep the last shown ones
+  const shown = useRef(props);
+  if (props.visible) shown.current = props;
+  const {
+    visible,
+    type = 'error',
+    title,
+    message,
+    buttonText,
+    secondaryButtonText,
+    onButtonPress,
+    onSecondaryButtonPress,
+    onClose,
+  } = props.visible ? props : { ...shown.current, visible: false, onClose: props.onClose };
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const [mounted, setMounted] = useState(false);
+  // The open/close effect only reacts to `visible`; it reads the latest mounted flag from a ref
+  const mountedRef = useRef(false);
+  mountedRef.current = mounted;
   const progress = useSharedValue(0);
 
   useEffect(() => {
     if (visible) {
       setMounted(true);
       progress.value = withTiming(1, { duration: OPEN_MS, easing: EASING });
-    } else if (mounted) {
+    } else if (mountedRef.current) {
       progress.value = withTiming(0, { duration: CLOSE_MS, easing: EASING }, finished => {
         if (finished) runOnJS(setMounted)(false);
       });
     }
-  }, [visible]);
+  }, [visible, progress]);
 
   const backdrop = useAnimatedStyle(() => ({ opacity: progress.value }));
 
@@ -94,12 +103,12 @@ export default function AlertModal({
     : colors.primary;
 
   const defaultTitle = isSuccess
-    ? 'Success'
+    ? t('common.success')
     : isError
-    ? 'Error'
+    ? t('common.error')
     : isWarning
-    ? 'Warning'
-    : 'Notice';
+    ? t('common.warning')
+    : t('common.notice');
 
   return (
     <Modal visible={mounted} transparent animationType="none" onRequestClose={onClose}>
@@ -136,7 +145,7 @@ export default function AlertModal({
             ) : null}
 
             <Button
-              title={buttonText}
+              title={buttonText ?? t('common.okay')}
               size="md"
               color={isError ? accentColor : null}
               onPress={handlePrimaryPress}

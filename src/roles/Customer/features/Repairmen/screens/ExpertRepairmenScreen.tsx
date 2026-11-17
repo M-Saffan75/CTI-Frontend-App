@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Image,
   Modal,
@@ -30,14 +30,18 @@ import {
   starExtra,
   userBold,
   closeIcon,
+  dummyProfileExtra,
 } from '@/assets/icons';
 import { ctiLogo } from '@/assets/images';
+import { ErrorState } from '@/components/states';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { useWishlist } from '@/roles/Customer/context/WishlistContext';
 import { useCart } from '@/roles/Customer/context/CartContext';
 import repairmanApi, { MobileRepairman } from '@/services/repairmanApi';
 import { startChat } from '@/services/chatApi';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 function RepairmanCard({
   repairman,
@@ -52,6 +56,7 @@ function RepairmanCard({
   onStartChat: (repairman: MobileRepairman) => void;
   isStartingChat: boolean;
 }) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
 
   // Find matching specialization based on searchQuery if available
@@ -67,15 +72,18 @@ function RepairmanCard({
     return s.includes(q);
   });
 
-  const displaySpecialty = matchedSpec || repairman.specialty || 'Device Repair Specialist';
+  const displaySpecialty = matchedSpec || repairman.specialty || t('customer.deviceRepairSpecialist');
 
   return (
     <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-      <Image source={{ uri: repairman.photo }} style={styles.photo} />
+      <Image
+        source={repairman.photo ? { uri: repairman.photo } : dummyProfileExtra}
+        style={styles.photo}
+      />
 
       <View style={styles.cardBody}>
         <Text style={[styles.name, { color: colors.text }]} numberOfLines={1}>
-          {repairman.name}
+          {repairman.name || t('glossary.repairman')}
         </Text>
         <Text style={[styles.shopName, { color: colors.primary }]} numberOfLines={1}>
           {displaySpecialty}
@@ -119,16 +127,16 @@ function RepairmanCard({
         <View style={styles.metaRow}>
           <Icon source={starExtra} size={12} color={colors.primary} />
           <Text style={[styles.metaText, { color: colors.textMuted }]}>
-            {repairman.rating > 0 ? repairman.rating.toFixed(1) : '5.0'} • {repairman.experience}
+            {[repairman.rating > 0 ? repairman.rating.toFixed(1) : t('customerMsg.newRepairman'), repairman.experience].filter(Boolean).join(' • ')}
           </Text>
         </View>
 
         <View style={styles.actions}>
           <TouchableOpacity activeOpacity={0.7} onPress={() => onViewProfile(repairman)}>
-            <Text style={[styles.viewProfile, { color: colors.primary }]}>View Details</Text>
+            <Text style={[styles.viewProfile, { color: colors.primary }]}>{t('customer.viewDetails')}</Text>
           </TouchableOpacity>
           <Button
-            title="Book & Chat"
+            title={t('customer.bookAndChat')}
             size="sm"
             loading={isStartingChat}
             disabled={isStartingChat}
@@ -141,16 +149,8 @@ function RepairmanCard({
   );
 }
 
-const CATEGORY_CHIPS = [
-  { label: 'All', query: '' },
-  { label: 'Mobile', query: 'Mobile Repair' },
-  { label: 'Laptop', query: 'Laptop Repair' },
-  { label: 'Desktop', query: 'Desktop Repair' },
-  { label: 'Smartwatch', query: 'Smartwatch' },
-  { label: 'Software', query: 'Software' },
-];
-
 export default function ExpertRepairmenScreen({ navigation, route }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -182,7 +182,7 @@ export default function ExpertRepairmenScreen({ navigation, route }: any) {
       const res = await startChat({ repairmanId: rep.id });
       if (res.success && res.chat) {
         if (selectedRepairman) setSelectedRepairman(null);
-        const targetName = res.chat?.user?.name || res.chat?.repairman?.name || rep.name;
+        const targetName = res.chat?.user?.name || res.chat?.repairman?.name || rep.name || t('glossary.repairman');
         const targetAvatar = res.chat?.user?.avatar || res.chat?.repairman?.avatar || rep.photo;
         navigation.navigate('ChatDetail', {
           chatId: res.chat?._id || res.chat?.chatId,
@@ -193,16 +193,16 @@ export default function ExpertRepairmenScreen({ navigation, route }: any) {
       } else {
         setAlertConfig({
           visible: true,
-          title: 'Unable to Start Chat',
-          message: res.message || 'Could not connect with this repairman. Please try again later.',
+          title: i18n.t('customer.unableToStartChat'),
+          message: res.message || i18n.t('customer.couldNotConnectWithThis'),
           type: 'error',
         });
       }
     } catch (err: any) {
       setAlertConfig({
         visible: true,
-        title: 'Chat Connection Error',
-        message: err?.message || 'A network error occurred while connecting to the chat.',
+        title: i18n.t('customer.chatConnectionError'),
+        message: err?.message || i18n.t('customer.aNetworkErrorOccurredWhile2'),
         type: 'error',
       });
     } finally {
@@ -219,12 +219,17 @@ export default function ExpertRepairmenScreen({ navigation, route }: any) {
     }, [route?.params?.query, route?.params?.specialization])
   );
 
+  const [loadError, setLoadError] = useState('');
+
   const loadRepairmen = useCallback(async () => {
     try {
+      setLoadError('');
       const res = await repairmanApi.getRepairmen({ limit: 50 });
       setRepairmen(res.repairmans);
-    } catch (err) {
-      if (__DEV__) console.warn('Failed to load expert repairmen:', err);
+    } catch (err: any) {
+      // never show "no repairmen" when the request failed
+      setRepairmen([]);
+      setLoadError(err?.message || i18n.t('customer.couldNotLoadTheRepairmen'));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -240,19 +245,33 @@ export default function ExpertRepairmenScreen({ navigation, route }: any) {
     loadRepairmen();
   };
 
-  const isChipActive = (chipQuery: string) => {
-    const s = search.trim().toLowerCase();
-    if (!chipQuery) return !s;
-    if (chipQuery === 'Mobile Repair') return s.includes('mobile') || s.includes('phone');
-    if (chipQuery === 'Laptop Repair') return s.includes('laptop');
-    if (chipQuery === 'Desktop Repair') return s.includes('desktop');
-    if (chipQuery === 'Smartwatch') return s.includes('watch');
-    if (chipQuery === 'Software') return s.includes('software');
-    return s.includes(chipQuery.toLowerCase());
-  };
+  // Chips come from the specializations the loaded repairmen really list (most common first)
+  const [activeSpec, setActiveSpec] = useState('');
+  const specChips = useMemo(() => {
+    const counts = new Map<string, { label: string; n: number }>();
+    repairmen.forEach(r =>
+      (r.specializations || []).forEach(raw => {
+        const label = String(raw || '').trim();
+        if (!label) return;
+        const key = label.toLowerCase();
+        const cur = counts.get(key);
+        counts.set(key, { label: cur?.label || label, n: (cur?.n || 0) + 1 });
+      }),
+    );
+    return Array.from(counts.values())
+      .sort((a, b) => b.n - a.n)
+      .slice(0, 8)
+      .map(c => c.label);
+  }, [repairmen]);
 
   // High-precision category & keyword matching
   const filteredRepairmen = repairmen.filter(r => {
+    if (
+      activeSpec &&
+      !(r.specializations || []).some(sp => String(sp).trim().toLowerCase() === activeSpec.toLowerCase())
+    ) {
+      return false;
+    }
     const rawSearch = search.trim().toLowerCase();
     if (!rawSearch) return true;
 
@@ -449,8 +468,8 @@ export default function ExpertRepairmenScreen({ navigation, route }: any) {
       .replace(/[^a-z0-9\s]/g, ' ')
       .split(/\s+/)
       .filter(
-        t =>
-          t.length > 2 &&
+        word =>
+          word.length > 2 &&
           ![
             'repair',
             'repairing',
@@ -461,12 +480,12 @@ export default function ExpertRepairmenScreen({ navigation, route }: any) {
             'services',
             'expert',
             'specialist',
-          ].includes(t),
+          ].includes(word),
       );
 
     if (tokens.length === 0) return true;
 
-    return tokens.some(t => allText.includes(t));
+    return tokens.some(word => allText.includes(word));
   });
 
   return (
@@ -516,13 +535,13 @@ export default function ExpertRepairmenScreen({ navigation, route }: any) {
         </Squeeze>
 
         <Text style={[styles.title, { color: colors.text }]}>
-          Expert Repairmen{' '}
+          {t('customerMsg.expertRepairmen')}{' '}
           <Text style={{ color: colors.primary }}>
             ({filteredRepairmen.length})
           </Text>
         </Text>
         <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-          Verified technicians &amp; electronics specialists available for booking
+          {t('customer.verifiedTechniciansAndElectronicsSpecial')}
         </Text>
 
         {/* Search Bar */}
@@ -531,7 +550,7 @@ export default function ExpertRepairmenScreen({ navigation, route }: any) {
           <TextInput
             value={search}
             onChangeText={setSearch}
-            placeholder="Search by name, city, or specialization..."
+            placeholder={t('customer.searchByNameCityOr')}
             placeholderTextColor={colors.textMuted}
             style={[styles.searchInput, { color: colors.text }]}
           />
@@ -551,13 +570,13 @@ export default function ExpertRepairmenScreen({ navigation, route }: any) {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.categoryChipsRow}
           style={{ marginBottom: 12 }}>
-          {CATEGORY_CHIPS.map(chip => {
-            const active = isChipActive(chip.query);
+          {['', ...specChips].map(chip => {
+            const active = chip === activeSpec;
             return (
               <TouchableOpacity
-                key={chip.label}
+                key={chip || 'all'}
                 activeOpacity={0.7}
-                onPress={() => setSearch(active && chip.query ? '' : chip.query)}
+                onPress={() => setActiveSpec(chip)}
                 style={[
                   styles.categoryChip,
                   {
@@ -570,7 +589,7 @@ export default function ExpertRepairmenScreen({ navigation, route }: any) {
                     styles.categoryChipText,
                     { color: active ? '#FFFFFF' : colors.textMuted },
                   ]}>
-                  {chip.label}
+                  {chip || t('customerMsg.all')}
                 </Text>
               </TouchableOpacity>
             );
@@ -580,23 +599,32 @@ export default function ExpertRepairmenScreen({ navigation, route }: any) {
         {loading && !refreshing ? (
           <CtiLoader
             size="md"
-            text="Loading verified repairmen..."
+            text={t('customer.loadingVerifiedRepairmen')}
             style={{ paddingVertical: 50 }}
+          />
+        ) : loadError ? (
+          <ErrorState
+            error={loadError}
+            onRetry={() => {
+              setLoading(true);
+              loadRepairmen();
+            }}
+            fullScreen={false}
           />
         ) : filteredRepairmen.length === 0 ? (
           <View style={styles.emptyWrap}>
             <Icon source={userBold} size={48} color={colors.textMuted} />
             <Text style={[styles.emptyTitle, { color: colors.text }]}>
-              No Expert Repairmen Found
+              {t('customer.noExpertRepairmenFound')}
             </Text>
             <Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>
               {search.trim()
-                ? `No registered technicians currently specialize in "${search.trim()}".`
-                : 'No registered repair specialists match current criteria.'}
+                ? t('customerMsg.noSpecialists', { query: search.trim() })
+                : t('customer.noRegisteredRepairSpecialistsMatch')}
             </Text>
             {search.trim().length > 0 && (
               <Button
-                title="View All Repairmen"
+                title={t('customer.viewAllRepairmen')}
                 variant="outline"
                 size="sm"
                 onPress={() => setSearch('')}
@@ -635,7 +663,7 @@ export default function ExpertRepairmenScreen({ navigation, route }: any) {
           <View style={styles.modalOverlay}>
             <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <View style={styles.modalHead}>
-                <Text style={[styles.modalTitle, { color: colors.text }]}>Repairman Profile</Text>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>{t('customer.repairmanProfile')}</Text>
                 <TouchableOpacity
                   onPress={() => setSelectedRepairman(null)}
                   hitSlop={10}
@@ -646,10 +674,13 @@ export default function ExpertRepairmenScreen({ navigation, route }: any) {
 
               <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.modalBody}>
                 <View style={styles.modalProfileRow}>
-                  <Image source={{ uri: selectedRepairman.photo }} style={styles.modalPhoto} />
+                  <Image
+                    source={selectedRepairman.photo ? { uri: selectedRepairman.photo } : dummyProfileExtra}
+                    style={styles.modalPhoto}
+                  />
                   <View style={{ flex: 1, gap: 4 }}>
                     <Text style={[styles.modalName, { color: colors.text }]}>
-                      {selectedRepairman.name}
+                      {selectedRepairman.name || t('glossary.repairman')}
                     </Text>
                     <Text style={[styles.modalShop, { color: colors.primary }]}>
                       {selectedRepairman.shopName}
@@ -657,7 +688,7 @@ export default function ExpertRepairmenScreen({ navigation, route }: any) {
                     <View style={styles.modalMetaRow}>
                       <Icon source={starExtra} size={13} color={colors.primary} />
                       <Text style={[styles.modalMetaText, { color: colors.textMuted }]}>
-                        {selectedRepairman.rating.toFixed(1)} Rating • {selectedRepairman.experience}
+                        {[selectedRepairman.rating > 0 ? t('customerMsg.ratingValue', { rating: selectedRepairman.rating.toFixed(1) }) : t('customerMsg.newRepairman'), selectedRepairman.experience].filter(Boolean).join(' • ')}
                       </Text>
                     </View>
                   </View>
@@ -684,7 +715,7 @@ export default function ExpertRepairmenScreen({ navigation, route }: any) {
                 {selectedRepairman.specializations.length > 0 && (
                   <View style={styles.specializationsWrap}>
                     <Text style={[styles.sectionLabel, { color: colors.text }]}>
-                      Specializations:
+                      {t('customer.specializations')}
                     </Text>
                     <View style={styles.specChips}>
                       {selectedRepairman.specializations.map((spec, sIdx) => (
@@ -703,7 +734,7 @@ export default function ExpertRepairmenScreen({ navigation, route }: any) {
                 {selectedRepairman.workingDays && selectedRepairman.workingDays.length > 0 && (
                   <View style={styles.specializationsWrap}>
                     <Text style={[styles.sectionLabel, { color: colors.text }]}>
-                      Working Days:
+                      {t('customer.workingDays')}
                     </Text>
                     <Text style={[styles.infoText, { color: colors.textMuted }]}>
                       {selectedRepairman.workingDays.join(', ')}
@@ -712,7 +743,7 @@ export default function ExpertRepairmenScreen({ navigation, route }: any) {
                 )}
 
                 <Button
-                  title="Chat with Specialist"
+                  title={t('customer.chatWithSpecialist')}
                   size="md"
                   icon={commentDotsBold}
                   iconPosition="left"
@@ -870,7 +901,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#8883',
   },
-  modalTitle: { fontFamily: fonts.bold, fontSize: 17 },
+  modalTitle: { flexShrink: 1, fontFamily: fonts.bold, fontSize: 17 },
   closeBtn: { padding: 4 },
   modalBody: { paddingTop: 14, gap: 14 },
   modalProfileRow: { flexDirection: 'row', gap: 12, alignItems: 'center' },

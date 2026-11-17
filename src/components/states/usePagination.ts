@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import i18n from '@/i18n';
 
 export interface UsePaginationOptions<T> {
   fetchPage: (page: number) => Promise<{ data: T[]; total?: number; totalPages?: number }>;
@@ -51,7 +52,7 @@ export function usePagination<T>({
           setHasMore(incoming.length >= pageSize);
         }
       } catch (err: any) {
-        setError(err.message || 'Failed to load data');
+        setError(err.message || i18n.t('appMsg.loadFailed'));
       } finally {
         setLoading(false);
         setRefreshing(false);

@@ -4,7 +4,6 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
 import {
-  creditCardBold,
   folderBold,
   inboxBold,
   palmHandIcon,
@@ -13,21 +12,23 @@ import {
 } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import i18n from '@/i18n';
+import { useTranslation } from 'react-i18next';
 
 // Dashboard is not here on purpose — it's its own bottom-tab screen now.
 // These tabs live inside the Jobs screen and start at the jobs board.
 export const TABS = [
-  { key: 'JobBoard', label: 'JobsBoard', icon: inboxBold },
-  { key: 'MyOffers', label: 'My Offers', icon: palmHandIcon },
-  { key: 'MyJobs', label: 'My Jobs', icon: folderBold },
-  { key: 'Reviews', label: 'Reviews', icon: starBold },
-  { key: 'Earnings', label: 'Earnings', icon: creditCardBold },
-  { key: 'PartsOrder', label: 'Parts Order', icon: tagBold },
+  { key: 'JobBoard', get label() { return i18n.t('repairman.jobsboard'); }, icon: inboxBold },
+  { key: 'MyOffers', get label() { return i18n.t('repairman.myOffers'); }, icon: palmHandIcon },
+  { key: 'MyJobs', get label() { return i18n.t('repairman.myJobs'); }, icon: folderBold },
+  { key: 'Reviews', get label() { return i18n.t('repairman.reviews'); }, icon: starBold },
+  { key: 'PartsOrder', get label() { return i18n.t('repairman.partsOrder'); }, icon: tagBold },
 ];
 
 // Local, same-screen tab switching — same pattern as the Customer side's
 // JobsScreen TabsRow. No navigation involved, so switching is instant.
 export default function RepairmanTabs({ activeTab, onChange }) {
+  useTranslation();
   const { colors } = useTheme();
   const scrollRef = useRef(null);
   const positions = useRef({});

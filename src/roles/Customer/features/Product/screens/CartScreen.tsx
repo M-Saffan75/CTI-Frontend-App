@@ -1,4 +1,5 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
+import { formatMoney } from '@/utils/money';
 import {
   Image,
   RefreshControl,
@@ -13,10 +14,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import CtiLoader from '@/components/CtiLoader';
 import Icon from '@/components/Icon';
 import Button from '@/components/Button';
+import AuthService from '@/services/authService';
 import Squeeze from '@/components/Squeeze';
 import ConfirmModal from '@/components/ConfirmModal';
 import AlertModal, { AlertModalType } from '@/components/AlertModal';
-import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
   heartExtra,
@@ -34,8 +35,38 @@ import { useCart } from '../../../context/CartContext';
 import {
   MobileCartItem,
 } from '../services/ecomApi';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
+import { upper } from '@/i18n/locale';
 
-const SHIPPING_FEE = 10;
+// The backend charges the customer no shipping (the seller arranges it), so the cart never adds a fee.
+// Like the web, an order can only hold one seller's items, so the cart is shown in groups
+// and each group is checked out on its own.
+interface CartGroup {
+  key: string;
+  type: 'standard' | 'refurbished';
+  sellerId?: string;
+  sellerName?: string;
+  items: MobileCartItem[];
+  subtotal: number;
+}
+
+function groupCart(items: MobileCartItem[]): CartGroup[] {
+  const map = new Map<string, CartGroup>();
+  items.forEach(item => {
+    const type = item.isRefurbished ? 'refurbished' : 'standard';
+    const key = type === 'refurbished' ? 'refurbished' : 'seller:' + (item.sellerId || 'unknown');
+    if (!map.has(key)) {
+      map.set(key, { key, type, sellerId: item.sellerId, sellerName: item.sellerName, items: [], subtotal: 0 });
+    }
+    const group = map.get(key) as CartGroup;
+    group.items.push(item);
+    group.subtotal += (Number(item.price) || 0) * (item.quantity || 1);
+  });
+  const groups = Array.from(map.values());
+  // marketplace sellers first, the refurbished store last
+  return groups.sort((a, b) => (a.type === b.type ? 0 : a.type === 'standard' ? -1 : 1));
+}
 
 interface CartRowProps {
   item: MobileCartItem;
@@ -43,7 +74,7 @@ interface CartRowProps {
   onRemove: (item: MobileCartItem) => void;
 }
 
-const CartRow = memo(function CartRow({
+const CartRow = memo(function CartRowView({
   item,
   onQuantity,
   onRemove,
@@ -85,14 +116,13 @@ const CartRow = memo(function CartRow({
                 fontFamily: fonts.bold,
                 fontSize: 9,
                 color: '#92400E',
-                textTransform: 'uppercase',
               }}>
-              Refurbished
+              {upper(i18n.t('glossary.refurbished'))}
             </Text>
           </View>
         )}
         <Text style={[styles.rowPrice, { color: colors.primary }]}>
-          ${Number(item.price || 0).toFixed(2)}
+          {formatMoney(item.price)}
         </Text>
 
         <View style={styles.rowFoot}>
@@ -146,6 +176,7 @@ const CartRow = memo(function CartRow({
 });
 
 export default function CartScreen({ navigation }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { ids: wishlistIds } = useWishlist();
@@ -176,7 +207,15 @@ export default function CartScreen({ navigation }: any) {
   const onRefresh = async () => {
     setRefreshing(true);
     try {
-      await refreshCart();
+      const ok = await refreshCart();
+      if (!ok) {
+        setModal({
+          visible: true,
+          type: 'error',
+          title: i18n.t('customer.couldNotRefresh'),
+          message: i18n.t('customer.yourCartCouldNotBe'),
+        });
+      }
     } finally {
       setRefreshing(false);
     }
@@ -204,18 +243,25 @@ export default function CartScreen({ navigation }: any) {
       setModal({
         visible: true,
         type: 'error',
-        title: 'Delete Failed',
-        message: err?.message || 'Could not remove item from cart.',
+        title: i18n.t('customer.deleteFailed'),
+        message: err?.message || i18n.t('customer.couldNotRemoveItemFrom'),
       });
     }
   };
 
-  const subtotal = useMemo(
-    () => items.reduce((sum, item) => sum + (Number(item.price) || 0) * (item.quantity || 1), 0),
-    [items]
-  );
-  const shipping = items.length ? SHIPPING_FEE : 0;
-  const total = subtotal + shipping;
+  const groups = useMemo(() => groupCart(items), [items]);
+
+  const checkoutGroup = (group: CartGroup) => {
+    navigation.navigate('Checkout', {
+      group: {
+        type: group.type,
+        sellerId: group.sellerId,
+        sellerName: group.sellerName,
+        items: group.items,
+        subtotal: group.subtotal,
+      },
+    });
+  };
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -255,88 +301,98 @@ export default function CartScreen({ navigation }: any) {
           </View>
         </Squeeze>
 
-        <Text style={[styles.title, { color: colors.text }]}>My Cart</Text>
+        <Text style={[styles.title, { color: colors.text }]}>{t('customer.myCart')}</Text>
 
         {loading && !refreshing && items.length === 0 ? (
           <CtiLoader
             size="md"
-            text="Loading your cart..."
+            text={t('customer.loadingYourCart')}
             style={{ paddingVertical: 45 }}
           />
         ) : items.length === 0 ? (
           <View style={{ paddingVertical: 40, alignItems: 'center', gap: 14 }}>
             <Icon source={shoppingCartExtra} size={48} color={colors.textMuted} />
             <Text style={[styles.empty, { color: colors.textMuted, marginTop: 0 }]}>
-              Your shopping cart is currently empty.
+              {t('customer.yourShoppingCartIsCurrently')}
             </Text>
             <Button
-              title="Explore Products"
+              title={t('customer.exploreProducts')}
               size="sm"
-              onPress={() => navigation.navigate('Home', { screen: 'ProductTab' })}
+              onPress={() =>
+                AuthService.getCachedRole() === 'customer'
+                  ? navigation.navigate('Home', { screen: 'ProductTab' })
+                  : navigation.navigate('Products')
+              }
               style={{ marginTop: 6 }}
             />
           </View>
         ) : (
-          items.map(item => (
-            <View key={item.id} style={styles.spaced}>
-              <CartRow
-                item={item}
-                onQuantity={handleQuantity}
-                onRemove={handleRemove}
-              />
-            </View>
-          ))
+          <>
+            {groups.length > 1 && (
+              <View style={[styles.notice, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+                <Text style={[styles.noticeText, { color: colors.text }]}>
+                  {t('customer.eachSellerIsCheckedOut')}
+                </Text>
+              </View>
+            )}
+
+            {groups.map(group => (
+              <View key={group.key} style={styles.group}>
+                {groups.length > 1 && (
+                  <Text style={[styles.groupTitle, { color: colors.text }]}>
+                    {group.type === 'refurbished'
+                      ? i18n.t('customer.refurbishedStore')
+                      : group.sellerName
+                      ? t('customerMsg.marketplaceSeller', { name: group.sellerName })
+                      : i18n.t('customer.marketplace')}
+                  </Text>
+                )}
+
+                {group.items.map(item => (
+                  <View key={item.id} style={styles.spaced}>
+                    <CartRow item={item} onQuantity={handleQuantity} onRemove={handleRemove} />
+                  </View>
+                ))}
+
+                <View style={[styles.summary, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                  <Text style={[styles.summaryTitle, { color: colors.text }]}>{i18n.t('customer.orderSummary')}</Text>
+
+                  <View style={styles.summaryRow}>
+                    <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>
+                      {t('customerMsg.subtotalCount', { count: group.items.reduce((sum, it) => sum + it.quantity, 0) })}
+                    </Text>
+                    <Text style={[styles.summaryValue, { color: colors.text }]}>{formatMoney(group.subtotal)}</Text>
+                  </View>
+                  <View style={styles.summaryRow}>
+                    <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>{t('customerMsg.shippingCost')}</Text>
+                    <Text style={[styles.summaryValue, { color: colors.text }]}>{i18n.t('customer.arrangedByTheSeller')}</Text>
+                  </View>
+
+                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
+
+                  <View style={styles.summaryRow}>
+                    <Text style={[styles.totalLabel, { color: colors.text }]}>{i18n.t('customer.total')}</Text>
+                    <Text style={[styles.totalValue, { color: colors.primary }]}>{formatMoney(group.subtotal)}</Text>
+                  </View>
+
+                  <Button
+                    title={i18n.t('customer.proceedToCheckout')}
+                    onPress={() => checkoutGroup(group)}
+                    style={styles.checkoutButton}
+                  />
+                </View>
+              </View>
+            ))}
+          </>
         )}
-
-        <View style={[styles.summary, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Text style={[styles.summaryTitle, { color: colors.text }]}>Order Summary</Text>
-
-          <View style={styles.summaryRow}>
-            <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>
-              Items ({items.reduce((s, it) => s + it.quantity, 0)})
-            </Text>
-            <Text style={[styles.summaryValue, { color: colors.text }]}>${subtotal.toFixed(2)}</Text>
-          </View>
-          <View style={styles.summaryRow}>
-            <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>Sub total</Text>
-            <Text style={[styles.summaryValue, { color: colors.text }]}>${subtotal.toFixed(2)}</Text>
-          </View>
-          <View style={styles.summaryRow}>
-            <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>Shipping</Text>
-            <Text style={[styles.summaryValue, { color: colors.text }]}>${shipping.toFixed(2)}</Text>
-          </View>
-
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-          <View style={styles.summaryRow}>
-            <Text style={[styles.totalLabel, { color: colors.text }]}>Total</Text>
-            <Text style={[styles.totalValue, { color: colors.primary }]}>${total.toFixed(2)}</Text>
-          </View>
-
-          <Button
-            title="Proceed to Checkout"
-            disabled={items.length === 0}
-            onPress={() => {
-              const hasRefurbished = items.some((i: any) => i.isRefurbished || i.product?.isRefurbished);
-              navigation.navigate('Checkout', {
-                cartItems: items,
-                subtotal,
-                shipping,
-                total,
-                isRefurbished: hasRefurbished,
-              });
-            }}
-            style={styles.checkoutButton}
-          />
-        </View>
       </ScrollView>
 
       <ConfirmModal
         visible={!!itemToDelete}
-        title="Remove Item?"
-        message={`Are you sure you want to remove "${itemToDelete?.title}" from your cart?`}
-        confirmText="Remove"
-        cancelText="Keep"
+        title={t('customer.removeItem')}
+        message={t('customerMsg.removeFromCart', { title: itemToDelete?.title || '' })}
+        confirmText={t('profile.remove')}
+        cancelText={t('customer.keep')}
         danger
         onConfirm={handleConfirmDelete}
         onCancel={() => setItemToDelete(null)}
@@ -385,6 +441,10 @@ const styles = StyleSheet.create({
   empty: { fontFamily: fonts.regular, fontSize: 14, marginTop: 30, textAlign: 'center' },
 
   spaced: { marginTop: 14 },
+  group: { marginTop: 6 },
+  groupTitle: { fontFamily: fonts.bold, fontSize: 16, marginTop: 18 },
+  notice: { borderRadius: 12, borderWidth: 1, padding: 12, marginTop: 14 },
+  noticeText: { fontFamily: fonts.regular, fontSize: 13, lineHeight: 19 },
   row: { flexDirection: 'row', gap: 12, borderRadius: 14, borderWidth: 1, padding: 12 },
   rowPhoto: { width: 70, height: 70, borderRadius: 10 },
   rowBody: { flex: 1, gap: 4 },
@@ -411,10 +471,10 @@ const styles = StyleSheet.create({
   summary: { borderRadius: 16, borderWidth: 1, padding: 18, marginTop: 24 },
   summaryTitle: { fontFamily: fonts.bold, fontSize: 18, marginBottom: 14 },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
-  summaryLabel: { fontFamily: fonts.regular, fontSize: 14 },
-  summaryValue: { fontFamily: fonts.bold, fontSize: 14 },
+  summaryLabel: { flexShrink: 1, fontFamily: fonts.regular, fontSize: 14 },
+  summaryValue: { flexShrink: 1, fontFamily: fonts.bold, fontSize: 14 },
   divider: { height: 1, marginBottom: 10 },
-  totalLabel: { fontFamily: fonts.bold, fontSize: 17 },
+  totalLabel: { flexShrink: 1, fontFamily: fonts.bold, fontSize: 17 },
   totalValue: { fontFamily: fonts.bold, fontSize: 17 },
   checkoutButton: { marginTop: 16 },
 });

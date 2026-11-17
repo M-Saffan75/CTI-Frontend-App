@@ -20,11 +20,13 @@ import {
   validatePhone,
 } from '@/utils/validators';
 import { register } from '../api/authApi';
+import { Trans, useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
-const ROLE_LABEL = 'Repairman';
 const ROLE_ICON = repairmanIcon;
 
 export default function SignUpScreen({ navigation }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
 
   const [name, setName] = useState('');
@@ -58,8 +60,8 @@ export default function SignUpScreen({ navigation }: any) {
     } catch (err: any) {
       setModal({
         visible: true,
-        title: 'Registration Error',
-        message: err.message || 'Could not complete registration',
+        title: i18n.t('customer.registrationError'),
+        message: err.message || i18n.t('customer.couldNotCompleteRegistration'),
       });
     } finally {
       setLoading(false);
@@ -67,26 +69,29 @@ export default function SignUpScreen({ navigation }: any) {
   };
 
   return (
-    <AuthLayout title="Create an Account" subtitle="Create your account to get started">
+    <AuthLayout title={t('customer.createAnAccount')} subtitle={t('customer.createYourAccountToGet')}>
       <FadeUp delay={100} duration={700}>
         <View style={[styles.roleBadge, { backgroundColor: colors.surfaceAlt }]}>
           <Icon source={ROLE_ICON} size={16} color={colors.primary} />
           <Text style={[styles.roleBadgeText, { color: colors.text }]}>
-            Signing up as{' '}
-            <Text style={{ color: colors.primary, fontFamily: fonts.bold }}>{ROLE_LABEL}</Text>
+            <Trans
+              i18nKey="customerMsg.signingUpAs"
+              values={{ role: t('glossary.repairman') }}
+              components={{ hl: <Text style={{ color: colors.primary, fontFamily: fonts.bold }} /> }}
+            />
           </Text>
         </View>
       </FadeUp>
 
       <FadeUp delay={150} duration={700}>
         <Input
-          label="Full Name"
+          label={t('repairman.fullName')}
           value={name}
           onChangeText={text => {
             setName(text);
             if (errors.name) setErrors({ ...errors, name: '' });
           }}
-          placeholder="John Doe"
+          placeholder={t('customer.johnDoe')}
           error={errors.name}
           style={styles.field}
         />
@@ -94,13 +99,13 @@ export default function SignUpScreen({ navigation }: any) {
 
       <FadeUp delay={190} duration={700}>
         <Input
-          label="Email"
+          label={t('customer.email')}
           value={email}
           onChangeText={text => {
             setEmail(text);
             if (errors.email) setErrors({ ...errors, email: '' });
           }}
-          placeholder="example@gmail.com"
+          placeholder={t('customer.exampleGmailCom')}
           error={errors.email}
           keyboardType="email-address"
           autoCapitalize="none"
@@ -110,13 +115,13 @@ export default function SignUpScreen({ navigation }: any) {
 
       <FadeUp delay={230} duration={700}>
         <Input
-          label="Phone Number"
+          label={t('repairman.phoneNumber')}
           value={phone}
           onChangeText={text => {
             setPhone(text);
             if (errors.phone) setErrors({ ...errors, phone: '' });
           }}
-          placeholder="03xx xxxxxxx"
+          placeholder={t('customer.n03xxXxxxxxx')}
           error={errors.phone}
           keyboardType="phone-pad"
           style={styles.field}
@@ -125,7 +130,7 @@ export default function SignUpScreen({ navigation }: any) {
 
       <FadeUp delay={270} duration={700}>
         <Input
-          label="Password"
+          label={t('customer.password')}
           value={password}
           onChangeText={text => {
             setPassword(text);
@@ -142,7 +147,7 @@ export default function SignUpScreen({ navigation }: any) {
 
       <FadeUp delay={310} duration={700}>
         <Input
-          label="Confirm Password"
+          label={t('customer.confirmPassword')}
           value={confirm}
           onChangeText={text => {
             setConfirm(text);
@@ -158,7 +163,7 @@ export default function SignUpScreen({ navigation }: any) {
 
       <FadeUp delay={350} duration={700}>
         <Button
-          title="Sign Up"
+          title={t('customer.signUp2')}
           size="lg"
           loading={loading}
           onPress={onSubmit}
@@ -169,12 +174,12 @@ export default function SignUpScreen({ navigation }: any) {
       <FadeUp delay={400} duration={700}>
         <View style={styles.divider}>
           <View style={[styles.line, { backgroundColor: colors.border }]} />
-          <Text style={[styles.dividerText, { color: colors.textMuted }]}>Or</Text>
+          <Text style={[styles.dividerText, { color: colors.textMuted }]}>{t('customer.or')}</Text>
           <View style={[styles.line, { backgroundColor: colors.border }]} />
         </View>
 
         <Button
-          title="Google"
+          title={t('customer.google')}
           variant="soft"
           size="lg"
           icon={googleIcon}
@@ -186,10 +191,10 @@ export default function SignUpScreen({ navigation }: any) {
 
       <View style={styles.footer}>
         <Text style={[styles.footerText, { color: colors.textMuted }]}>
-          Already have an account?{' '}
+          {t('customerMsg.haveAccount')}{' '}
         </Text>
         <Pressable onPress={() => navigation.navigate('Login')} hitSlop={8}>
-          <Text style={[styles.footerLink, { color: colors.primary }]}>Login</Text>
+          <Text style={[styles.footerLink, { color: colors.primary }]}>{t('customer.login')}</Text>
         </Pressable>
       </View>
 
@@ -224,7 +229,7 @@ const styles = StyleSheet.create({
     marginTop: 24,
   },
   line: { flex: 1, height: 1 },
-  dividerText: { fontFamily: fonts.regular, fontSize: 14 },
+  dividerText: { flexShrink: 1, fontFamily: fonts.regular, fontSize: 14 },
   social: { marginTop: 24 },
   footer: {
     flexDirection: 'row',
@@ -232,6 +237,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 28,
   },
-  footerText: { fontFamily: fonts.regular, fontSize: 14 },
+  footerText: { flexShrink: 1, fontFamily: fonts.regular, fontSize: 14 },
   footerLink: { fontFamily: fonts.bold, fontSize: 14 },
 });

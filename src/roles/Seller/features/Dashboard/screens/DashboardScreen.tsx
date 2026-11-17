@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   RefreshControl,
   ScrollView,
@@ -11,232 +11,382 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
+import AlertModal from '@/components/AlertModal';
+import { EmptyState, ErrorState, LoadingState } from '@/components/states';
 import { FadeUp } from '@/animations';
 import {
-  arrowRightBold,
   checkCircleBold,
   clockBold,
   commentDotsBold,
-  exclamationCircleBold,
 } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import AuthService from '@/services/authService';
 import AdvertisingBarChart from '../components/AdvertisingBarChart';
 import RevenueTrendChart from '../components/RevenueTrendChart';
-import { SELLER_DASHBOARD_DATA } from '../data/dashboardData';
-import { fetchSellerDashboardOverviewApi, SellerDashboardStats } from '@/roles/Seller/services/sellerApi';
+import {
+  fetchSellerDashboardOverviewApi,
+  SellerDashboardOverview,
+} from '@/roles/Seller/services/sellerApi';
+import {
+  formatLongDate,
+  formatMoney,
+  formatShortDate,
+  getGreeting,
+} from '@/roles/Seller/utils/sellerUtils';
+import { useOrdersChangedChecker } from '@/roles/Seller/utils/orderEvents';
+import useRefreshOnActive from '@/utils/useRefreshOnActive';
+import { currencySymbol } from '@/utils/money';
+import { getLocaleTag } from '@/i18n/locale';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
-export default function DashboardScreen({ onSelectTab, navigation }: any) {
+interface ActionItem {
+  id: string;
+  title: string;
+  subtitle: string;
+  count: number;
+  onPress: () => void;
+}
+
+export default function DashboardScreen({ onSelectTab, navigation, isActive = true }: any) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
-  const [data, setData] = useState(SELLER_DASHBOARD_DATA);
+  const [overview, setOverview] = useState<SellerDashboardOverview | null>(null);
+  const [sellerName, setSellerName] = useState('');
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const mounted = useRef(true);
 
-  const loadOverview = useCallback(async (isRefresh = false) => {
-    if (isRefresh) setRefreshing(true);
-    try {
-      const stats = await fetchSellerDashboardOverviewApi();
-      if (stats) {
-        setData(prev => ({
-          ...prev,
-          stats: {
-            ...prev.stats,
-            todayRevenue: stats.totalEarnings ? `$${stats.totalEarnings.toFixed(2)}` : prev.stats.todayRevenue,
-            todayOrdersNote: stats.pendingOrders ? `${stats.pendingOrders} Pending Orders` : prev.stats.todayOrdersNote,
-          },
-        }));
+  const ordersChanged = useOrdersChangedChecker();
+  const markLoaded = useRefreshOnActive(isActive, () => loadOverview(false, true), ordersChanged);
+
+  const loadOverview = useCallback(
+    async (isRefresh = false, silent = false) => {
+      if (!silent) {
+        if (isRefresh) setRefreshing(true);
+        else setLoading(true);
+        setError(null);
       }
-    } catch {
-      // Keep existing data safely
-    } finally {
-      setRefreshing(false);
-    }
-  }, []);
+
+      try {
+        const result = await fetchSellerDashboardOverviewApi();
+        if (!mounted.current) return;
+        setOverview(result);
+        markLoaded();
+      } catch (err: any) {
+        if (!mounted.current || silent) return;
+        const message = err?.message || i18n.t('sellerAuto.couldNotLoadYourDashboard');
+        if (isRefresh) setRefreshError(message);
+        else setError(message);
+      } finally {
+        if (mounted.current && !silent) {
+          setLoading(false);
+          setRefreshing(false);
+        }
+      }
+    },
+    [markLoaded],
+  );
 
   useEffect(() => {
+    mounted.current = true;
     loadOverview();
+    AuthService.getStoredUser().then(user => {
+      if (mounted.current && user?.name) setSellerName(user.name.split(' ')[0]);
+    });
+    return () => {
+      mounted.current = false;
+    };
   }, [loadOverview]);
 
+  const actionItems = useMemo<ActionItem[]>(() => {
+    if (!overview) return [];
+    const a = overview.actions;
+    return [
+      {
+        id: 'pendingOrders',
+        title: t('seller.dashboard.pendingOrders'),
+        subtitle: t('seller.dashboard.needProcessing'),
+        count: a.pendingOrders,
+        onPress: () => onSelectTab?.('OrderManagement'),
+      },
+      {
+        id: 'pendingDocuments',
+        title: t('seller.dashboard.pendingDocuments'),
+        subtitle: t('seller.dashboard.documentsHint'),
+        count: a.pendingDocuments,
+        onPress: () => navigation?.navigate('Profile'),
+      },
+      {
+        id: 'orderQuestions',
+        title: t('seller.dashboard.orderQuestions'),
+        subtitle: t('seller.dashboard.openOrderQueries'),
+        count: a.orderQuestions,
+        onPress: () => onSelectTab?.('Enquiries', { enquiryType: 'order', enquiryStatus: 'open' }),
+      },
+      {
+        id: 'productQuestions',
+        title: t('seller.dashboard.productQuestions'),
+        subtitle: t('seller.dashboard.openProductQueries'),
+        count: a.productQuestions,
+        onPress: () => onSelectTab?.('Enquiries', { enquiryType: 'customer', enquiryStatus: 'open' }),
+      },
+      {
+        id: 'pendingRefunds',
+        title: t('seller.dashboard.returnRequests'),
+        subtitle: t('seller.dashboard.awaitingResponse'),
+        count: a.pendingRefunds,
+        onPress: () => navigation?.navigate('ReturnRequests'),
+      },
+    ].filter(item => item.count > 0);
+  }, [overview, onSelectTab, navigation, t]);
+
+  const revenueTrend = useMemo(
+    () =>
+      (overview?.sales.chartData || []).map(d => ({
+        label: formatShortDate(d.date),
+        value: d.revenue,
+        tooltipDate: formatLongDate(d.date),
+        tooltipValue: formatMoney(d.revenue),
+      })),
+    [overview],
+  );
+
+  const adBars = useMemo(
+    () =>
+      (overview?.advertising.chartData || []).map(d => ({
+        day: new Date(d.date).toLocaleDateString(getLocaleTag(), { weekday: 'short' }),
+        value: d.impressions,
+      })),
+    [overview],
+  );
+
+  if (loading && !overview) {
+    return <LoadingState fullScreen text={t('sellerAuto.loadingDashboard')} />;
+  }
+
+  if (error && !overview) {
+    return <ErrorState fullScreen error={error} onRetry={() => loadOverview()} />;
+  }
+
+  if (!overview) return null;
+
+  const growth = overview.sales.growthPercent;
+  const growthText = `${growth > 0 ? '+' : ''}${growth}% vs previous week`;
+  const totalActions = overview.actions.total;
+  const today = new Date();
+  const todayText = today.toLocaleDateString(getLocaleTag(), {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+
   return (
-    <ScrollView
-      contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 40 }]}
-      showsVerticalScrollIndicator={false}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={() => loadOverview(true)}
-          colors={[colors.primary]}
-          tintColor={colors.primary}
-        />
-      }>
-      {/* Hero Welcome Card matching Figma screenshot */}
-      <FadeUp delay={40} duration={400}>
-        <LinearGradient
-          colors={['#421206', '#220802', '#140401']}
-          start={{ x: 0.1, y: 0 }}
-          end={{ x: 0.9, y: 1 }}
-          style={styles.heroCard}>
-          <View style={styles.badgeRow}>
-            <View style={styles.greetingBadge}>
-              <View style={styles.dot} />
-              <Text style={styles.greetingText}>{data.greeting}</Text>
-            </View>
-          </View>
-
-          <Text style={styles.dateText}>{data.dateString}</Text>
-          <Text style={styles.welcomeTitle}>
-            Welcome back {data.sellerName}
-          </Text>
-          <Text style={styles.welcomeSubtitle}>
-            Here is what's happening with your store today. Keep up the great work!
-          </Text>
-
-          <View style={styles.heroBtnRow}>
-            <Squeeze onPress={() => onSelectTab?.('Enquiries')} style={{ flex: 1 }}>
-              <View style={styles.actionNeededBtn}>
-                <Text
-                  style={styles.actionNeededBtnText}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit={true}>
-                  3 Action Needed
-                </Text>
+    <>
+      <ScrollView
+        contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 40 }]}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => loadOverview(true)}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }>
+        <FadeUp delay={40} duration={400}>
+          <LinearGradient
+            colors={['#421206', '#220802', '#140401']}
+            start={{ x: 0.1, y: 0 }}
+            end={{ x: 0.9, y: 1 }}
+            style={styles.heroCard}>
+            <View style={styles.badgeRow}>
+              <View style={styles.greetingBadge}>
+                <View style={styles.dot} />
+                <Text style={styles.greetingText}>{getGreeting(today)}</Text>
               </View>
-            </Squeeze>
+            </View>
 
-            <Squeeze onPress={() => loadOverview(true)} style={{ flex: 1 }}>
-              <View style={styles.refreshBtn}>
-                <Text
-                  style={styles.refreshBtnText}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit={true}>
-                  {refreshing ? 'Refreshing...' : 'Refresh'}
-                </Text>
-              </View>
-            </Squeeze>
-          </View>
-        </LinearGradient>
-      </FadeUp>
+            <Text style={styles.dateText}>{todayText}</Text>
+            <Text style={styles.welcomeTitle}>
+              {sellerName ? i18n.t('sellerMsg.welcome', { name: sellerName }) : i18n.t('sellerMsg.welcomeNoName')}
+            </Text>
+            <Text style={styles.welcomeSubtitle}>
+              {t('sellerAuto.hereIsWhatIsHappening')}
+            </Text>
 
-      {/* Two Stat Cards */}
-      <FadeUp delay={80} duration={400}>
-        <View style={styles.statsGrid}>
-          {/* Today's Revenue */}
-          <View style={[styles.statCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={[styles.iconBox, { backgroundColor: colors.surfaceAlt }]}>
-              <Text style={[styles.iconSymbol, { color: colors.primary }]}>$</Text>
-            </View>
-            <Text style={[styles.statLabel, { color: colors.textMuted }]}>Today's Revenue</Text>
-            <Text style={[styles.statValue, { color: colors.text }]}>{data.stats.todayRevenue}</Text>
-            <View style={styles.statSubRow}>
-              <Icon source={clockBold} size={13} color={colors.primary} />
-              <Text style={[styles.statSubtext, { color: colors.primary }]}>
-                {data.stats.todayOrdersNote}
-              </Text>
-            </View>
-          </View>
+            <View style={styles.heroBtnRow}>
+              {totalActions > 0 && (
+                <Squeeze onPress={actionItems[0]?.onPress} style={styles.flex1}>
+                  <View style={styles.actionNeededBtn}>
+                    <Text
+                      style={styles.actionNeededBtnText}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit={true}>
+                      {i18n.t(totalActions === 1 ? 'sellerMsg.actionsNeededOne' : 'sellerMsg.actionsNeededMany', { count: totalActions })}
+                    </Text>
+                  </View>
+                </Squeeze>
+              )}
 
-          {/* Last 7 Days */}
-          <View style={[styles.statCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={[styles.iconBox, { backgroundColor: colors.surfaceAlt }]}>
-              <Text style={[styles.iconSymbol, { color: colors.success ?? colors.primary }]}>📊</Text>
-            </View>
-            <Text style={[styles.statLabel, { color: colors.textMuted }]}>Last 7 Days</Text>
-            <Text style={[styles.statValue, { color: colors.text }]}>{data.stats.last7DaysRevenue}</Text>
-            <View style={styles.statSubRow}>
-              <Icon source={checkCircleBold} size={13} color={colors.success ?? colors.primary} />
-              <Text style={[styles.statSubtext, { color: colors.success ?? colors.primary }]}>
-                {data.stats.last7DaysChange}
-              </Text>
-            </View>
-          </View>
-        </View>
-      </FadeUp>
-
-      {/* Revenue Trend Section */}
-      <FadeUp delay={120} duration={400}>
-        <View style={[styles.sectionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <View style={styles.sectionHeaderRow}>
-            <View>
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>Revenue Trend</Text>
-              <Text style={[styles.sectionSubtitle, { color: colors.textMuted }]}>
-                Last 7 days delivered order earnings
-              </Text>
-            </View>
-            <View style={[styles.pillBadge, { backgroundColor: colors.surfaceAlt }]}>
-              <Text style={[styles.pillText, { color: colors.primary }]}>7 Days</Text>
-            </View>
-          </View>
-
-          <RevenueTrendChart data={data.revenueTrend} />
-        </View>
-      </FadeUp>
-
-      {/* Advertising Performance Section */}
-      <FadeUp delay={160} duration={400}>
-        <View style={[styles.sectionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <View style={styles.sectionHeaderRow}>
-            <View>
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>Advertising Performance</Text>
-              <Text style={[styles.sectionSubtitle, { color: colors.textMuted }]}>
-                Last 7 days 0 active campaigns
-              </Text>
-            </View>
-            <Squeeze onPress={() => onSelectTab?.('Ads')}>
-              <View style={[styles.pillBadge, { backgroundColor: colors.surfaceAlt }]}>
-                <Text style={[styles.pillText, { color: colors.primary }]}>7 Days →</Text>
-              </View>
-            </Squeeze>
-          </View>
-
-          <AdvertisingBarChart data={data.advertisingPerformance} />
-        </View>
-      </FadeUp>
-
-      {/* Action Required Section */}
-      <FadeUp delay={200} duration={400}>
-        <View style={[styles.sectionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <View style={styles.actionHeader}>
-            <View style={[styles.flashIconBox, { backgroundColor: colors.surfaceAlt }]}>
-              <Text style={{ fontSize: 16 }}>⚡</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>Action Required</Text>
-              <Text style={[styles.sectionSubtitle, { color: colors.textMuted }]}>
-                Task needing attention
-              </Text>
-            </View>
-            <View style={[styles.countBadge, { backgroundColor: colors.error ?? '#EF4444' }]}>
-              <Text style={styles.countText}>{data.actionsRequired.length}</Text>
-            </View>
-          </View>
-
-          <View style={styles.actionList}>
-            {data.actionsRequired.map(action => (
               <Squeeze
-                key={action.id}
-                onPress={() => onSelectTab?.(action.tabTarget)}>
-                <View style={[styles.actionItem, { borderColor: colors.border }]}>
-                  <View style={[styles.actionIconBox, { backgroundColor: colors.surfaceAlt }]}>
-                    <Icon source={commentDotsBold} size={16} color={colors.primary} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.actionTitle, { color: colors.text }]}>{action.title}</Text>
-                    <Text style={[styles.actionSub, { color: colors.textMuted }]}>{action.subtitle}</Text>
-                  </View>
-                  <View style={[styles.actionItemBadge, { backgroundColor: colors.surfaceAlt }]}>
-                    <Text style={[styles.actionBadgeText, { color: colors.primary }]}>{action.badge}</Text>
-                  </View>
+                onPress={refreshing ? undefined : () => loadOverview(true)}
+                style={styles.flex1}>
+                <View style={styles.refreshBtn}>
+                  <Text
+                    style={styles.refreshBtnText}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit={true}>
+                    {refreshing ? t('sellerAuto.refreshing') : t('sellerAuto.refresh')}
+                  </Text>
                 </View>
               </Squeeze>
-            ))}
+            </View>
+          </LinearGradient>
+        </FadeUp>
+
+        <FadeUp delay={80} duration={400}>
+          <View style={styles.statsGrid}>
+            <View style={[styles.statCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <View style={[styles.iconBox, { backgroundColor: colors.surfaceAlt }]}>
+                <Text style={[styles.iconSymbol, { color: colors.primary }]}>{currencySymbol()}</Text>
+              </View>
+              <Text style={[styles.statLabel, { color: colors.textMuted }]}>{t('sellerAuto.todaySRevenue')}</Text>
+              <Text style={[styles.statValue, { color: colors.text }]} numberOfLines={1} adjustsFontSizeToFit>
+                {formatMoney(overview.sales.today)}
+              </Text>
+              <View style={styles.statSubRow}>
+                <Icon source={clockBold} size={13} color={colors.primary} />
+                <Text style={[styles.statSubtext, { color: colors.primary }]}>
+                  {t('sellerAuto.deliveredOrdersOnly')}
+                </Text>
+              </View>
+            </View>
+
+            <View style={[styles.statCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <View style={[styles.iconBox, { backgroundColor: colors.surfaceAlt }]}>
+                <Text style={[styles.iconSymbol, { color: colors.success ?? colors.primary }]}>📊</Text>
+              </View>
+              <Text style={[styles.statLabel, { color: colors.textMuted }]}>{t('sellerAuto.last7Days')}</Text>
+              <Text style={[styles.statValue, { color: colors.text }]} numberOfLines={1} adjustsFontSizeToFit>
+                {formatMoney(overview.sales.last7Days)}
+              </Text>
+              <View style={styles.statSubRow}>
+                <Icon source={checkCircleBold} size={13} color={colors.success ?? colors.primary} />
+                <Text style={[styles.statSubtext, { color: colors.success ?? colors.primary }]}>
+                  {growthText}
+                </Text>
+              </View>
+            </View>
           </View>
-        </View>
-      </FadeUp>
-    </ScrollView>
+        </FadeUp>
+
+        <FadeUp delay={120} duration={400}>
+          <View style={[styles.sectionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <View style={styles.sectionHeaderRow}>
+              <View>
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('sellerAuto.revenueTrend')}</Text>
+                <Text style={[styles.sectionSubtitle, { color: colors.textMuted }]}>
+                  {t('sellerAuto.last7DaysDeliveredOrder')}
+                </Text>
+              </View>
+              <View style={[styles.pillBadge, { backgroundColor: colors.surfaceAlt }]}>
+                <Text style={[styles.pillText, { color: colors.primary }]}>{t('sellerAuto.n7Days')}</Text>
+              </View>
+            </View>
+
+            <RevenueTrendChart data={revenueTrend} />
+          </View>
+        </FadeUp>
+
+        <FadeUp delay={160} duration={400}>
+          <View style={[styles.sectionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <View style={styles.sectionHeaderRow}>
+              <View style={styles.flex1}>
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('sellerAuto.advertisingPerformance')}</Text>
+                <Text style={[styles.sectionSubtitle, { color: colors.textMuted }]}>
+                  {i18n.t(overview.advertising.activeCampaigns === 1 ? 'sellerMsg.adsSubOne' : 'sellerMsg.adsSubMany', { count: overview.advertising.activeCampaigns })}
+                </Text>
+              </View>
+              <Squeeze onPress={() => onSelectTab?.('Ads')}>
+                <View style={[styles.pillBadge, { backgroundColor: colors.surfaceAlt }]}>
+                  <Text style={[styles.pillText, { color: colors.primary }]}>{t('sellerAuto.n7Days2')}</Text>
+                </View>
+              </Squeeze>
+            </View>
+
+            {overview.advertising.last7Impressions > 0 ? (
+              <AdvertisingBarChart data={adBars} />
+            ) : (
+              <EmptyState title={t('sellerAuto.noAdActivity')} message={t('sellerAuto.noImpressionsInTheLast')} />
+            )}
+          </View>
+        </FadeUp>
+
+        <FadeUp delay={200} duration={400}>
+          <View style={[styles.sectionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <View style={styles.actionHeader}>
+              <View style={[styles.flashIconBox, { backgroundColor: colors.surfaceAlt }]}>
+                <Text style={styles.flashEmoji}>⚡</Text>
+              </View>
+              <View style={styles.flex1}>
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('sellerAuto.actionRequired')}</Text>
+                <Text style={[styles.sectionSubtitle, { color: colors.textMuted }]}>
+                  {t('sellerAuto.taskNeedingAttention')}
+                </Text>
+              </View>
+              {totalActions > 0 && (
+                <View style={[styles.countBadge, { backgroundColor: colors.error ?? '#EF4444' }]}>
+                  <Text style={styles.countText}>{totalActions}</Text>
+                </View>
+              )}
+            </View>
+
+            {actionItems.length === 0 ? (
+              <EmptyState title={t('sellerAuto.allCaughtUp')} message={t('sellerAuto.nothingNeedsYourAttentionRight')} />
+            ) : (
+              <View style={styles.actionList}>
+                {actionItems.map(action => (
+                  <Squeeze key={action.id} onPress={action.onPress}>
+                    <View style={[styles.actionItem, { borderColor: colors.border }]}>
+                      <View style={[styles.actionIconBox, { backgroundColor: colors.surfaceAlt }]}>
+                        <Icon source={commentDotsBold} size={16} color={colors.primary} />
+                      </View>
+                      <View style={styles.flex1}>
+                        <Text style={[styles.actionTitle, { color: colors.text }]}>{action.title}</Text>
+                        <Text style={[styles.actionSub, { color: colors.textMuted }]}>{action.subtitle}</Text>
+                      </View>
+                      <View style={[styles.actionItemBadge, { backgroundColor: colors.surfaceAlt }]}>
+                        <Text style={[styles.actionBadgeText, { color: colors.primary }]}>{action.count}</Text>
+                      </View>
+                    </View>
+                  </Squeeze>
+                ))}
+              </View>
+            )}
+          </View>
+        </FadeUp>
+      </ScrollView>
+
+      <AlertModal
+        visible={!!refreshError}
+        type="error"
+        title={t('sellerAuto.refreshFailed')}
+        message={refreshError || ''}
+        onClose={() => setRefreshError(null)}
+      />
+    </>
   );
 }
 
 const styles = StyleSheet.create({
+  flex1: { flex: 1 },
+  flashEmoji: { fontSize: 16 },
   container: {
     paddingHorizontal: 16,
     paddingTop: 12,
@@ -317,7 +467,7 @@ const styles = StyleSheet.create({
   statLabel: { fontFamily: fonts.medium, fontSize: 13 },
   statValue: { fontFamily: fonts.bold, fontSize: 20 },
   statSubRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
-  statSubtext: { fontFamily: fonts.medium, fontSize: 11 },
+  statSubtext: { flexShrink: 1, fontFamily: fonts.medium, fontSize: 11 },
 
   sectionCard: {
     borderRadius: 20,

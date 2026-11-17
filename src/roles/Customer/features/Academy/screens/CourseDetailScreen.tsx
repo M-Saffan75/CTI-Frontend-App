@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Dimensions,
   Image,
   Modal,
   ScrollView,
@@ -34,10 +33,13 @@ import {
   volumeUpBold,
 } from '@/assets/icons';
 import { ctiLogo } from '@/assets/images';
+import { getWebAcademyCourseUrl } from '@/constants/config';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { useWishlist } from '@/roles/Customer/context/WishlistContext';
 import academyApi, { AcademicCourseItem } from '@/services/academyApi';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 const SPEEDS = [1, 1.25, 1.5, 2, 0.5];
 
@@ -246,7 +248,7 @@ function InAppVideoPlayer({
         {fullscreenMode && showControls && (
           <View style={styles.fsHeader}>
             <Text style={styles.fsTitle} numberOfLines={1}>
-              {title || 'Course Lecture'}
+              {title || i18n.t('customer.courseLecture')}
             </Text>
             <TouchableOpacity
               onPress={() => setIsFullscreen(false)}
@@ -345,6 +347,7 @@ function InAppVideoPlayer({
 }
 
 export default function CourseDetailScreen({ navigation, route }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { ids: wishlistIds } = useWishlist();
@@ -354,6 +357,7 @@ export default function CourseDetailScreen({ navigation, route }: any) {
 
   const [course, setCourse] = useState<AcademicCourseItem | null>(initialCourse || null);
   const [loading, setLoading] = useState<boolean>(!initialCourse && !!slug);
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
     if (slug) {
@@ -366,8 +370,8 @@ export default function CourseDetailScreen({ navigation, route }: any) {
           }
           // Increment views on backend (identical to Next.js web app)
           academyApi.patchCourseViews(slug).catch(() => {});
-        } catch (e) {
-          if (__DEV__) console.warn('Failed to load course details:', e);
+        } catch (e: any) {
+          if (isMounted) setLoadError(e?.message || i18n.t('customer.couldNotLoadTheCourse'));
         } finally {
           if (isMounted) setLoading(false);
         }
@@ -382,7 +386,7 @@ export default function CourseDetailScreen({ navigation, route }: any) {
     if (!course) return;
     Share.share({
       title: course.title,
-      message: `${course.title}\n\nhttps://cti.com.pk/academy/academy-listing/${course.slug || course.id}`,
+      message: `${course.title}\n\n${getWebAcademyCourseUrl(course.slug || course.id)}`,
     }).catch(() => {});
   };
 
@@ -393,7 +397,7 @@ export default function CourseDetailScreen({ navigation, route }: any) {
           <Image source={ctiLogo} resizeMode="contain" style={styles.logo} />
         </View>
         <View style={styles.centered}>
-          <CtiLoader size="lg" text="Loading course details..." />
+          <CtiLoader size="lg" text={t('customer.loadingCourseDetails')} />
         </View>
       </View>
     );
@@ -407,13 +411,13 @@ export default function CourseDetailScreen({ navigation, route }: any) {
         </View>
         <View style={styles.centered}>
           <Text style={[styles.title, { color: colors.text, textAlign: 'center' }]}>
-            Course Not Found
+            {loadError ? t('customer.couldNotLoadTheCourse2') : t('customer.courseNotFound')}
           </Text>
           <Text style={[styles.text, { color: colors.textMuted, textAlign: 'center', marginBottom: 20 }]}>
-            The requested course could not be loaded.
+            {t('customer.theRequestedCourseCouldNot')}
           </Text>
           <Button
-            title="Back to Courses"
+            title={t('customer.backToCourses')}
             size="md"
             fullWidth={false}
             onPress={() => navigation.goBack()}
@@ -429,7 +433,7 @@ export default function CourseDetailScreen({ navigation, route }: any) {
     .replace(/\s+/g, ' ')
     .trim();
 
-  const ratingDisplay = course.averageRating > 0 ? course.averageRating.toFixed(1) : '4.5';
+  const ratingDisplay = course.averageRating > 0 ? course.averageRating.toFixed(1) : '';
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -472,9 +476,9 @@ export default function CourseDetailScreen({ navigation, route }: any) {
         ) : (
           <View style={[styles.noVideoCard, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
             <Icon source={videoSlashBold} size={40} color={colors.textMuted} />
-            <Text style={[styles.noVideoTitle, { color: colors.text }]}>No Video Available</Text>
+            <Text style={[styles.noVideoTitle, { color: colors.text }]}>{t('customer.noVideoAvailable')}</Text>
             <Text style={[styles.noVideoSubtitle, { color: colors.textMuted }]}>
-              There is no video lecture uploaded for this course yet.
+              {t('customer.thereIsNoVideoLecture')}
             </Text>
           </View>
         )}
@@ -484,13 +488,11 @@ export default function CourseDetailScreen({ navigation, route }: any) {
 
           {/* Meta details */}
           <View style={styles.metaRow}>
-            {!!course.category && (
-              <View style={[styles.categoryBadge, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
-                <Text style={[styles.categoryText, { color: colors.primary }]}>
-                  {course.category}
-                </Text>
-              </View>
-            )}
+            <View style={[styles.categoryBadge, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+              <Text style={[styles.categoryText, { color: colors.primary }]}>
+                {course.category || t('appMsg.generalCategory')}
+              </Text>
+            </View>
 
             {!!course.subCategory && (
               <View style={[styles.categoryBadge, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
@@ -500,17 +502,19 @@ export default function CourseDetailScreen({ navigation, route }: any) {
               </View>
             )}
 
-            <View style={styles.ratingBadge}>
-              <Icon source={starExtra} size={15} color="#F59E0B" />
-              <Text style={[styles.ratingText, { color: colors.text }]}>
-                {ratingDisplay}
-              </Text>
-            </View>
+            {!!ratingDisplay && (
+              <View style={styles.ratingBadge}>
+                <Icon source={starExtra} size={15} color="#F59E0B" />
+                <Text style={[styles.ratingText, { color: colors.text }]}>
+                  {ratingDisplay}
+                </Text>
+              </View>
+            )}
 
             <View style={styles.views}>
               <Icon source={eyeBold} size={15} color={colors.textMuted} />
               <Text style={[styles.viewsText, { color: colors.textMuted }]}>
-                {course.views} views
+                {t('customerMsg.viewsCount', { count: course.views })}
               </Text>
             </View>
           </View>
@@ -525,14 +529,14 @@ export default function CourseDetailScreen({ navigation, route }: any) {
           {/* Actions */}
           <View style={styles.actions}>
             <Button
-              title="Explore More Courses"
+              title={t('customer.exploreMoreCourses')}
               size="md"
               fullWidth={false}
               onPress={() => navigation.goBack()}
               style={styles.action}
             />
             <Button
-              title="Share"
+              title={t('customer.share')}
               variant="outline"
               size="md"
               fullWidth={false}
@@ -759,7 +763,7 @@ const styles = StyleSheet.create({
   ratingBadge: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   ratingText: { fontFamily: fonts.bold, fontSize: 13 },
   views: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  viewsText: { fontFamily: fonts.regular, fontSize: 13 },
+  viewsText: { flexShrink: 1, fontFamily: fonts.regular, fontSize: 13 },
   text: { fontFamily: fonts.regular, fontSize: 14, lineHeight: 22, marginTop: 14 },
 
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 24 },

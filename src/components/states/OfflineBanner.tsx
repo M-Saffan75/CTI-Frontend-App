@@ -11,6 +11,7 @@ import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import Icon from '@/components/Icon';
 import { infoCircleBold } from '@/assets/icons';
+import { useTranslation } from 'react-i18next';
 
 export interface OfflineBannerProps {
   /** Optional custom message */
@@ -20,10 +21,11 @@ export interface OfflineBannerProps {
 }
 
 export default function OfflineBanner({
-  message = 'No internet connection. Waiting for network...',
+  message,
   style,
 }: OfflineBannerProps) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const [isOffline, setIsOffline] = useState(false);
 
   useEffect(() => {
@@ -57,7 +59,7 @@ export default function OfflineBanner({
       ]}>
       <Icon source={infoCircleBold} size={15} color="#FFFFFF" />
       <Text style={styles.text} numberOfLines={2}>
-        {message}
+        {message ?? t('common.offline')}
       </Text>
     </View>
   );

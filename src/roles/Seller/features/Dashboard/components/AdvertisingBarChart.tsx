@@ -2,19 +2,26 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import { useTranslation } from 'react-i18next';
 
-export default function AdvertisingBarChart({ data }) {
+export interface AdBarPoint {
+  day: string;
+  value: number;
+}
+
+export default function AdvertisingBarChart({ data }: { data: AdBarPoint[] }) {
+  useTranslation();
   const { colors } = useTheme();
   const maxVal = Math.max(1, ...data.map(d => d.value));
 
   return (
     <View style={styles.chartContainer}>
       <View style={styles.barsRow}>
-        {data.map(item => {
-          const heightPercent = Math.max(12, (item.value / maxVal) * 100);
+        {data.map((item, index) => {
+          const heightPercent = Math.max(6, (item.value / maxVal) * 100);
 
           return (
-            <View key={item.day} style={styles.barCol}>
+            <View key={item.day + index} style={styles.barCol}>
               <View style={styles.barTrack}>
                 <View
                   style={[

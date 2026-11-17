@@ -1,440 +1,340 @@
-import { useState } from 'react';
-import {
-  Modal,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ReactElement, useCallback, useMemo, useState } from 'react';
+import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Button from '@/components/Button';
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
-import AlertModal, { AlertModalType } from '@/components/AlertModal';
-import { FadeUp } from '@/animations';
-import { timesSquareBold } from '@/assets/icons';
+import AlertModal from '@/components/AlertModal';
+import { EmptyState, ErrorState, LoadingState, OfflineBanner } from '@/components/states';
+import { chevronDownBold, chevronRightBold, fileBold } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import { getWebSellerReportsUrl } from '@/constants/config';
+import DateRangeField from '@/roles/Seller/components/DateRangeField';
+import DateRangeModal from '@/roles/Seller/components/DateRangeModal';
+import StatusPills from '@/roles/Seller/components/StatusPills';
+import {
+  fetchSellerStatementApi,
+  SellerStatementGroup,
+  SellerStatementRow,
+  SellerStatement,
+} from '@/roles/Seller/services/sellerApi';
+import { formatMoney, openWebsite } from '@/roles/Seller/utils/sellerUtils';
+import { getStatusStyle, ORDER_STATUS_STYLE } from '@/roles/Seller/utils/statusStyles';
+import usePagedList from '@/roles/Seller/utils/usePagedList';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
-const STATEMENT_FILTERS = ['Today', 'Yeaterday', 'Last 7 Days', 'Last 14 Days'];
-
-interface TransactionItem {
-  orderId: string;
-  customer: string;
-  product: string;
-  orderAmt: string;
-  hold: string;
-  earned: string;
-  status: string;
-}
-
-interface TransactionGroup {
-  date: string;
-  orderCount: number;
-  totalAmount: string;
-  expanded: boolean;
-  transactions: TransactionItem[];
-}
-
-const INITIAL_GROUPS: TransactionGroup[] = [
-  {
-    date: '01-07-2026',
-    orderCount: 1,
-    totalAmount: '$28.00',
-    expanded: true,
-    transactions: [
-      {
-        orderId: 'TRB-985836',
-        customer: 'Customer Abasi',
-        product: 'C.A ball',
-        orderAmt: '$28.00',
-        hold: '-',
-        earned: '$25.00',
-        status: 'Delivered',
-      },
-    ],
-  },
+// Same filters as the web reports page
+const FILTERS = [
+  { id: 'today', get label() { return i18n.t('chat.today'); } },
+  { id: 'yesterday', get label() { return i18n.t('chat.yesterday'); } },
+  { id: '7days', get label() { return i18n.t('sellerAuto.last7Days'); } },
+  { id: '14days', get label() { return i18n.t('sellerAuto.last14Days'); } },
+  { id: '30days', get label() { return i18n.t('sellerAuto.last30Days'); } },
+  { id: 'custom', get label() { return i18n.t('sellerAuto.custom'); } },
 ];
 
-export default function ReportsScreen({ navigation }: any) {
+function buildRange(filter: string, custom: { from: string; to: string }) {
+  let start = new Date();
+  let end = new Date();
+
+  if (filter === 'today') {
+    start.setHours(0, 0, 0, 0);
+  } else if (filter === 'yesterday') {
+    start.setDate(start.getDate() - 1);
+    start.setHours(0, 0, 0, 0);
+    end.setDate(end.getDate() - 1);
+    end.setHours(23, 59, 59, 999);
+  } else if (filter === '7days') {
+    start.setDate(start.getDate() - 7);
+  } else if (filter === '14days') {
+    start.setDate(start.getDate() - 14);
+  } else if (filter === '30days') {
+    start.setDate(start.getDate() - 30);
+  } else {
+    const [sy, sm, sd] = custom.from.split('-').map(Number);
+    const [ey, em, ed] = custom.to.split('-').map(Number);
+    start = new Date(sy, sm - 1, sd, 0, 0, 0, 0);
+    end = new Date(ey, em - 1, ed, 23, 59, 59, 999);
+  }
+  return { startDate: start.toISOString(), endDate: end.toISOString() };
+}
+
+type ListRow =
+  | { kind: 'group'; key: string; group: SellerStatementGroup; open: boolean }
+  | { kind: 'row'; key: string; row: SellerStatementRow; last: boolean };
+
+export default function ReportsScreen({ isActive = true }: any) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
-  const [selectedFilter, setSelectedFilter] = useState('Today');
-  const [groups, setGroups] = useState<TransactionGroup[]>(INITIAL_GROUPS);
-  const [isStatementModalVisible, setIsStatementModalVisible] = useState(false);
 
-  const [alertConfig, setAlertConfig] = useState<{
-    visible: boolean;
-    type: AlertModalType;
-    title: string;
-    message: string;
-  }>({
-    visible: false,
-    type: 'info',
-    title: '',
-    message: '',
-  });
+  const [filter, setFilter] = useState('30days');
+  const [custom, setCustom] = useState({ from: '', to: '' });
+  const [dateModalOpen, setDateModalOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState<string[]>([]);
+  const [linkMessage, setLinkMessage] = useState('');
 
-  const toggleGroup = (date: string) => {
-    setGroups(prev =>
-      prev.map(g => (g.date === date ? { ...g, expanded: !g.expanded } : g))
+  const customReady = filter !== 'custom' || !!custom.from;
+
+  const fetchPage = useCallback(async () => {
+    const { startDate, endDate } = buildRange(filter, custom);
+    const statement = await fetchSellerStatementApi(startDate, endDate);
+    return { items: statement.groups, totalPages: 1, totalItems: statement.groups.length, extra: statement.summary };
+  }, [filter, custom]);
+
+  const list = usePagedList<SellerStatementGroup, SellerStatement['summary']>(fetchPage, isActive, customReady);
+  const summary = list.extra;
+
+  const rows = useMemo<ListRow[]>(() => {
+    const result: ListRow[] = [];
+    list.items.forEach(group => {
+      const open = !collapsed.includes(group.date);
+      result.push({ kind: 'group', key: `g-${group.date}`, group, open });
+      if (open) {
+        group.rows.forEach((row, index) =>
+          result.push({
+            kind: 'row',
+            key: `r-${group.date}-${row.id}`,
+            row,
+            last: index === group.rows.length - 1,
+          }),
+        );
+      }
+    });
+    return result;
+  }, [list.items, collapsed]);
+
+  const toggleGroup = (date: string) =>
+    setCollapsed(prev => (prev.includes(date) ? prev.filter(d => d !== date) : [...prev, date]));
+
+  const openStatementPage = async () => {
+    const opened = await openWebsite(getWebSellerReportsUrl());
+    if (!opened) {
+      setLinkMessage(i18n.t('sellerMsg.openLinkFailed', { url: getWebSellerReportsUrl() }));
+    }
+  };
+
+  const renderItem = ({ item }: { item: ListRow }) => {
+    if (item.kind === 'group') {
+      return (
+        <Squeeze onPress={() => toggleGroup(item.group.date)} scale={0.99}>
+          <View style={[styles.groupHeader, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+            <Icon
+              source={item.open ? chevronDownBold : chevronRightBold}
+              size={12}
+              color={colors.textMuted}
+            />
+            <View style={styles.flex1}>
+              <Text style={[styles.groupDate, { color: colors.text }]}>{item.group.date}</Text>
+              <Text style={[styles.groupSub, { color: colors.textMuted }]}>{i18n.t('sellerMsg.ordersCount', { count: item.group.orderCount })}</Text>
+            </View>
+            <Text style={[styles.groupTotal, { color: colors.text }]}>{formatMoney(item.group.total)}</Text>
+          </View>
+        </Squeeze>
+      );
+    }
+
+    const { row } = item;
+    const badge = getStatusStyle(ORDER_STATUS_STYLE, row.status);
+    return (
+      <View
+        style={[
+          styles.txCard,
+          { backgroundColor: colors.surface, borderColor: colors.border },
+          item.last && styles.txCardLast,
+        ]}>
+        <View style={styles.txHeader}>
+          <Text style={[styles.txOrder, { color: colors.text }]}>{row.orderNo}</Text>
+          <View style={[styles.badge, { backgroundColor: badge.color + '20' }]}>
+            <Text style={[styles.badgeText, { color: badge.color }]}>{badge.label}</Text>
+          </View>
+        </View>
+        {row.customer ? <Text style={[styles.txSub, { color: colors.textMuted }]}>{row.customer}</Text> : null}
+        {row.products ? <Text style={[styles.txSub, { color: colors.textMuted }]}>{row.products}</Text> : null}
+        <View style={styles.amountsRow}>
+          <Amount label={i18n.t('sellerAuto.amount')} value={formatMoney(row.orderAmount)} />
+          <Amount label={i18n.t('sellerAuto.hold')} value={row.holdAmount > 0 ? formatMoney(row.holdAmount) : '-'} />
+          <Amount label={i18n.t('sellerAuto.earned')} value={row.availableEarnings > 0 ? formatMoney(row.availableEarnings) : '-'} />
+        </View>
+      </View>
     );
   };
 
-  const handleRequestStatement = () => {
-    setIsStatementModalVisible(false);
-    setAlertConfig({
-      visible: true,
-      type: 'success',
-      title: 'Statement Requested',
-      message: `Official account statement for ${selectedFilter} has been generated and sent to your registered email address.`,
-    });
-  };
+  const header = (
+    <View style={styles.headerWrap}>
+      <View>
+        <Text style={[styles.mainTitle, { color: colors.text }]}>{t('sellerAuto.reportsAndAccountStatement')}</Text>
+        <Text style={[styles.mainSub, { color: colors.textMuted }]}>
+          {t('sellerAuto.viewYourTransactionHistoryEarnings')}
+        </Text>
+      </View>
+
+      <Button title={t('sellerAuto.downloadStatementOnTheWebsite')} size="md" onPress={openStatementPage} />
+      <Text style={[styles.note, { color: colors.textMuted }]}>
+        {t('sellerAuto.thePdfStatementIsCreated')}
+      </Text>
+
+      <StatusPills options={FILTERS} selected={filter} onSelect={setFilter} />
+
+      {filter === 'custom' ? (
+        <DateRangeField
+          label={t('sellerAuto.customPeriod')}
+          from={custom.from}
+          to={custom.to}
+          onPress={() => setDateModalOpen(true)}
+          onClear={() => setCustom({ from: '', to: '' })}
+        />
+      ) : null}
+
+      {summary && customReady && !list.loading ? (
+        <View style={styles.summaryGrid}>
+          <SummaryCard label={t('sellerAuto.totalRevenue')} value={formatMoney(summary.totalRevenue)} />
+          <SummaryCard label={t('sellerAuto.totalEarnedAvailable')} value={formatMoney(summary.totalEarned)} />
+          <SummaryCard label={t('sellerAuto.totalPendingHold')} value={formatMoney(summary.totalPending)} />
+          <SummaryCard label={t('sellerAuto.totalOrders')} value={String(summary.totalOrders)} />
+        </View>
+      ) : null}
+
+      <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('sellerAuto.transactionHistory')}</Text>
+    </View>
+  );
+
+  let body: ReactElement | null = null;
+  if (!customReady) {
+    body = (
+      <EmptyState
+        icon={fileBold}
+        title={t('sellerAuto.selectAPeriod')}
+        message={t('sellerAuto.chooseTheStartAndEnd')}
+        style={styles.stateWrap}
+      />
+    );
+  } else if (list.loading && list.items.length === 0) {
+    body = <LoadingState text={t('sellerAuto.loadingStatement')} style={styles.stateWrap} />;
+  } else if (list.error && list.items.length === 0) {
+    body = <ErrorState error={list.error} onRetry={list.retry} style={styles.stateWrap} />;
+  } else if (list.items.length === 0) {
+    body = (
+      <EmptyState
+        icon={fileBold}
+        title={t('sellerAuto.noTransactions')}
+        message={t('sellerAuto.thereAreNoOrdersIn')}
+        style={styles.stateWrap}
+      />
+    );
+  }
 
   return (
-    <ScrollView
-      contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 40 }]}
-      showsVerticalScrollIndicator={false}>
-      {/* Top Header matching Reported screen.png */}
-      <FadeUp delay={30} duration={300}>
-        <View style={styles.topSection}>
-          <Text style={[styles.mainTitle, { color: colors.text }]}>
-            Reports & Account{'\n'}Statement
-          </Text>
-          <Text style={[styles.mainSub, { color: colors.textMuted }]}>
-            View your transaction history, earnings, and order-based financial performance.
-          </Text>
-
-          {/* Full Width Big Orange Button: 📄 Request Statement */}
-          <Squeeze onPress={() => setIsStatementModalVisible(true)} scale={0.98}>
-            <View style={[styles.requestBtn, { backgroundColor: '#F97316' }]}>
-              <Text style={{ fontSize: 16 }}>📄</Text>
-              <Text style={styles.requestBtnText}>Request Statement</Text>
-            </View>
-          </Squeeze>
-        </View>
-
-        {/* Filter Pills: Today, Yeaterday, Last 7 Days, Last 14 Days */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterPillsRow}>
-          {STATEMENT_FILTERS.map(filter => {
-            const isSelected = selectedFilter === filter;
-            return (
-              <Squeeze key={filter} onPress={() => setSelectedFilter(filter)}>
-                <View
-                  style={[
-                    styles.pill,
-                    {
-                      backgroundColor: isSelected ? '#F97316' : colors.surfaceAlt,
-                      borderColor: isSelected ? '#F97316' : 'transparent',
-                    },
-                  ]}>
-                  <Text
-                    style={[
-                      styles.pillText,
-                      { color: isSelected ? '#FFFFFF' : colors.textMuted },
-                      isSelected && { fontFamily: fonts.bold },
-                    ]}>
-                    {filter}
-                  </Text>
-                </View>
-              </Squeeze>
-            );
-          })}
-        </ScrollView>
-      </FadeUp>
-
-      {/* Section Title: Orange Undo/Curving Arrow + Transaction history */}
-      <FadeUp delay={60} duration={300}>
-        <View style={styles.sectionHeaderRow}>
-          <View style={styles.arrowIconBox}>
-            <Text style={styles.curvingArrow}>↩</Text>
-          </View>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Transaction history</Text>
-        </View>
-
-        {/* Card matching Reported screen.png */}
-        <View style={styles.groupsList}>
-          {groups.map(group => (
-            <View
-              key={group.date}
-              style={[
-                styles.groupCard,
-                { backgroundColor: colors.surface, borderColor: colors.border },
-              ]}>
-              {/* Header Bar */}
-              <TouchableOpacity
-                onPress={() => toggleGroup(group.date)}
-                activeOpacity={0.8}
-                style={styles.groupHeader}>
-                <View style={styles.groupHeaderLeft}>
-                  <Text
-                    style={[
-                      styles.chevronIcon,
-                      {
-                        color: colors.textMuted,
-                        transform: [{ rotate: group.expanded ? '0deg' : '-90deg' }],
-                      },
-                    ]}>
-                    ⌄
-                  </Text>
-                  <Text style={[styles.groupDate, { color: colors.text }]}>{group.date}</Text>
-                  <View style={styles.orderCountBadge}>
-                    <Text style={styles.orderCountText}>{group.orderCount} Order</Text>
-                  </View>
-                </View>
-
-                <Text style={[styles.groupTotal, { color: colors.textMuted }]}>
-                  Total: {group.totalAmount}
-                </Text>
-              </TouchableOpacity>
-
-              {/* Expanded Card Details matching exact 7 rows in Figma */}
-              {group.expanded && (
-                <View style={styles.transactionsContainer}>
-                  {group.transactions.map(t => (
-                    <View key={t.orderId} style={styles.tableBlock}>
-                      <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-                      {/* Row 1: Orderid */}
-                      <View style={styles.dataRow}>
-                        <Text style={[styles.dataLabel, { color: colors.textMuted }]}>Orderid</Text>
-                        <Text style={[styles.dataValue, { color: colors.text }]}>{t.orderId}</Text>
-                      </View>
-
-                      <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-                      {/* Row 2: Customer */}
-                      <View style={styles.dataRow}>
-                        <Text style={[styles.dataLabel, { color: colors.textMuted }]}>Customer</Text>
-                        <Text style={[styles.dataValue, { color: colors.text }]}>{t.customer}</Text>
-                      </View>
-
-                      <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-                      {/* Row 3: Product */}
-                      <View style={styles.dataRow}>
-                        <Text style={[styles.dataLabel, { color: colors.textMuted }]}>Product</Text>
-                        <Text style={[styles.dataValue, { color: colors.text }]}>{t.product}</Text>
-                      </View>
-
-                      <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-                      {/* Row 4: Order AMIT */}
-                      <View style={styles.dataRow}>
-                        <Text style={[styles.dataLabel, { color: colors.textMuted }]}>Order AMIT</Text>
-                        <Text style={[styles.dataValue, { color: colors.text }]}>{t.orderAmt}</Text>
-                      </View>
-
-                      <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-                      {/* Row 5: Hold (Pending) */}
-                      <View style={styles.dataRow}>
-                        <Text style={[styles.dataLabel, { color: colors.textMuted }]}>Hold (Pending)</Text>
-                        <Text style={[styles.dataValue, { color: colors.textMuted }]}>{t.hold}</Text>
-                      </View>
-
-                      <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-                      {/* Row 6: Earned (Avail) */}
-                      <View style={styles.dataRow}>
-                        <Text style={[styles.dataLabel, { color: colors.textMuted }]}>Earned (Avail)</Text>
-                        <Text style={[styles.dataValue, { color: '#10B981' }]}>{t.earned}</Text>
-                      </View>
-
-                      <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-                      {/* Row 7: Status */}
-                      <View style={styles.dataRow}>
-                        <Text style={[styles.dataLabel, { color: colors.textMuted }]}>Status</Text>
-                        <View style={styles.statusPill}>
-                          <Text style={styles.statusPillText}>{t.status}</Text>
-                        </View>
-                      </View>
-                    </View>
-                  ))}
-                </View>
-              )}
-            </View>
-          ))}
-        </View>
-      </FadeUp>
-
-      {/* Request Statement Modal */}
-      <Modal visible={isStatementModalVisible} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View
-            style={[
-              styles.modalBox,
-              { backgroundColor: colors.surface, borderColor: colors.border },
-            ]}>
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: colors.text }]}>Request Statement</Text>
-              <TouchableOpacity onPress={() => setIsStatementModalVisible(false)}>
-                <Icon source={timesSquareBold} size={20} color={colors.textMuted} />
-              </TouchableOpacity>
-            </View>
-
-            <Text style={[styles.modalSub, { color: colors.textMuted }]}>
-              Generate an official accounting statement including tax invoices, seller commissions, and net earnings for {selectedFilter}.
-            </Text>
-
-            <View style={styles.modalBtnRow}>
-              <Button
-                title="Download PDF & CSV"
-                variant="primary"
-                size="md"
-                onPress={handleRequestStatement}
-                style={{ flex: 1 }}
-              />
-              <Button
-                title="Cancel"
-                variant="outline"
-                size="md"
-                onPress={() => setIsStatementModalVisible(false)}
-                style={{ flex: 1 }}
-              />
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Alert Modal */}
-      <AlertModal
-        visible={alertConfig.visible}
-        type={alertConfig.type}
-        title={alertConfig.title}
-        message={alertConfig.message}
-        onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
+    <View style={[styles.screen, { backgroundColor: colors.background }]}>
+      <OfflineBanner />
+      <FlatList
+        data={customReady ? rows : []}
+        keyExtractor={item => item.key}
+        renderItem={renderItem}
+        ListHeaderComponent={header}
+        ListEmptyComponent={body}
+        contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 32 }]}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={list.refreshing}
+            onRefresh={list.onRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
       />
-    </ScrollView>
+
+      <DateRangeModal
+        visible={dateModalOpen}
+        title={t('sellerAuto.statementPeriod')}
+        from={custom.from}
+        to={custom.to}
+        onApply={(from, to) => {
+          setCustom({ from, to });
+          setDateModalOpen(false);
+        }}
+        onClose={() => setDateModalOpen(false)}
+      />
+
+      <AlertModal
+        visible={!!linkMessage}
+        type="info"
+        title={t('sellerAuto.openInYourBrowser')}
+        message={linkMessage}
+        onClose={() => setLinkMessage('')}
+      />
+      <AlertModal
+        visible={!!list.loadError}
+        type="error"
+        title={t('customer.couldNotRefresh')}
+        message={list.loadError || ''}
+        onClose={list.clearLoadError}
+      />
+    </View>
+  );
+}
+
+function SummaryCard({ label, value }: { label: string; value: string }) {
+  const { colors } = useTheme();
+  useTranslation();
+  return (
+    <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+      <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>{label}</Text>
+      <Text style={[styles.summaryValue, { color: colors.text }]}>{value}</Text>
+    </View>
+  );
+}
+
+function Amount({ label, value }: { label: string; value: string }) {
+  const { colors } = useTheme();
+  useTranslation();
+  return (
+    <View style={styles.amountCol}>
+      <Text style={[styles.amountLabel, { color: colors.textMuted }]}>{label}</Text>
+      <Text style={[styles.amountValue, { color: colors.text }]}>{value}</Text>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 16, gap: 16 },
-  topSection: { gap: 10 },
-  mainTitle: { fontFamily: fonts.bold, fontSize: 26, letterSpacing: -0.5, lineHeight: 32 },
-  mainSub: { fontFamily: fonts.regular, fontSize: 14, lineHeight: 20 },
-
-  requestBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    borderRadius: 12,
-    paddingVertical: 14,
-    marginTop: 6,
-    elevation: 2,
-    shadowColor: '#F97316',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-  },
-  requestBtnText: { color: '#FFFFFF', fontFamily: fonts.bold, fontSize: 15 },
-
-  filterPillsRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
-  pill: {
-    paddingHorizontal: 18,
-    paddingVertical: 9,
-    borderRadius: 22,
-    borderWidth: 1,
-  },
-  pillText: { fontFamily: fonts.medium, fontSize: 13 },
-
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 6,
-    marginBottom: 10,
-  },
-  arrowIconBox: {
-    width: 42,
-    height: 42,
-    borderRadius: 10,
-    backgroundColor: '#FFF7ED',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  curvingArrow: { fontSize: 20, color: '#F97316', fontFamily: fonts.bold },
-  sectionTitle: { fontFamily: fonts.bold, fontSize: 18 },
-
-  groupsList: { gap: 12 },
-  groupCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    overflow: 'hidden',
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-  },
+  screen: { flex: 1 },
+  flex1: { flex: 1 },
+  container: { paddingHorizontal: 16, paddingTop: 14, flexGrow: 1 },
+  stateWrap: { paddingVertical: 40 },
+  headerWrap: { gap: 12, marginBottom: 12 },
+  mainTitle: { fontFamily: fonts.bold, fontSize: 24 },
+  mainSub: { fontFamily: fonts.regular, fontSize: 13, marginTop: 4, lineHeight: 19 },
+  note: { fontFamily: fonts.regular, fontSize: 12, lineHeight: 18, marginTop: -4 },
+  summaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  summaryCard: { flexGrow: 1, flexBasis: '45%', borderRadius: 14, borderWidth: 1, padding: 14, gap: 4 },
+  summaryLabel: { fontFamily: fonts.medium, fontSize: 12 },
+  summaryValue: { fontFamily: fonts.bold, fontSize: 17 },
+  sectionTitle: { fontFamily: fonts.bold, fontSize: 18, marginTop: 4 },
   groupHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-  },
-  groupHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  chevronIcon: { fontSize: 16, fontFamily: fonts.bold },
-  groupDate: { fontFamily: fonts.bold, fontSize: 15 },
-  orderCountBadge: {
-    backgroundColor: '#F3F4F6',
-    paddingHorizontal: 10,
-    paddingVertical: 3,
+    gap: 10,
     borderRadius: 12,
-  },
-  orderCountText: { fontFamily: fonts.medium, fontSize: 12, color: '#4B5563' },
-  groupTotal: { fontFamily: fonts.regular, fontSize: 13 },
-
-  transactionsContainer: { paddingHorizontal: 16, paddingBottom: 16 },
-  tableBlock: { gap: 0 },
-  divider: { height: 1, width: '100%' },
-  dataRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-  },
-  dataLabel: { fontFamily: fonts.regular, fontSize: 14 },
-  dataValue: { fontFamily: fonts.bold, fontSize: 14 },
-
-  statusPill: {
-    backgroundColor: '#ECFDF5',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 14,
-  },
-  statusPillText: {
-    color: '#10B981',
-    fontFamily: fonts.medium,
-    fontSize: 12,
-  },
-
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  modalBox: {
-    borderRadius: 20,
     borderWidth: 1,
-    padding: 20,
-    gap: 14,
+    padding: 12,
+    marginTop: 10,
   },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  modalTitle: { fontFamily: fonts.bold, fontSize: 18 },
-  modalSub: { fontFamily: fonts.regular, fontSize: 13, lineHeight: 18 },
-  modalBtnRow: { flexDirection: 'row', gap: 10, marginTop: 8 },
+  groupDate: { fontFamily: fonts.bold, fontSize: 14 },
+  groupSub: { fontFamily: fonts.regular, fontSize: 12, marginTop: 2 },
+  groupTotal: { fontFamily: fonts.bold, fontSize: 14 },
+  txCard: { borderWidth: 1, borderRadius: 12, padding: 12, gap: 6, marginTop: 6 },
+  txCardLast: { marginBottom: 4 },
+  txHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  txOrder: { flexShrink: 1, fontFamily: fonts.bold, fontSize: 13 },
+  txSub: { fontFamily: fonts.regular, fontSize: 12 },
+  badge: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: 12 },
+  badgeText: { fontFamily: fonts.bold, fontSize: 11 },
+  amountsRow: { flexDirection: 'row', gap: 8, marginTop: 2 },
+  amountCol: { flex: 1, gap: 2 },
+  amountLabel: { fontFamily: fonts.regular, fontSize: 11 },
+  amountValue: { fontFamily: fonts.medium, fontSize: 12 },
 });

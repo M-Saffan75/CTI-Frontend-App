@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useIsFocused } from '@react-navigation/native';
 import {
   ActivityIndicator,
   Image,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,6 +17,7 @@ import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
 import CtiLoader from '@/components/CtiLoader';
 import AlertModal, { AlertModalType } from '@/components/AlertModal';
+import KeyboardSafeView from '@/components/KeyboardSafeView';
 import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
@@ -32,6 +35,7 @@ import {
 } from '@/assets/icons';
 import { ctiLogo } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
+import useRefreshOnActive from '@/utils/useRefreshOnActive';
 import { fonts } from '@/theme/fonts';
 import customerJobApi, {
   MobileJobDetail,
@@ -39,10 +43,17 @@ import customerJobApi, {
 } from '../services/customerJobApi';
 import { useCart } from '@/roles/Customer/context/CartContext';
 import { startChat } from '@/services/chatApi';
+import { formatMoney } from '@/utils/money';
+import { getLocaleTag, upper } from '@/i18n/locale';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
+import { priorityLabel, serviceTypeLabel, statusLabel, tx, userTypeLabel } from '@/utils/labels';
 
-const TABS = ['Details', 'Repairman Info', 'Booking Details', 'Disputes'];
+// tab ids; the shown name is customerMsg.disputeTab.<id>
+const TABS = ['details', 'repairman', 'booking', 'disputes'];
 
 export default function DisputeDetailScreen({ navigation, route }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { cartCount } = useCart();
@@ -50,7 +61,7 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
   const passedJob = route?.params?.job;
   const jobId = route?.params?.jobId || passedJob?.id;
   const routeDisputeId = route?.params?.disputeId;
-  const initialTab = route?.params?.initialTab || (routeDisputeId ? 'Disputes' : 'Details');
+  const initialTab = route?.params?.initialTab || (routeDisputeId ? 'disputes' : 'details');
   const [tab, setTab] = useState(initialTab);
 
   const [job, setJob] = useState<MobileJobDetail | null>(null);
@@ -63,6 +74,8 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
   // Dispute Reply state
   const [replyMessage, setReplyMessage] = useState('');
   const [isSendingReply, setIsSendingReply] = useState(false);
+  const replyBusy = useRef(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Themed AlertModal state (Replaces native Alert)
   const [alertConfig, setAlertConfig] = useState<{
@@ -107,6 +120,18 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
     fetchJobDetails();
   }, [fetchJobDetails]);
 
+  const isFocused = useIsFocused();
+  const markLoaded = useRefreshOnActive(isFocused, fetchJobDetails);
+  useEffect(() => {
+    if (!loading) markLoaded();
+  }, [loading, job, extraDispute, markLoaded]);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchJobDetails();
+    setRefreshing(false);
+  };
+
   // Handle direct chat with repair technician
   const handleStartChatWithTech = async () => {
     // 1. Resolve technician ID across all possible data paths
@@ -132,10 +157,10 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
       setAlertConfig({
         visible: true,
         type: 'info',
-        title: 'Technician Not Assigned',
-        message: 'Direct chat will be available once a certified technician is assigned to this job.',
-        buttonText: 'View All Chats',
-        secondaryButtonText: 'Cancel',
+        title: i18n.t('customer.technicianNotAssigned'),
+        message: i18n.t('customer.directChatWillBeAvailable'),
+        buttonText: i18n.t('customer.viewAllChats'),
+        secondaryButtonText: i18n.t('common.cancel'),
         onButtonPress: () => {
           setAlertConfig(prev => ({ ...prev, visible: false }));
           navigation.navigate('ChatList');
@@ -165,7 +190,7 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
           res.chat?.user?.name ||
           res.chat?.repairman?.name ||
           job?.repairman?.name ||
-          'Certified Technician';
+          '';
         const targetAvatar =
           res.chat?.user?.avatar ||
           res.chat?.repairman?.avatar ||
@@ -183,10 +208,10 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
         setAlertConfig({
           visible: true,
           type: 'info',
-          title: 'Chat Notice',
-          message: res.message || 'Could not initiate chat with technician directly. Opening chat conversations...',
-          buttonText: 'Open Chats',
-          secondaryButtonText: 'Cancel',
+          title: i18n.t('customer.chatNotice'),
+          message: res.message || i18n.t('customer.couldNotStartAChat'),
+          buttonText: i18n.t('customer.openChats'),
+          secondaryButtonText: i18n.t('common.cancel'),
           onButtonPress: () => {
             setAlertConfig(prev => ({ ...prev, visible: false }));
             navigation.navigate('ChatList');
@@ -194,8 +219,13 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
           onSecondaryButtonPress: () => setAlertConfig(prev => ({ ...prev, visible: false })),
         });
       }
-    } catch {
-      navigation.navigate('ChatList');
+    } catch (err: any) {
+      setAlertConfig({
+        visible: true,
+        type: 'error',
+        title: i18n.t('customer.couldNotOpenTheChat2'),
+        message: err?.message || i18n.t('customer.pleaseTryAgain'),
+      });
     } finally {
       setIsStartingChat(false);
     }
@@ -216,12 +246,14 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
       setAlertConfig({
         visible: true,
         type: 'warning',
-        title: 'Required',
-        message: 'Please enter a message to send.',
+        title: i18n.t('customer.required'),
+        message: i18n.t('customer.pleaseEnterAMessageTo'),
       });
       return;
     }
 
+    if (replyBusy.current) return;
+    replyBusy.current = true;
     setIsSendingReply(true);
     try {
       const res = await customerJobApi.sendDisputeResponse(disputeId, trimmed);
@@ -231,36 +263,39 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
         setAlertConfig({
           visible: true,
           type: 'success',
-          title: 'Update Sent',
-          message: res.message || 'Response added successfully!',
+          title: i18n.t('customer.updateSent'),
+          message: res.message || i18n.t('customer.responseAddedSuccessfully'),
         });
       } else {
         setAlertConfig({
           visible: true,
           type: 'error',
-          title: 'Error',
-          message: res.message || 'Failed to send response',
+          title: i18n.t('common.error'),
+          message: res.message || i18n.t('customer.failedToSendResponse'),
         });
       }
     } catch (e: any) {
       setAlertConfig({
         visible: true,
         type: 'error',
-        title: 'Error',
-        message: e?.message || 'Failed to send response',
+        title: i18n.t('common.error'),
+        message: e?.message || i18n.t('customer.failedToSendResponse'),
       });
     } finally {
+      replyBusy.current = false;
       setIsSendingReply(false);
     }
   };
 
   // Format category string e.g. "quality_of_work" -> "Quality Of Work"
   const formatCategory = (cat?: string) => {
-    if (!cat) return 'General Dispute';
-    return cat
-      .split('_')
-      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-      .join(' ');
+    if (!cat) return t('customerMsg.generalDispute');
+    return t(`dispute.categories.${cat}`, {
+      defaultValue: cat
+        .split('_')
+        .map(w => upper(w.charAt(0)) + w.slice(1))
+        .join(' '),
+    });
   };
 
   const booking = job?.booking;
@@ -268,7 +303,7 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
   const dispute = job?.dispute || extraDispute;
 
   return (
-    <View style={[styles.screen, { backgroundColor: colors.background }]}>
+    <KeyboardSafeView style={[styles.screen, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <Image source={ctiLogo} resizeMode="contain" style={styles.logo} />
         <View style={styles.headerIcons}>
@@ -290,7 +325,11 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
 
       <ScrollView
         contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
-        showsVerticalScrollIndicator={false}>
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />
+        }>
         <Squeeze onPress={() => navigation.goBack()} scale={0.9} style={styles.backWrap}>
           <View style={[styles.back, { backgroundColor: colors.primary }]}>
             <Icon source={arrowLeftBold} size={20} color={colors.onPrimary} />
@@ -299,25 +338,25 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
 
         {loading ? (
           <View style={{ paddingVertical: 80, alignItems: 'center' }}>
-            <CtiLoader size="lg" text="Loading dispute details..." />
+            <CtiLoader size="lg" text={t('customer.loadingDisputeDetails')} />
           </View>
         ) : !job ? (
           <View style={{ paddingVertical: 80, alignItems: 'center', paddingHorizontal: 24 }}>
             <Icon source={packageBold} size={48} color={colors.textMuted} />
             <Text style={[styles.title, { color: colors.text, textAlign: 'center', marginTop: 12 }]}>
-              Dispute Details Not Found
+              {t('customer.disputeDetailsNotFound')}
             </Text>
             <Text style={{ fontFamily: fonts.regular, fontSize: 14, color: colors.textMuted, marginTop: 8, textAlign: 'center' }}>
-              The requested dispute details could not be found or loaded.
+              {t('customer.theRequestedDisputeDetailsCould')}
             </Text>
             <Squeeze onPress={() => navigation.goBack()} style={{ marginTop: 24, paddingHorizontal: 24, paddingVertical: 12, backgroundColor: colors.primary, borderRadius: 12 }}>
-              <Text style={{ color: '#fff', fontFamily: fonts.bold }}>Go Back</Text>
+              <Text style={{ color: '#fff', fontFamily: fonts.bold }}>{t('customer.goBack')}</Text>
             </Squeeze>
           </View>
         ) : (
           <>
             <View style={styles.titleRow}>
-              <Text style={[styles.title, { color: colors.text }]}>{job.title}</Text>
+              <Text style={[styles.title, { color: colors.text }]}>{tx(job.title)}</Text>
             </View>
 
             {/* TABS HEADER */}
@@ -338,7 +377,7 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
                             fontFamily: active ? fonts.bold : fonts.regular,
                           },
                         ]}>
-                        {name}
+                        {t(`customerMsg.disputeTab.${name}`)}
                       </Text>
                     </Pressable>
                   );
@@ -347,24 +386,24 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
             </View>
 
             {/* TAB 1: DETAILS */}
-            {tab === 'Details' && (
+            {tab === 'details' && (
               <FadeUp duration={400}>
                 <Text style={[styles.price, { color: colors.text }]}>{job.priceLabel}</Text>
                 <View style={[styles.statusPillBadge, { backgroundColor: '#fef3c7', borderColor: '#fde68a' }]}>
                   <View style={[styles.statusDot, { backgroundColor: '#b45309' }]} />
                   <Text style={[styles.statusText, { color: '#b45309' }]}>
-                    Dispute / Under Review
+                    {t('customer.disputeUnderReview')}
                   </Text>
                 </View>
 
-                <Text style={[styles.sectionTitle, { color: colors.text }]}>Services Description</Text>
-                <Text style={[styles.text, { color: colors.textMuted }]}>{job.description}</Text>
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('customer.servicesDescription')}</Text>
+                <Text style={[styles.text, { color: colors.textMuted }]}>{tx(job.description)}</Text>
 
-                <Text style={[styles.sectionTitle, { color: colors.text }]}>Services Required</Text>
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('customer.servicesRequired')}</Text>
                 <View style={styles.pills}>
-                  {job.services.map(service => (
+                  {job.services.map((service, idx) => (
                     <View
-                      key={service}
+                      key={`${tx(service)}-${idx}`}
                       style={[
                         styles.pill,
                         {
@@ -380,13 +419,13 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
                   ))}
                 </View>
 
-                <Text style={[styles.sectionTitle, { color: colors.text }]}>Pricing Breakdown</Text>
-                <Row label="Estimated Price" value={job.priceLabel} bold />
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('customer.pricingBreakdown')}</Text>
+                <Row label={t('customer.estimatedPrice')} value={job.priceLabel} bold />
                 <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
-                <Text style={[styles.sectionTitle, { color: colors.text }]}>Location & Preference</Text>
-                <Row label="Location" value={job.locationLabel} />
-                <Row label="Service Type" value={job.servicePreference} />
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('customer.locationAndPreference')}</Text>
+                <Row label={t('customer.location')} value={tx(job.locationLabel)} />
+                <Row label={t('customer.serviceType')} value={job.servicePreference} />
 
                 <View
                   style={[
@@ -399,22 +438,22 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
                   ]}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                     <Icon source={infoCircleBold} size={15} color={colors.primary} />
-                    <Text style={[styles.infoTitle, { color: colors.text }]}>Dispute Status</Text>
+                    <Text style={[styles.infoTitle, { color: colors.text }]}>{t('customer.disputeStatus')}</Text>
                   </View>
                   <Text style={[styles.infoText, { color: colors.textMuted }]}>
-                    Support team is reviewing the chat history, evidence, and booking records to resolve this matter.
+                    {t('customer.supportTeamIsReviewingThe')}
                   </Text>
                 </View>
 
                 <View style={[styles.divider, { backgroundColor: colors.border }]} />
                 <Text style={[styles.footerText, { color: colors.textMuted }]}>
-                  Created: {job.createdAt}
+                  {t('customerMsg.createdOn', { date: tx(job.createdAt) })}
                 </Text>
               </FadeUp>
             )}
 
             {/* TAB 2: REPAIRMAN INFO */}
-            {tab === 'Repairman Info' && (
+            {tab === 'repairman' && (
               <FadeUp duration={400}>
                 {repairman ? (
                   <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -441,38 +480,40 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
                             },
                           ]}>
                           <Text style={[styles.avatarText, { color: colors.primary }]}>
-                            {(repairman.name || 'R').charAt(0).toUpperCase()}
+                            {upper((repairman.name || 'R').charAt(0))}
                           </Text>
                         </View>
                       )}
                       <View style={{ flex: 1, gap: 2 }}>
                         <Text style={[styles.cardTitle, { color: colors.text }]}>
-                          {repairman.name || 'Certified Repair Technician'}
+                          {repairman.name || t('chat.technician')}
                         </Text>
                         <Text style={[styles.cardSubtitle, { color: colors.textMuted }]}>
-                          {repairman.shopName || repairman.repairmanProfile?.shopName || 'Certified Service Center'}
+                          {repairman.shopName || repairman.repairmanProfile?.shopName || ''}
                         </Text>
-                        <View style={styles.ratingRow}>
-                          <Icon source={starExtra} size={14} color="#f59e0b" />
-                          <Text style={[styles.ratingText, { color: colors.text }]}>
-                            {Number(repairman.rating || repairman.repairmanProfile?.rating || 5.0).toFixed(1)} / 5.0
-                          </Text>
-                        </View>
+                        {Number(repairman.rating || repairman.repairmanProfile?.rating) > 0 && (
+                          <View style={styles.ratingRow}>
+                            <Icon source={starExtra} size={14} color="#f59e0b" />
+                            <Text style={[styles.ratingText, { color: colors.text }]}>
+                              {Number(repairman.rating || repairman.repairmanProfile?.rating).toFixed(1)} / 5.0
+                            </Text>
+                          </View>
+                        )}
                       </View>
                     </View>
 
                     <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
                     <Row
-                      label="Total Jobs"
+                      label={t('customer.totalJobs')}
                       value={String(repairman.totalJobs || repairman.repairmanProfile?.totalJobs || 0)}
                     />
                     <Row
-                      label="City / Area"
-                      value={repairman.city || repairman.repairmanProfile?.city || 'Istanbul / Local'}
+                      label={t('customer.cityArea')}
+                      value={repairman.city || repairman.repairmanProfile?.city || t('customer.istanbulLocal')}
                     />
                     {Boolean(repairman.phone) && (
-                      <Row label="Contact" value={repairman.phone} />
+                      <Row label={t('customer.contact')} value={repairman.phone} />
                     )}
 
                     <Squeeze
@@ -480,11 +521,11 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
                       disabled={isStartingChat}
                       style={[styles.primaryActionBtn, { backgroundColor: colors.primary, marginTop: 16 }]}>
                       {isStartingChat ? (
-                        <ActivityIndicator size="small" color="#fff" />
+                        <ActivityIndicator size="small" color={colors.onPrimary} />
                       ) : (
                         <>
-                          <Icon source={commentDotsBold} size={18} color="#fff" />
-                          <Text style={styles.primaryActionBtnText}>Chat with Technician</Text>
+                          <Icon source={commentDotsBold} size={18} color={colors.onPrimary} />
+                          <Text style={styles.primaryActionBtnText}>{t('customer.chatWithTechnician')}</Text>
                         </>
                       )}
                     </Squeeze>
@@ -493,7 +534,7 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
                   <View style={[styles.emptyBox, { backgroundColor: colors.surfaceAlt }]}>
                     <Icon source={infoCircleBold} size={28} color={colors.textMuted} />
                     <Text style={[styles.emptyBoxText, { color: colors.textMuted }]}>
-                      Repair technician details will be displayed once assigned to this booking.
+                      {t('customer.repairTechnicianDetailsWillBe')}
                     </Text>
                   </View>
                 )}
@@ -501,17 +542,17 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
             )}
 
             {/* TAB 3: BOOKING DETAILS */}
-            {tab === 'Booking Details' && (
+            {tab === 'booking' && (
               <FadeUp duration={400}>
                 {booking ? (
                   <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                     <View style={styles.cardHeaderRow}>
                       <Text style={[styles.sectionTitle, { color: colors.text, marginTop: 0 }]}>
-                        Booking Overview
+                        {t('customer.bookingOverview')}
                       </Text>
                       <View style={[styles.pillBadge, { backgroundColor: colors.primary + '18' }]}>
                         <Text style={[styles.pillBadgeText, { color: colors.primary }]}>
-                          {booking.status ? booking.status.toUpperCase() : 'DISPUTED'}
+                          {upper(statusLabel(booking.status || 'disputed'))}
                         </Text>
                       </View>
                     </View>
@@ -522,17 +563,17 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
                     <View style={styles.statRow}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <Icon source={calendarBold} size={15} color={colors.textMuted} />
-                        <Text style={[styles.rowLabel, { color: colors.textMuted }]}>Scheduled Date:</Text>
+                        <Text style={[styles.rowLabel, { color: colors.textMuted }]}>{t('customer.scheduledDate')}</Text>
                       </View>
                       <Text style={[styles.rowValue, { color: colors.text }]}>
                         {booking.bookingDetails?.scheduledDate
-                          ? new Date(booking.bookingDetails.scheduledDate).toLocaleDateString('en-US', {
+                          ? new Date(booking.bookingDetails.scheduledDate).toLocaleDateString(getLocaleTag(), {
                               weekday: 'short',
                               year: 'numeric',
                               month: 'short',
                               day: 'numeric',
                             })
-                          : 'To be scheduled'}
+                          : t('customer.toBeScheduled')}
                       </Text>
                     </View>
 
@@ -540,10 +581,10 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
                     <View style={styles.statRow}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <Icon source={clockBold} size={15} color={colors.textMuted} />
-                        <Text style={[styles.rowLabel, { color: colors.textMuted }]}>Service Type:</Text>
+                        <Text style={[styles.rowLabel, { color: colors.textMuted }]}>{t('customer.serviceType2')}</Text>
                       </View>
                       <Text style={[styles.rowValue, { color: colors.text, textTransform: 'capitalize' }]}>
-                        {String(booking.bookingDetails?.serviceType || 'Drop-off').replace('-', ' ')}
+                        {serviceTypeLabel(booking.bookingDetails?.serviceType || 'drop-off')}
                       </Text>
                     </View>
 
@@ -551,28 +592,28 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
                     {Boolean(booking.bookingDetails?.pricing) && (
                       <>
                         <View style={[styles.divider, { backgroundColor: colors.border }]} />
-                        <Text style={[styles.subHeading, { color: colors.text }]}>Pricing Breakdown</Text>
+                        <Text style={[styles.subHeading, { color: colors.text }]}>{t('customer.pricingBreakdown')}</Text>
                         {booking.bookingDetails.pricing.basePrice !== undefined && (
                           <Row
-                            label="Base Price"
-                            value={`${booking.bookingDetails.pricing.currency || 'TRY'} ${Number(booking.bookingDetails.pricing.basePrice || 0).toLocaleString()}`}
+                            label={t('customer.basePrice')}
+                            value={formatMoney(booking.bookingDetails.pricing.basePrice, booking.bookingDetails.pricing.currency)}
                           />
                         )}
                         {booking.bookingDetails.pricing.partsPrice > 0 && (
                           <Row
-                            label="Parts Price"
-                            value={`${booking.bookingDetails.pricing.currency || 'TRY'} ${Number(booking.bookingDetails.pricing.partsPrice || 0).toLocaleString()}`}
+                            label={t('customer.partsPrice')}
+                            value={formatMoney(booking.bookingDetails.pricing.partsPrice, booking.bookingDetails.pricing.currency)}
                           />
                         )}
                         {booking.bookingDetails.pricing.serviceCharge > 0 && (
                           <Row
-                            label="Service Fee"
-                            value={`${booking.bookingDetails.pricing.currency || 'TRY'} ${Number(booking.bookingDetails.pricing.serviceCharge || 0).toLocaleString()}`}
+                            label={t('customer.serviceFee')}
+                            value={formatMoney(booking.bookingDetails.pricing.serviceCharge, booking.bookingDetails.pricing.currency)}
                           />
                         )}
                         <Row
-                          label="Total Amount"
-                          value={`${booking.bookingDetails.pricing.currency || 'TRY'} ${Number(booking.bookingDetails.pricing.totalAmount || 0).toLocaleString()}`}
+                          label={t('customer.totalAmount')}
+                          value={formatMoney(booking.bookingDetails.pricing.totalAmount, booking.bookingDetails.pricing.currency)}
                           bold
                         />
                       </>
@@ -588,7 +629,7 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
                         <View style={[styles.divider, { backgroundColor: colors.border }]} />
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                           <Icon source={mapPinBold} size={15} color={colors.primary} />
-                          <Text style={[styles.subHeading, { color: colors.text }]}>Service / Pickup Address</Text>
+                          <Text style={[styles.subHeading, { color: colors.text }]}>{t('customer.servicePickupAddress')}</Text>
                         </View>
                         <View style={[styles.addressBox, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
                           <Text style={[styles.addressText, { color: colors.text }]}>
@@ -601,9 +642,9 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
                     )}
 
                     {/* Warranty */}
-                    {Boolean(booking.bookingDetails?.warranty) && (() => {
+                    {Boolean(booking.bookingDetails?.warranty?.duration) && (() => {
                       const warrantyObj = booking.bookingDetails.warranty;
-                      const duration = warrantyObj?.duration || 30;
+                      const duration = warrantyObj.duration;
                       const rawDesc = typeof warrantyObj?.description === 'string' ? warrantyObj.description.trim() : '';
 
                       // Avoid repeating the same number on a second line (e.g. duration: 9 and description: "9")
@@ -618,7 +659,7 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                             <Icon source={shieldIcon} size={16} color={colors.primary} />
                             <Text style={[styles.infoTitle, { color: colors.text }]}>
-                              Warranty: {duration} Days
+                              {t('customerMsg.warrantyDaysShort', { days: duration })}
                             </Text>
                           </View>
                           {!isRedundantDesc && (
@@ -634,7 +675,7 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
                   <View style={[styles.emptyBox, { backgroundColor: colors.surfaceAlt }]}>
                     <Icon source={infoCircleBold} size={28} color={colors.textMuted} />
                     <Text style={[styles.emptyBoxText, { color: colors.textMuted }]}>
-                      Booking records are not currently available for this job posting.
+                      {t('customer.bookingRecordsAreNotCurrently')}
                     </Text>
                   </View>
                 )}
@@ -642,7 +683,7 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
             )}
 
             {/* TAB 4: DISPUTES */}
-            {tab === 'Disputes' && (
+            {tab === 'disputes' && (
               <FadeUp duration={400}>
                 {dispute ? (
                   <View style={{ gap: 14 }}>
@@ -651,7 +692,7 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
                       <View style={styles.cardHeaderRow}>
                         <View>
                           <Text style={[styles.disputeIdText, { color: colors.primary }]}>
-                            {dispute.disputeId || 'Dispute Case'}
+                            {dispute.disputeId || t('customer.disputeCase')}
                           </Text>
                           <Text style={[styles.disputeCategoryText, { color: colors.text }]}>
                             {formatCategory(dispute.category)}
@@ -660,12 +701,12 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
                         <View style={{ alignItems: 'flex-end', gap: 4 }}>
                           <View style={[styles.pillBadge, { backgroundColor: '#fef3c7' }]}>
                             <Text style={[styles.pillBadgeText, { color: '#b45309' }]}>
-                              {String(dispute.status || 'Under Review').toUpperCase()}
+                              {upper(statusLabel(dispute.status || 'under_review'))}
                             </Text>
                           </View>
                           {Boolean(dispute.priority) && (
                             <Text style={{ fontSize: 11, fontFamily: fonts.medium, color: colors.textMuted }}>
-                              {String(dispute.priority).toUpperCase()} PRIORITY
+                              {t('customerMsg.priorityLine', { priority: upper(priorityLabel(dispute.priority)) })}
                             </Text>
                           )}
                         </View>
@@ -676,40 +717,46 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
                       {/* Payment Status & Parties */}
                       {Boolean(dispute.paymentStatus) && (
                         <Row
-                          label="Escrow Status"
-                          value={String(dispute.paymentStatus).replace('_', ' ').toUpperCase()}
+                          label={t('customer.escrowStatus')}
+                          value={upper(statusLabel(dispute.paymentStatus))}
                         />
                       )}
                       <Row
-                        label="Raised By"
-                        value={`${dispute.raisedBy?.userId?.name || 'Customer'} (${dispute.raisedBy?.userType || 'customer'})`}
+                        label={t('customer.raisedBy')}
+                        value={t('customerMsg.party', {
+                          name: dispute.raisedBy?.userId?.name || t('glossary.customer'),
+                          type: userTypeLabel(dispute.raisedBy?.userType || 'customer'),
+                        })}
                       />
                       <Row
-                        label="Against"
-                        value={`${dispute.againstUser?.userId?.name || 'Repairman'} (${dispute.againstUser?.userType || 'repairman'})`}
+                        label={t('customer.against')}
+                        value={t('customerMsg.party', {
+                          name: dispute.againstUser?.userId?.name || t('glossary.repairman'),
+                          type: userTypeLabel(dispute.againstUser?.userType || 'repairman'),
+                        })}
                       />
 
                       {/* Description */}
                       <View style={[styles.divider, { backgroundColor: colors.border }]} />
-                      <Text style={[styles.subHeading, { color: colors.text }]}>Dispute Description</Text>
+                      <Text style={[styles.subHeading, { color: colors.text }]}>{t('customer.disputeDescription')}</Text>
                       <Text style={[styles.text, { color: colors.textMuted, marginTop: 4 }]}>
-                        {dispute.description || 'No description provided.'}
+                        {dispute.description || t('customer.noDescriptionProvided')}
                       </Text>
 
                       {/* Resolution Box if resolved */}
                       {Boolean(dispute.resolution) && (
                         <View style={[styles.resolutionBox, { backgroundColor: '#ecfdf5', borderColor: '#a7f3d0' }]}>
                           <Text style={[styles.resolutionTitle, { color: '#065f46' }]}>
-                            Dispute Resolved
+                            {t('customer.disputeResolved')}
                           </Text>
                           {Boolean(dispute.resolution.resolutionType || dispute.resolution.decision) && (
                             <Text style={[styles.resolutionText, { color: '#047857' }]}>
-                              Decision: {dispute.resolution.resolutionType || dispute.resolution.decision}
+                              {t('customerMsg.decision', { value: dispute.resolution.resolutionType || dispute.resolution.decision })}
                             </Text>
                           )}
                           {Boolean(dispute.resolution.refundAmount) && (
                             <Text style={[styles.resolutionText, { color: '#047857', fontFamily: fonts.bold }]}>
-                              Refund Amount: TRY {Number(dispute.resolution.refundAmount).toLocaleString()}
+                              {t('customerMsg.refundAmount', { amount: formatMoney(dispute.resolution.refundAmount) })}
                             </Text>
                           )}
                           {Boolean(dispute.resolution.resolutionNotes) && (
@@ -724,7 +771,7 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
                     {/* Evidence Photos */}
                     {Array.isArray(dispute.evidenceFiles) && dispute.evidenceFiles.length > 0 && (
                       <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                        <Text style={[styles.subHeading, { color: colors.text }]}>Attached Evidence</Text>
+                        <Text style={[styles.subHeading, { color: colors.text }]}>{t('customer.attachedEvidence')}</Text>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 10 }}>
                           <View style={{ flexDirection: 'row', gap: 10 }}>
                             {dispute.evidenceFiles.map((item: any, idx: number) => {
@@ -747,7 +794,7 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
                     {/* Discussion / Responses Thread */}
                     <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                       <Text style={[styles.subHeading, { color: colors.text, marginBottom: 8 }]}>
-                        Case Discussion & Updates
+                        {t('customer.caseDiscussionAndUpdates')}
                       </Text>
 
                       {Array.isArray(dispute.responses) && dispute.responses.length > 0 ? (
@@ -782,11 +829,11 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
                                       styles.responseSenderText,
                                       { color: isCustomer ? colors.primary : isAdmin ? '#065f46' : colors.text },
                                     ]}>
-                                    {isAdmin ? 'CTI Support Team' : isCustomer ? 'You (Customer)' : 'Technician'}
+                                    {isAdmin ? i18n.t('customer.ctiSupportTeam') : isCustomer ? i18n.t('customer.youCustomer') : i18n.t('chat.technician')}
                                   </Text>
                                   {Boolean(resp.respondedAt || resp.createdAt) && (
                                     <Text style={[styles.responseDateText, { color: colors.textMuted }]}>
-                                      {new Date(resp.respondedAt || resp.createdAt).toLocaleTimeString([], {
+                                      {new Date(resp.respondedAt || resp.createdAt).toLocaleTimeString(getLocaleTag(), {
                                         hour: '2-digit',
                                         minute: '2-digit',
                                       })}
@@ -802,7 +849,7 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
                         </View>
                       ) : (
                         <Text style={[styles.emptyChatText, { color: colors.textMuted }]}>
-                          No discussion messages yet. You can send an update to support below.
+                          {t('customer.noDiscussionMessagesYetYou')}
                         </Text>
                       )}
 
@@ -812,7 +859,7 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
                           <TextInput
                             value={replyMessage}
                             onChangeText={setReplyMessage}
-                            placeholder="Type a message to support..."
+                            placeholder={t('customer.typeAMessageToSupport')}
                             placeholderTextColor={colors.textMuted}
                             style={[styles.replyInput, { color: colors.text }]}
                             multiline
@@ -827,9 +874,9 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
                               },
                             ]}>
                             {isSendingReply ? (
-                              <ActivityIndicator size="small" color="#fff" />
+                              <ActivityIndicator size="small" color={colors.onPrimary} />
                             ) : (
-                              <Icon source={sendBold} size={16} color="#fff" />
+                              <Icon source={sendBold} size={16} color={colors.onPrimary} />
                             )}
                           </Squeeze>
                         </View>
@@ -840,10 +887,10 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
                   <View style={[styles.emptyBox, { backgroundColor: colors.surfaceAlt }]}>
                     <Icon source={shieldIcon} size={32} color={colors.primary} />
                     <Text style={[styles.title, { color: colors.text, textAlign: 'center', marginTop: 10, fontSize: 16 }]}>
-                      No Active Dispute Found
+                      {t('customer.noActiveDisputeFound')}
                     </Text>
                     <Text style={[styles.emptyBoxText, { color: colors.textMuted, marginTop: 4 }]}>
-                      There is no open dispute filed for this repair job. If you face any issues, you can report them through order support.
+                      {t('customer.thereIsNoOpenDispute')}
                     </Text>
                   </View>
                 )}
@@ -859,13 +906,13 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
         type={alertConfig.type}
         title={alertConfig.title}
         message={alertConfig.message}
-        buttonText={alertConfig.buttonText || 'Okay'}
+        buttonText={alertConfig.buttonText || i18n.t('common.okay')}
         secondaryButtonText={alertConfig.secondaryButtonText}
         onButtonPress={alertConfig.onButtonPress}
         onSecondaryButtonPress={alertConfig.onSecondaryButtonPress}
         onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
       />
-    </View>
+    </KeyboardSafeView>
   );
 }
 
@@ -949,10 +996,10 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   statusDot: { width: 7, height: 7, borderRadius: 3.5 },
-  statusText: { fontFamily: fonts.bold, fontSize: 11 },
+  statusText: { flexShrink: 1, fontFamily: fonts.bold, fontSize: 11 },
 
-  sectionTitle: { fontFamily: fonts.bold, fontSize: 14, marginTop: 18 },
-  subHeading: { fontFamily: fonts.bold, fontSize: 13 },
+  sectionTitle: { flexShrink: 1, fontFamily: fonts.bold, fontSize: 14, marginTop: 18 },
+  subHeading: { flexShrink: 1, fontFamily: fonts.bold, fontSize: 13 },
   text: { fontFamily: fonts.regular, fontSize: 13, lineHeight: 19, marginTop: 6 },
 
   pills: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
@@ -969,13 +1016,13 @@ const styles = StyleSheet.create({
   pillText: { fontSize: 12 },
 
   row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8 },
-  rowLabel: { fontSize: 13 },
+  rowLabel: { flexShrink: 1, fontSize: 13 },
   rowValue: { fontSize: 13 },
 
   divider: { height: 1, marginVertical: 14 },
 
   infoBox: { borderRadius: 12, padding: 14, gap: 4, marginTop: 14 },
-  infoTitle: { fontFamily: fonts.bold, fontSize: 13 },
+  infoTitle: { flexShrink: 1, fontFamily: fonts.bold, fontSize: 13 },
   infoText: { fontFamily: fonts.regular, fontSize: 12, lineHeight: 18 },
 
   footerText: { fontFamily: fonts.regular, fontSize: 12 },

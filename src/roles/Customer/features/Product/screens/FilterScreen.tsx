@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -6,6 +6,7 @@ import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from 'react-nativ
 
 import Icon from '@/components/Icon';
 import Button from '@/components/Button';
+import KeyboardSafeView from '@/components/KeyboardSafeView';
 import Checkbox from '@/components/Checkbox';
 import Squeeze from '@/components/Squeeze';
 import { FadeUp } from '@/animations';
@@ -18,29 +19,11 @@ import {
   getColorHex,
   getEcomProductFiltersApi,
 } from '../services/ecomApi';
+import { currencySymbol } from '@/utils/money';
+import { PRICE_MAX, PRICE_MIN, applyProductFilters } from '../utils/productFilters';
+import { useTranslation } from 'react-i18next';
 
-const PRICE_MIN = 0;
-const PRICE_MAX = 2000;
 const THUMB = 20;
-
-const DEFAULT_CATEGORIES: EcomFilterCategory[] = [
-  { _id: '6abcecea51d9ef55a9ced393', title: 'Electronics', count: 21 },
-  { _id: '6abcecef51d9ef55a9ced3b3', title: 'Fashion & Apparel', count: 10 },
-];
-
-const DEFAULT_COLORS: EcomFilterColor[] = [
-  { name: 'Black', hex: '#18181b' },
-  { name: 'Silver', hex: '#C0C0C0' },
-  { name: 'Titanium Gray', hex: '#6B7280' },
-  { name: 'Blue', hex: '#3B82F6' },
-  { name: 'White', hex: '#F9FAFB' },
-  { name: 'Red', hex: '#EF4444' },
-  { name: 'Navy', hex: '#1E3A5F' },
-  { name: 'Beige', hex: '#D4B896' },
-  { name: 'Gold', hex: '#D4A017' },
-];
-
-const DEFAULT_STORAGE = ['128GB', '256GB', '512GB', '1TB', '2TB SSD'];
 
 function FilterSection({ title, children }: { title: string; children: React.ReactNode }) {
   const { colors } = useTheme();
@@ -71,19 +54,22 @@ function PriceRangeSlider({
   const { colors } = useTheme();
   const [trackWidth, setTrackWidth] = useState(0);
 
-  const toX = (value: number) =>
-    trackWidth > 0 ? ((value - PRICE_MIN) / (PRICE_MAX - PRICE_MIN)) * trackWidth : 0;
+  const toX = useCallback(
+    (value: number) =>
+      trackWidth > 0 ? ((value - PRICE_MIN) / (PRICE_MAX - PRICE_MIN)) * trackWidth : 0,
+    [trackWidth],
+  );
 
   const minX = useSharedValue(0);
   const maxX = useSharedValue(0);
 
   useEffect(() => {
     if (trackWidth > 0) minX.value = toX(minValue);
-  }, [trackWidth, minValue]);
+  }, [trackWidth, minValue, minX, toX]);
 
   useEffect(() => {
     if (trackWidth > 0) maxX.value = toX(maxValue);
-  }, [trackWidth, maxValue]);
+  }, [trackWidth, maxValue, maxX, toX]);
 
   const updateMin = (value: number) => onChange(value, maxValue);
   const updateMax = (value: number) => onChange(minValue, value);
@@ -139,14 +125,17 @@ function PriceRangeSlider({
 }
 
 export default function FilterScreen({ navigation, route }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const initialFilters = route?.params?.currentFilters;
 
-  const [categoriesList, setCategoriesList] = useState<EcomFilterCategory[]>(DEFAULT_CATEGORIES);
-  const [colorsList, setColorsList] = useState<EcomFilterColor[]>(DEFAULT_COLORS);
-  const [storageList, setStorageList] = useState<string[]>(DEFAULT_STORAGE);
+  const [categoriesList, setCategoriesList] = useState<EcomFilterCategory[]>([]);
+  const [colorsList, setColorsList] = useState<EcomFilterColor[]>([]);
+  const [storageList, setStorageList] = useState<string[]>([]);
   const [loadingFilters, setLoadingFilters] = useState(true);
+  const [filterError, setFilterError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   // Active user selections
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>(
@@ -161,20 +150,30 @@ export default function FilterScreen({ navigation, route }: any) {
   const [maxPrice, setMaxPrice] = useState<number>(initialFilters?.maxPrice ?? PRICE_MAX);
   const [minRating, setMinRating] = useState<number>(initialFilters?.minRating || 0);
 
+  // The filter options are fetched once; the latest selection is read from a ref so a tap never refetches
+  const selectionRef = useRef({ ids: selectedCategoryIds, titleCount: selectedCategoryTitles.length });
+  selectionRef.current = { ids: selectedCategoryIds, titleCount: selectedCategoryTitles.length };
+
   // Fetch live filter options from backend
   useEffect(() => {
     let mounted = true;
+    setLoadingFilters(true);
+    setFilterError(false);
     getEcomProductFiltersApi().then(data => {
       if (!mounted || !data) {
-        if (mounted) setLoadingFilters(false);
+        if (mounted) {
+          setLoadingFilters(false);
+          setFilterError(true);
+        }
         return;
       }
       if (Array.isArray(data.categories) && data.categories.length > 0) {
         setCategoriesList(data.categories);
         // Sync names if user came in with IDs
-        if (selectedCategoryIds.length > 0 && selectedCategoryTitles.length === 0) {
+        const { ids, titleCount } = selectionRef.current;
+        if (ids.length > 0 && titleCount === 0) {
           const matchedTitles = data.categories
-            .filter(c => selectedCategoryIds.includes(c._id))
+            .filter(c => ids.includes(c._id))
             .map(c => c.title);
           setSelectedCategoryTitles(matchedTitles);
         }
@@ -203,7 +202,7 @@ export default function FilterScreen({ navigation, route }: any) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [reloadKey]);
 
   const toggleCategory = (id: string, title: string) => {
     setSelectedCategoryIds(prev =>
@@ -222,17 +221,15 @@ export default function FilterScreen({ navigation, route }: any) {
     setMinPrice(PRICE_MIN);
     setMaxPrice(PRICE_MAX);
     setMinRating(0);
-    if (typeof route?.params?.onApply === 'function') {
-      route.params.onApply({
-        categoryIds: [],
-        categories: [],
-        color: null,
-        storage: null,
-        minPrice: PRICE_MIN,
-        maxPrice: PRICE_MAX,
-        minRating: 0,
-      });
-    }
+    applyProductFilters({
+      categoryIds: [],
+      categories: [],
+      color: null,
+      storage: null,
+      minPrice: PRICE_MIN,
+      maxPrice: PRICE_MAX,
+      minRating: 0,
+    });
   };
 
   const handleApply = () => {
@@ -245,9 +242,7 @@ export default function FilterScreen({ navigation, route }: any) {
       maxPrice,
       minRating,
     };
-    if (typeof route?.params?.onApply === 'function') {
-      route.params.onApply(filters);
-    }
+    applyProductFilters(filters);
     navigation.goBack();
   };
 
@@ -274,18 +269,25 @@ export default function FilterScreen({ navigation, route }: any) {
             <Icon source={arrowLeftBold} size={20} color={colors.onPrimary} />
           </View>
         </Squeeze>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Filter Products</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>{t('customer.filterProducts')}</Text>
         <View style={styles.back} />
       </View>
 
+      <KeyboardSafeView>
       <ScrollView
         contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled">
+        {filterError ? (
+          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border, alignItems: 'center', gap: 10 }]}>
+            <Text style={{ color: colors.text, fontFamily: fonts.bold, fontSize: 14 }}>{t('customer.couldNotLoadTheFilter')}</Text>
+            <Button title={t('customer.tryAgain')} size="sm" onPress={() => setReloadKey(k => k + 1)} />
+          </View>
+        ) : null}
         <FadeUp delay={60} duration={500}>
           <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             {/* Category Section with Live Backend Counts */}
-            <FilterSection title="Category">
+            <FilterSection title={t('customer.category')}>
               {loadingFilters && categoriesList.length === 0 ? (
                 <ActivityIndicator size="small" color={colors.primary} />
               ) : (
@@ -309,10 +311,10 @@ export default function FilterScreen({ navigation, route }: any) {
             </FilterSection>
 
             {/* Colors Section */}
-            <FilterSection title="Colors">
+            <FilterSection title={t('customer.colors')}>
               {selectedColor && (
                 <Text style={[styles.selectedLabel, { color: colors.primary }]}>
-                  Selected: {selectedColor}
+                  {t('customerMsg.selectedColor', { color: selectedColor })}
                 </Text>
               )}
               <View style={styles.colorsGrid}>
@@ -345,7 +347,7 @@ export default function FilterScreen({ navigation, route }: any) {
             </FilterSection>
 
             {/* Storage Section */}
-            <FilterSection title="Storage">
+            <FilterSection title={t('customer.storage')}>
               <View style={styles.storageRow}>
                 {storageList.map(option => {
                   const active = selectedStorage === option;
@@ -371,11 +373,11 @@ export default function FilterScreen({ navigation, route }: any) {
             </FilterSection>
 
             {/* Price Range Slider */}
-            <FilterSection title="Price Range">
+            <FilterSection title={t('customer.priceRange')}>
               <PriceRangeSlider minValue={minPrice} maxValue={maxPrice} onChange={changePrice} />
               <View style={styles.priceInputs}>
                 <View style={[styles.priceField, { borderColor: colors.border }]}>
-                  <Text style={[styles.priceSign, { color: colors.textMuted }]}>$</Text>
+                  <Text style={[styles.priceSign, { color: colors.textMuted }]}>{currencySymbol()}</Text>
                   <TextInput
                     value={String(minPrice)}
                     onChangeText={onTypeMin}
@@ -384,7 +386,7 @@ export default function FilterScreen({ navigation, route }: any) {
                   />
                 </View>
                 <View style={[styles.priceField, { borderColor: colors.border }]}>
-                  <Text style={[styles.priceSign, { color: colors.textMuted }]}>$</Text>
+                  <Text style={[styles.priceSign, { color: colors.textMuted }]}>{currencySymbol()}</Text>
                   <TextInput
                     value={String(maxPrice)}
                     onChangeText={onTypeMax}
@@ -396,7 +398,7 @@ export default function FilterScreen({ navigation, route }: any) {
             </FilterSection>
 
             {/* Min Rating Section */}
-            <FilterSection title="Min Rating">
+            <FilterSection title={t('customer.minRating')}>
               <View style={styles.stars}>
                 {[1, 2, 3, 4, 5].map(n => (
                   <Squeeze key={n} onPress={() => setMinRating(n === minRating ? 0 : n)} scale={0.85}>
@@ -413,15 +415,16 @@ export default function FilterScreen({ navigation, route }: any) {
         </FadeUp>
 
         <View style={styles.actions}>
-          <Button title="Clear All" variant="soft" size="sm" onPress={clearAll} style={styles.actionButton} />
+          <Button title={t('customer.clearAll')} variant="soft" size="sm" onPress={clearAll} style={styles.actionButton} />
           <Button
-            title="Apply Filters"
+            title={t('customer.applyFilters')}
             size="sm"
             onPress={handleApply}
             style={styles.actionButton}
           />
         </View>
       </ScrollView>
+      </KeyboardSafeView>
     </View>
   );
 }
@@ -436,7 +439,7 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
   },
   back: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { fontFamily: fonts.bold, fontSize: 20 },
+  headerTitle: { flexShrink: 1, fontFamily: fonts.bold, fontSize: 20 },
 
   body: { paddingHorizontal: 20 },
   card: { borderRadius: 16, borderWidth: 1, padding: 16 },

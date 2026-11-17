@@ -2,9 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -36,6 +34,8 @@ import {
   fetchCountriesApi,
   updateUserProfileApi,
 } from '../services/profileApi';
+import KeyboardSafeView from '@/components/KeyboardSafeView';
+import { useTranslation } from 'react-i18next';
 
 interface EditCustomerProfileModalProps {
   visible: boolean;
@@ -51,6 +51,7 @@ export default function EditCustomerProfileModal({
   onSaved,
 }: EditCustomerProfileModalProps) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
 
   const [name, setName] = useState(profile?.name || '');
   const [phone, setPhone] = useState(profile?.phone || '');
@@ -141,8 +142,8 @@ export default function EditCustomerProfileModal({
     // Backend rule 1: Name 2-50 chars
     if (trimmedName.length < 2 || trimmedName.length > 50) {
       setAlertType('warning');
-      setAlertTitle('Invalid Name');
-      setAlertMessage('Full name must be between 2 and 50 characters.');
+      setAlertTitle(t('profile.edit.invalidName'));
+      setAlertMessage(t('profile.edit.invalidNameBody'));
       setAlertVisible(true);
       return;
     }
@@ -150,8 +151,8 @@ export default function EditCustomerProfileModal({
     // Backend rule 2: Phone mobile format
     if (!cleanPhone || cleanPhone.length < 7) {
       setAlertType('warning');
-      setAlertTitle('Invalid Phone');
-      setAlertMessage('Please provide a valid phone number.');
+      setAlertTitle(t('profile.edit.invalidPhone'));
+      setAlertMessage(t('profile.edit.invalidPhoneBody'));
       setAlertVisible(true);
       return;
     }
@@ -166,8 +167,8 @@ export default function EditCustomerProfileModal({
 
     if (!isPhotoChanged && !isNameChanged && !isPhoneChanged && !isCountryChanged) {
       setAlertType('info');
-      setAlertTitle('No Changes');
-      setAlertMessage('No changes were made to your profile.');
+      setAlertTitle(t('profile.edit.noChanges'));
+      setAlertMessage(t('profile.edit.noChangesBody'));
       setAlertVisible(true);
       return;
     }
@@ -187,7 +188,7 @@ export default function EditCustomerProfileModal({
 
       const res = await updateUserProfileApi(payload);
 
-      const serverMsg = res?.message || 'Profile updated successfully!';
+      const serverMsg = res?.message || t('profile.edit.updatedFallback');
       const updatedUser = res?.data?.user || res?.user;
 
       const updatedProfile: ProfileData = {
@@ -203,16 +204,16 @@ export default function EditCustomerProfileModal({
 
       onSaved(updatedProfile);
       setAlertType('success');
-      setAlertTitle('Success');
+      setAlertTitle(t('common.success'));
       setAlertMessage(serverMsg);
       setAlertVisible(true);
     } catch (err: any) {
       const errorMsg =
         err?.response?.data?.message ||
         err?.message ||
-        'Failed to update profile. Please try again.';
+        t('profile.edit.updateFailedBody');
       setAlertType('error');
-      setAlertTitle('Update Failed');
+      setAlertTitle(t('profile.edit.updateFailed'));
       setAlertMessage(errorMsg);
       setAlertVisible(true);
     } finally {
@@ -226,8 +227,7 @@ export default function EditCustomerProfileModal({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      <KeyboardSafeView
         style={styles.modalOverlay}>
         <Pressable style={styles.backdrop} onPress={onClose} />
 
@@ -240,10 +240,10 @@ export default function EditCustomerProfileModal({
           <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
             <View>
               <Text style={[styles.modalTitle, { color: colors.text }]}>
-                Edit Profile
+                {t('profile.edit.title')}
               </Text>
               <Text style={[styles.modalSubtitle, { color: colors.textMuted }]}>
-                Update your personal customer details
+                {t('profile.edit.subtitle')}
               </Text>
             </View>
 
@@ -278,14 +278,14 @@ export default function EditCustomerProfileModal({
               </View>
               <View style={styles.avatarTextWrap}>
                 <Text style={[styles.avatarLabel, { color: colors.text }]}>
-                  Profile Picture
+                  {t('profile.edit.profilePicture')}
                 </Text>
                 <Text style={[styles.avatarHint, { color: colors.textMuted }]}>
-                  PNG, JPG up to 5MB
+                  {t('profile.edit.photoHint')}
                 </Text>
                 <TouchableOpacity onPress={handlePickPhoto} style={styles.changePhotoBtn}>
                   <Text style={[styles.changePhotoText, { color: colors.primary }]}>
-                    Choose Photo
+                    {t('profile.edit.choosePhoto')}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -294,7 +294,7 @@ export default function EditCustomerProfileModal({
             {/* Full Name */}
             <View style={styles.inputGroup}>
               <Text style={[styles.inputLabel, { color: colors.text }]}>
-                Full Name <Text style={{ color: colors.error }}>*</Text>
+                {t('profile.edit.fullName')} <Text style={{ color: colors.error }}>*</Text>
               </Text>
               <View
                 style={[
@@ -305,7 +305,7 @@ export default function EditCustomerProfileModal({
                 <TextInput
                   value={name}
                   onChangeText={setName}
-                  placeholder="Enter full name"
+                  placeholder={t('profile.edit.enterFullName')}
                   placeholderTextColor={colors.textMuted}
                   maxLength={50}
                   style={[styles.textInput, { color: colors.text }]}
@@ -316,9 +316,9 @@ export default function EditCustomerProfileModal({
             {/* Email (Read Only) */}
             <View style={styles.inputGroup}>
               <View style={styles.labelRow}>
-                <Text style={[styles.inputLabel, { color: colors.text }]}>Email Address</Text>
+                <Text style={[styles.inputLabel, { color: colors.text }]}>{t('profile.emailAddress')}</Text>
                 <Text style={[styles.readOnlyBadge, { color: colors.textMuted }]}>
-                  (Read-only)
+                  {t('profile.readOnly')}
                 </Text>
               </View>
               <View
@@ -334,14 +334,14 @@ export default function EditCustomerProfileModal({
                 />
               </View>
               <Text style={[styles.fieldHelpText, { color: colors.textMuted }]}>
-                Email address cannot be changed directly.
+                {t('profile.edit.emailNote')}
               </Text>
             </View>
 
             {/* Phone */}
             <View style={styles.inputGroup}>
               <Text style={[styles.inputLabel, { color: colors.text }]}>
-                Phone Number <Text style={{ color: colors.error }}>*</Text>
+                {t('profile.edit.phoneNumber')} <Text style={{ color: colors.error }}>*</Text>
               </Text>
               <View
                 style={[
@@ -352,7 +352,7 @@ export default function EditCustomerProfileModal({
                 <TextInput
                   value={phone}
                   onChangeText={setPhone}
-                  placeholder="e.g. +90 555 123 4567"
+                  placeholder={t('profile.edit.phonePlaceholder')}
                   placeholderTextColor={colors.textMuted}
                   keyboardType="phone-pad"
                   maxLength={20}
@@ -363,7 +363,7 @@ export default function EditCustomerProfileModal({
 
             {/* Country Dropdown */}
             <View style={styles.inputGroup}>
-              <Text style={[styles.inputLabel, { color: colors.text }]}>Country</Text>
+              <Text style={[styles.inputLabel, { color: colors.text }]}>{t('profile.country')}</Text>
               <TouchableOpacity
                 onPress={() => setShowCountryDropdown(!showCountryDropdown)}
                 style={[
@@ -394,7 +394,7 @@ export default function EditCustomerProfileModal({
                     <View style={styles.dropdownLoadingRow}>
                       <ActivityIndicator size="small" color={colors.primary} />
                       <Text style={[styles.dropdownItemText, { color: colors.textMuted }]}>
-                        Loading countries...
+                        {t('profile.edit.loadingCountries')}
                       </Text>
                     </View>
                   ) : (
@@ -437,7 +437,7 @@ export default function EditCustomerProfileModal({
           <View style={[styles.modalFooter, { borderTopColor: colors.border }]}>
             <View style={styles.btnRow}>
               <Button
-                title="Cancel"
+                title={t('common.cancel')}
                 variant="outline"
                 size="sm"
                 onPress={onClose}
@@ -447,7 +447,7 @@ export default function EditCustomerProfileModal({
                 textStyle={styles.btnText}
               />
               <Button
-                title="Save Changes"
+                title={t('profile.edit.saveChanges')}
                 variant="primary"
                 size="sm"
                 onPress={handleSave}
@@ -473,7 +473,7 @@ export default function EditCustomerProfileModal({
             }
           }}
         />
-      </KeyboardAvoidingView>
+      </KeyboardSafeView>
     </Modal>
   );
 }
@@ -583,10 +583,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   inputLabel: {
+    flexShrink: 1,
     fontSize: 13,
     fontFamily: fonts.medium,
   },
   readOnlyBadge: {
+    flexShrink: 1,
     fontSize: 11,
     fontFamily: fonts.regular,
   },
@@ -633,6 +635,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   dropdownItemText: {
+    flexShrink: 1,
     fontSize: 13,
     fontFamily: fonts.regular,
   },

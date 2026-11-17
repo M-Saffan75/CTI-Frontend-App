@@ -12,14 +12,13 @@ import Icon from '@/components/Icon';
 import {
   blackMoonIcon,
   chevronDownBold,
-  forestIcon,
   lightSunIcon,
-  oceanWaveIcon,
   sandIcon,
 } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { themeNames } from '@/theme/colors';
 import { fonts } from '@/theme/fonts';
+import { useTranslation } from 'react-i18next';
 
 const MENU_WIDTH = 170;
 const OPEN_MS = 220;
@@ -30,12 +29,11 @@ const THEME_ICONS = {
   white: lightSunIcon,
   black: blackMoonIcon,
   sand: sandIcon,
-  ocean: oceanWaveIcon,
-  forest: forestIcon,
 };
 
 export default function ThemePicker({ style = null }) {
   const { colors, themeName, setThemeName } = useTheme();
+  const { t } = useTranslation();
 
   // `mounted` keeps the Modal on screen long enough to play the closing
   // animation — without it the menu just blinks out.
@@ -66,7 +64,7 @@ export default function ThemePicker({ style = null }) {
 
   useEffect(() => {
     if (mounted) progress.value = withTiming(1, { duration: OPEN_MS, easing: EASING });
-  }, [mounted]);
+  }, [mounted, progress]);
 
   // Grows out of its top-right corner, which is where the palette icon sits.
   const menuStyle = useAnimatedStyle(() => ({
@@ -78,7 +76,7 @@ export default function ThemePicker({ style = null }) {
     <View style={style}>
       <Pressable ref={trigger} onPress={openMenu} hitSlop={8} style={styles.trigger}>
         <Icon source={THEME_ICONS[themeName]} size={18} color={colors.text} />
-        <Text style={[styles.triggerText, { color: colors.text }]}>Theme</Text>
+        <Text style={[styles.triggerText, { color: colors.text }]}>{t('theme.title')}</Text>
         <Icon source={chevronDownBold} size={14} color={colors.textMuted} />
       </Pressable>
 
@@ -102,7 +100,7 @@ export default function ThemePicker({ style = null }) {
                   />
                   <Text
                     style={[styles.label, { color: isActive ? colors.primary : colors.text }]}>
-                    {name}
+                    {t(`theme.${name}`)}
                   </Text>
                 </Pressable>
               );
@@ -122,6 +120,7 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   triggerText: {
+    flexShrink: 1,
     fontFamily: fonts.medium,
     fontSize: 14,
   },
@@ -152,6 +151,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   label: {
+    flexShrink: 1,
     fontFamily: fonts.medium,
     fontSize: 14,
     textTransform: 'capitalize',

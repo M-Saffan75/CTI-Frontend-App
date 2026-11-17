@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { formatMoney } from '@/utils/money';
 import {
   Dimensions,
   Image,
@@ -17,7 +18,6 @@ import Squeeze from '@/components/Squeeze';
 import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
-  arrowRightBold,
   desktopBold,
   heartExtra,
   heartFilled,
@@ -33,20 +33,25 @@ import { fonts } from '@/theme/fonts';
 import RefurbishedHeader from '../components/RefurbishedHeader';
 import RefurbishedFilterModal from '../components/RefurbishedFilterModal';
 import CtiLoader from '@/components/CtiLoader';
+import LoadErrorBox from '../components/LoadErrorBox';
+import { normalizeApiError } from '@/services/apiError';
 import {
-  REFURBISHED_TESTIMONIALS,
   RefurbishedProduct,
 } from '../data/refurbishedData';
 import {
   getTopSellingProducts,
-  getRefurbishedProducts,
+  fetchAllRefurbishedProducts,
 } from '../services/refurbishedApi';
 import { useWishlist } from '@/roles/Customer/context/WishlistContext';
+import { upper } from '@/i18n/locale';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = (SCREEN_WIDTH - 44) / 2;
 
 export default function BuyRefurbishedScreen({ navigation }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { ids: wishlistIds, toggle: toggleWishlistContext, refreshWishlist } = useWishlist();
@@ -57,18 +62,21 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  const [loadError, setLoadError] = useState('');
+  const [topSelling, setTopSelling] = useState<RefurbishedProduct[]>([]);
+
   const loadLiveData = async () => {
     try {
-      // First fetch all live refurbished products from store
-      const allProducts = await getRefurbishedProducts();
-      if (Array.isArray(allProducts) && allProducts.length > 0) {
-        setProductsList(allProducts);
-      } else {
-        const live = await getTopSellingProducts();
-        setProductsList(Array.isArray(live) ? live : []);
-      }
-    } catch {
+      setLoadError('');
+      const [allProducts, top] = await Promise.all([
+        fetchAllRefurbishedProducts(),
+        getTopSellingProducts().catch(() => []),
+      ]);
+      setProductsList(allProducts);
+      setTopSelling(Array.isArray(top) ? top : []);
+    } catch (err) {
       setProductsList([]);
+      setLoadError(normalizeApiError(err).message);
     } finally {
       setLoading(false);
     }
@@ -84,11 +92,27 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
     setRefreshing(false);
   };
 
+  // The heart flips at once and goes back by itself if the request fails.
   const toggleWishlist = async (product: RefurbishedProduct) => {
     try {
       await toggleWishlistContext(product, product.defaultVariantId);
     } catch {}
   };
+
+  // Sections show only devices that really belong to them (nothing is borrowed from another category)
+  const has = (p: RefurbishedProduct, words: string[]) =>
+    words.some(w => (p?.category || '').toLowerCase().includes(w) || (p?.name || '').toLowerCase().includes(w));
+  const sectionDefs = [
+    { title: t('customer.phones'), category: 'Sell Phone', limit: 4, match: (p: RefurbishedProduct) => has(p, ['phone', 'mobile']) },
+    { title: t('customer.laptops'), category: 'Laptop', limit: 4, match: (p: RefurbishedProduct) => has(p, ['laptop', 'notebook']) },
+    { title: t('customer.smartwatches'), category: 'Smartwatches', limit: 4, match: (p: RefurbishedProduct) => has(p, ['watch']) },
+    { title: t('customer.gaming'), category: 'Gaming Console', limit: 4, match: (p: RefurbishedProduct) => has(p, ['gaming', 'console']) },
+  ];
+  const searchResults = searchQuery.trim()
+    ? productsList.filter(p =>
+        [p?.name, p?.brand, p?.category].some(v => (v || '').toLowerCase().includes(searchQuery.trim().toLowerCase())),
+      )
+    : [];
 
   const handleProductPress = (product: RefurbishedProduct) => {
     const slug = product.slug || product.raw?.slug;
@@ -129,12 +153,14 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
             </TouchableOpacity>
           </View>
 
-          {/* Discount Ribbon */}
-          <View style={styles.ribbonWrapper}>
-            <View style={styles.ribbonBadge}>
-              <Text style={styles.ribbonText}>{product?.discountPercent ?? 0}%</Text>
+          {/* Discount Ribbon: only when the backend has a discount */}
+          {Number(product?.discountPercent) > 0 ? (
+            <View style={styles.ribbonWrapper}>
+              <View style={styles.ribbonBadge}>
+                <Text style={styles.ribbonText}>{product.discountPercent}%</Text>
+              </View>
             </View>
-          </View>
+          ) : null}
 
           {/* Product Image */}
           <View style={styles.imageBox}>
@@ -148,7 +174,7 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
           {/* Product Info */}
           <View style={styles.infoBox}>
             <Text style={[styles.brandText, { color: colors.textMuted }]} numberOfLines={1}>
-              {(product?.brand || '').toUpperCase()} {(product?.category || '').toUpperCase()}
+              {upper(product?.brand || '')} {upper(product?.category || '')}
             </Text>
             <Text style={[styles.nameText, { color: colors.text }]} numberOfLines={1}>
               {product?.name || ''}
@@ -160,25 +186,31 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
             {/* Badges Row */}
             <View style={styles.tagsRow}>
               <View style={[styles.refurbishedTag, { backgroundColor: colors.primary }]}>
-                <Text style={styles.refurbishedTagText}>Refurbished</Text>
+                <Text style={styles.refurbishedTagText}>{i18n.t('glossary.refurbished')}</Text>
               </View>
 
-              <View style={styles.ratingBadge}>
-                <Text style={[styles.ratingText, { color: colors.text }]}>5.0</Text>
-                <Icon source={starFilled} size={12} color="#F59E0B" style={{ marginLeft: 2 }} />
-              </View>
+              {Number(product?.rating) > 0 ? (
+                <View style={styles.ratingBadge}>
+                  <Text style={[styles.ratingText, { color: colors.text }]}>{Number(product.rating).toFixed(1)}</Text>
+                  <Icon source={starFilled} size={12} color="#F59E0B" style={{ marginLeft: 2 }} />
+                </View>
+              ) : null}
 
-              <View style={styles.saveBadge}>
-                <Text style={styles.saveBadgeText}>Save ${product?.saveAmount ?? 0}</Text>
-              </View>
+              {Number(product?.saveAmount) > 0 ? (
+                <View style={styles.saveBadge}>
+                  <Text style={styles.saveBadgeText}>{t('customerMsg.saveAmount', { amount: formatMoney(product.saveAmount) })}</Text>
+                </View>
+              ) : null}
             </View>
 
             {/* Price Row */}
             <View style={styles.priceRow}>
-              <Text style={[styles.priceText, { color: colors.text }]}>${product?.price ?? 0}.00</Text>
-              <Text style={[styles.mrpText, { color: colors.textMuted }]}>
-                ${product?.originalPrice ?? 0}.00
-              </Text>
+              <Text style={[styles.priceText, { color: colors.text }]}>{formatMoney(product?.price)}</Text>
+              {Number(product?.originalPrice) > Number(product?.price) ? (
+                <Text style={[styles.mrpText, { color: colors.textMuted }]}>
+                  {formatMoney(product?.originalPrice)}
+                </Text>
+              ) : null}
             </View>
           </View>
         </Squeeze>
@@ -226,7 +258,7 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
           scale={0.9}
           style={styles.backWrap}>
           <View style={[styles.back, { backgroundColor: colors.primary }]}>
-            <Icon source={arrowLeftBold} size={20} color="#FFFFFF" />
+            <Icon source={arrowLeftBold} size={20} color={colors.onPrimary} />
           </View>
         </Squeeze>
 
@@ -243,39 +275,11 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
           <TextInput
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholder="Search order custom product"
+            placeholder={t('customer.searchDevices')}
             placeholderTextColor={colors.textMuted + '88'}
             style={[styles.searchInput, { color: colors.text }]}
           />
         </View>
-
-        {/* Hero Promotional Banner */}
-        <FadeUp delay={80}>
-          <View style={styles.heroBanner}>
-            <View style={styles.heroContent}>
-              <Text style={styles.heroPreText}>Windows</Text>
-              <Text style={styles.heroTitle}>Laptops</Text>
-              <View style={styles.heroPriceRow}>
-                <Text style={styles.heroStarting}>Starting</Text>
-                <Text style={styles.heroPrice}> ₹7,999</Text>
-              </View>
-
-              <Squeeze
-                onPress={() =>
-                  navigation.navigate('AllGadgets', { initialCategory: 'Laptop' })
-                }
-                style={styles.heroBtn}>
-                <Icon source={arrowRightBold} size={16} color="#FFFFFF" />
-              </Squeeze>
-            </View>
-
-            <Image
-              source={demoProductPhoto}
-              style={styles.heroImage}
-              resizeMode="contain"
-            />
-          </View>
-        </FadeUp>
 
         {/* Category Quick Links (Figma: Sell Phone, Laptop, Speaker, Gaming console) */}
         <ScrollView
@@ -289,7 +293,7 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
               styles.categoryLinkCard,
               { backgroundColor: colors.surfaceAlt, borderColor: colors.border + '33' },
             ]}>
-            <Text style={[styles.categoryLinkTitle, { color: colors.text }]}>Sell Phone</Text>
+            <Text style={[styles.categoryLinkTitle, { color: colors.text }]}>{t('settings.menu.sellPhone')}</Text>
             <View style={styles.categoryIconWrap}>
               <Icon source={mobileBold} size={32} color={colors.primary} />
             </View>
@@ -304,7 +308,7 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
               styles.categoryLinkCard,
               { backgroundColor: colors.surfaceAlt, borderColor: colors.border + '33' },
             ]}>
-            <Text style={[styles.categoryLinkTitle, { color: colors.text }]}>Laptop</Text>
+            <Text style={[styles.categoryLinkTitle, { color: colors.text }]}>{t('customer.laptop')}</Text>
             <View style={styles.categoryIconWrap}>
               <Icon source={desktopBold} size={32} color={colors.primary} />
             </View>
@@ -319,7 +323,7 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
               styles.categoryLinkCard,
               { backgroundColor: colors.surfaceAlt, borderColor: colors.border + '33' },
             ]}>
-            <Text style={[styles.categoryLinkTitle, { color: colors.text }]}>Speaker</Text>
+            <Text style={[styles.categoryLinkTitle, { color: colors.text }]}>{t('customer.speaker')}</Text>
             <View style={styles.categoryIconWrap}>
               <Icon source={packageBold} size={32} color={colors.primary} />
             </View>
@@ -334,7 +338,7 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
               styles.categoryLinkCard,
               { backgroundColor: colors.surfaceAlt, borderColor: colors.border + '33' },
             ]}>
-            <Text style={[styles.categoryLinkTitle, { color: colors.text }]}>Gaming</Text>
+            <Text style={[styles.categoryLinkTitle, { color: colors.text }]}>{t('customer.gaming')}</Text>
             <View style={styles.categoryIconWrap}>
               <Icon source={tagBold} size={32} color={colors.primary} />
             </View>
@@ -345,179 +349,80 @@ export default function BuyRefurbishedScreen({ navigation }: any) {
         {loading && !refreshing ? (
           <CtiLoader
             size="md"
-            text="Loading refurbished devices..."
+            text={t('customer.loadingRefurbishedDevices')}
             style={{ paddingVertical: 40 }}
+          />
+        ) : loadError ? (
+          <LoadErrorBox
+            title={t('customer.couldNotLoadTheDevices')}
+            message={loadError}
+            onRetry={() => {
+              setLoading(true);
+              loadLiveData();
+            }}
           />
         ) : productsList.length === 0 ? (
           <View style={{ paddingVertical: 50, alignItems: 'center' }}>
             <Icon source={packageBold} size={42} color={colors.textMuted} />
             <Text style={{ color: colors.text, fontFamily: fonts.bold, fontSize: 16, marginTop: 12 }}>
-              No Devices Found
+              {t('customer.noDevicesFound')}
             </Text>
             <Text style={{ color: colors.textMuted, fontFamily: fonts.regular, fontSize: 13, marginTop: 6, textAlign: 'center' }}>
-              Currently there are no refurbished devices available.
+              {t('customer.currentlyThereAreNoRefurbished')}
             </Text>
           </View>
+        ) : searchQuery.trim() ? (
+          <>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('customer.searchResults')}</Text>
+            </View>
+            <View style={styles.productsGrid}>
+              {searchResults.length > 0 ? (
+                searchResults.map((item, idx) => renderProductCard(item, idx))
+              ) : (
+                <Text style={{ color: colors.textMuted, fontFamily: fonts.regular, fontSize: 13 }}>
+                  {t('customer.noDevicesMatchYourSearch')}
+                </Text>
+              )}
+            </View>
+          </>
         ) : (
           <>
-            {/* Section: Top Selling Devices */}
-            <View style={styles.sectionHeaderRow}>
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>Top Selling Devices</Text>
-              <TouchableOpacity onPress={() => navigation.navigate('AllGadgets')}>
-                <Text style={[styles.seeAllText, { color: colors.primary }]}>See All</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.productsGrid}>
-              {(productsList || []).slice(0, 4).map((item, idx) => renderProductCard(item, idx))}
-            </View>
+            {topSelling.length > 0 ? (
+              <>
+                <View style={styles.sectionHeaderRow}>
+                  <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('customer.topSellingDevices')}</Text>
+                  <TouchableOpacity onPress={() => navigation.navigate('AllGadgets')}>
+                    <Text style={[styles.seeAllText, { color: colors.primary }]}>{t('customer.seeAll')}</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.productsGrid}>
+                  {topSelling.slice(0, 4).map((item, idx) => renderProductCard(item, idx))}
+                </View>
+              </>
+            ) : null}
 
-            {/* Section: Top Selling Phone */}
-            <View style={styles.sectionHeaderRow}>
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>Top Selling Phone</Text>
-              <TouchableOpacity
-                onPress={() =>
-                  navigation.navigate('AllGadgets', { initialCategory: 'Sell Phone' })
-                }>
-                <Text style={[styles.seeAllText, { color: colors.primary }]}>See All</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.productsGrid}>
-              {(() => {
-                const phones = (productsList || []).filter(
-                  p =>
-                    p?.category?.toLowerCase()?.includes('phone') ||
-                    p?.category?.toLowerCase()?.includes('mobile') ||
-                    p?.name?.toLowerCase()?.includes('phone'),
-                );
-                return (phones.length > 0 ? phones : (productsList || []).slice(0, 2))
-                  .slice(0, 2)
-                  .map((item, idx) => renderProductCard(item, idx + 4));
-              })()}
-            </View>
-
-            {/* Section: Top Selling Laptop */}
-            <View style={styles.sectionHeaderRow}>
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>Top Selling Laptop</Text>
-              <TouchableOpacity
-                onPress={() =>
-                  navigation.navigate('AllGadgets', { initialCategory: 'Laptop' })
-                }>
-                <Text style={[styles.seeAllText, { color: colors.primary }]}>See All</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.productsGrid}>
-              {(() => {
-                const laptops = (productsList || []).filter(
-                  p =>
-                    p?.category?.toLowerCase()?.includes('laptop') ||
-                    p?.category?.toLowerCase()?.includes('notebook') ||
-                    p?.name?.toLowerCase()?.includes('laptop') ||
-                    p?.brand?.toLowerCase() === 'hp',
-                );
-                return (laptops.length > 0 ? laptops : (productsList || []).slice(0, 2))
-                  .slice(0, 2)
-                  .map((item, idx) => renderProductCard(item, idx + 6));
-              })()}
-            </View>
-
-            {/* Section: In-Demand Smartwatches */}
-            <View style={styles.sectionHeaderRow}>
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>
-                In-Demand Smartwatches
-              </Text>
-              <TouchableOpacity
-                onPress={() =>
-                  navigation.navigate('AllGadgets', { initialCategory: 'Smartwatches' })
-                }>
-                <Text style={[styles.seeAllText, { color: colors.primary }]}>See All</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.productsGrid}>
-              {(() => {
-                const watches = (productsList || []).filter(
-                  p =>
-                    p?.category?.toLowerCase()?.includes('watch') ||
-                    p?.name?.toLowerCase()?.includes('watch'),
-                );
-                return (watches.length > 0 ? watches : (productsList || []).slice(0, 2))
-                  .slice(0, 4)
-                  .map((item, idx) => renderProductCard(item, idx + 8));
-              })()}
-            </View>
-
-            {/* Section: Trending Gamer Essentials */}
-            <View style={styles.sectionHeaderRow}>
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>
-                Trending Gamer Essentials
-              </Text>
-              <TouchableOpacity
-                onPress={() =>
-                  navigation.navigate('AllGadgets', { initialCategory: 'Gaming Console' })
-                }>
-                <Text style={[styles.seeAllText, { color: colors.primary }]}>See All</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.productsGrid}>
-              {(() => {
-                const games = (productsList || []).filter(
-                  p =>
-                    p?.category?.toLowerCase()?.includes('gaming') ||
-                    p?.category?.toLowerCase()?.includes('console'),
-                );
-                return (games.length > 0 ? games : (productsList || []).slice(0, 2))
-                  .slice(0, 2)
-                  .map((item, idx) => renderProductCard(item, idx + 10));
-              })()}
-            </View>
+            {sectionDefs.map(section => {
+              const items = productsList.filter(section.match).slice(0, section.limit);
+              if (items.length === 0) return null;
+              return (
+                <View key={section.title}>
+                  <View style={styles.sectionHeaderRow}>
+                    <Text style={[styles.sectionTitle, { color: colors.text }]}>{section.title}</Text>
+                    <TouchableOpacity
+                      onPress={() => navigation.navigate('AllGadgets', { initialCategory: section.category })}>
+                      <Text style={[styles.seeAllText, { color: colors.primary }]}>{i18n.t('customer.seeAll')}</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.productsGrid}>
+                    {items.map((item, idx) => renderProductCard(item, idx))}
+                  </View>
+                </View>
+              );
+            })}
           </>
         )}
 
-        {/* Testimonials Section matching Figma */}
-        <View style={styles.testimonialsSection}>
-          <Text style={[styles.testimonialsHeadline, { color: colors.text }]}>
-            10+ lakh Happy heroes of Earth trust us to buy refurbished phones
-          </Text>
-
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.testimonialsScroll}>
-            {(REFURBISHED_TESTIMONIALS || []).map(t => (
-              <View
-                key={t?.id}
-                style={[
-                  styles.testimonialCard,
-                  {
-                    backgroundColor: colors.surface,
-                    borderColor: colors.border + '33',
-                  },
-                ]}>
-                <Text style={[styles.quoteMark, { color: colors.primary }]}>“</Text>
-                <Text style={[styles.testimonialFeedback, { color: colors.text }]}>
-                  {t?.feedback || ''}
-                </Text>
-                <View style={styles.testimonialUserRow}>
-                  <View
-                    style={[
-                      styles.avatarCircle,
-                      {
-                        backgroundColor: colors.primary + '22',
-                        borderWidth: 1,
-                        borderColor: colors.avatarBorder,
-                      },
-                    ]}>
-                    <Text style={[styles.avatarText, { color: colors.primary }]}>
-                      {t?.name ? t.name.charAt(0) : 'U'}
-                    </Text>
-                  </View>
-                  <Text style={[styles.testimonialUserName, { color: colors.text }]}>
-                    {t?.name || 'Customer'}
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </ScrollView>
-        </View>
       </ScrollView>
 
       {/* Filter Modal */}
@@ -658,6 +563,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   sectionTitle: {
+    flexShrink: 1,
     fontSize: 18,
     fontFamily: fonts.bold,
   },

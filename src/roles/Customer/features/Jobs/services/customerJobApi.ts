@@ -1,12 +1,16 @@
 import apiClient from '@/services/apiClient';
+import { formatMoney } from '@/utils/money';
+import i18n from '@/i18n';
+import { Msg, statusLabel } from '@/utils/labels';
 
 export interface MobileCustomerJob {
   id: string;
-  device: string;
+  device: Msg;
   priceMin: number;
   priceMax: number;
   tag: 'job_posting' | 'direct_message';
-  offerLabel: 'Confirmed' | 'Pending';
+  offerLabel: string;
+  offerConfirmed: boolean;
   description: string;
   status: string; // 'open' | 'offer_received' | 'booked' | 'in_progress' | 'completed' | 'disputed'
   services: string[];
@@ -22,7 +26,7 @@ export interface MobileCustomerJob {
 export interface NormalizedOffer {
   id: string;
   repairmanId: string;
-  repairmanName: string;
+  repairmanName: Msg;
   shopName: string;
   rating: number;
   totalJobs: number;
@@ -35,16 +39,16 @@ export interface NormalizedOffer {
   finalTotal: number;
   homeService: boolean;
   dropOffLocation: string;
-  warrantyLabel: string;
-  timeLabel: string;
-  startLabel: string;
+  warrantyLabel: Msg;
+  timeLabel: Msg;
+  startLabel: Msg;
   currency: string;
-  description: string;
+  description: Msg;
   status: string;
   partsQuality: string;
   requiredParts: Array<{
     id: string;
-    name: string;
+    name: Msg;
     price: number;
     image?: string | null;
     condition?: string;
@@ -56,17 +60,17 @@ export interface MobileJobDetail {
   id: string;
   tag: 'job_posting' | 'direct_message';
   status: string;
-  title: string;
+  title: Msg;
   chips: string[];
   priceLabel: string;
-  urgencyNote: string;
-  description: string;
-  services: string[];
-  locationNote: string;
-  locationLabel: string;
+  urgencyNote: Msg;
+  description: Msg;
+  services: Msg[];
+  locationNote: Msg;
+  locationLabel: Msg;
   servicePreference: string;
-  stats: Array<{ label: string; value: string }>;
-  createdAt: string;
+  stats: Array<{ label: Msg; value: Msg }>;
+  createdAt: Msg;
   offers: NormalizedOffer[];
   selectedOffer?: NormalizedOffer | null;
   booking?: any;
@@ -76,30 +80,15 @@ export interface MobileJobDetail {
   raw?: any;
 }
 
-export const KNOWN_SERVICES_MAP: Record<string, string> = {
-  '692784e3983b67f3a1ae3371': 'Screen Repair',
-  '6928cfdf9a8d7145abb5588d': 'Battery Replacement',
-  '69340cac7010c47e47c69624': 'Motherboard Repair',
-  '693c86dbaa6abf175b80d7a0': 'Display Panel',
-  '6977d54dda650922549a73d5': 'Mobile Repairing',
-  '69d2d509facfe67f5388c0b4': 'Software Troubleshooting',
-  '6a74d9a5c4787fa766a2462f': 'Laptop Repair',
-};
-
 export function resolveServiceName(rawService: any): string {
-  if (!rawService) return 'General Repair';
+  if (!rawService) return '';
   if (typeof rawService === 'object' && rawService !== null) {
     if (rawService.name) return String(rawService.name);
     if (rawService.title) return String(rawService.title);
   }
   const str = String(rawService).trim();
-  if (KNOWN_SERVICES_MAP[str]) {
-    return KNOWN_SERVICES_MAP[str];
-  }
-  // If it's a 24-character hexadecimal MongoDB ObjectId, hide the code and return a clean fallback
-  if (/^[0-9a-fA-F]{24}$/.test(str)) {
-    return 'Diagnostics & Repair';
-  }
+  // A bare id is not a name a person can read: show nothing instead of the code
+  if (/^[0-9a-fA-F]{24}$/.test(str)) return '';
   return str;
 }
 
@@ -107,11 +96,12 @@ export function mapBackendJobToMobile(raw: any): MobileCustomerJob {
   if (!raw) {
     return {
       id: '',
-      device: 'Device Repair',
+      device: { key: 'customer.deviceRepair' },
       priceMin: 0,
       priceMax: 0,
       tag: 'job_posting',
-      offerLabel: 'Pending',
+      offerLabel: statusLabel('pending'),
+      offerConfirmed: false,
       description: '',
       status: 'open',
       services: [],
@@ -138,11 +128,10 @@ export function mapBackendJobToMobile(raw: any): MobileCustomerJob {
       ? deviceInfo.model
       : '';
 
-  const deviceTitle =
+  const deviceTitle: Msg =
     [brandName, modelName].filter(Boolean).join(' ') ||
     raw.title ||
-    raw.quotationId?.title ||
-    'Device Repair';
+    raw.quotationId?.title || { key: 'customer.deviceRepair' };
 
   // Budget
   let priceMin = 0;
@@ -207,10 +196,10 @@ export function mapBackendJobToMobile(raw: any): MobileCustomerJob {
     rawServices = deviceInfo?.repairServices || raw.quotationId?.requiredParts || [];
   }
   const servicesList: string[] = Array.isArray(rawServices)
-    ? rawServices.map(resolveServiceName)
+    ? rawServices.map(resolveServiceName).filter(Boolean)
     : [];
 
-  const createdDate = raw.createdAt ? new Date(raw.createdAt).toLocaleDateString() : '';
+  const createdDate = raw.createdAt ? String(raw.createdAt) : '';
 
   const assignedTo =
     raw.repairman?.name ||
@@ -225,10 +214,14 @@ export function mapBackendJobToMobile(raw: any): MobileCustomerJob {
     priceMin,
     priceMax,
     tag: isQuotation ? 'direct_message' : 'job_posting',
-    offerLabel:
+    offerConfirmed: Boolean(
+      raw.selectedOffer || isQuotation || status === 'booked' || status === 'in_progress' || status === 'completed',
+    ),
+    offerLabel: statusLabel(
       raw.selectedOffer || isQuotation || status === 'booked' || status === 'in_progress' || status === 'completed'
-        ? 'Confirmed'
-        : 'Pending',
+        ? 'confirmed'
+        : 'pending',
+    ),
     description: typeof raw.description === 'string' ? raw.description.trim() : (raw.quotationId?.description || ''),
     status,
     services: servicesList,
@@ -247,17 +240,15 @@ export function normalizeOffer(offer: any): NormalizedOffer | null {
   // 1. Repairman Info
   const repairman = offer.repairmanId || offer.repairman || {};
   const profile = repairman.repairmanProfile || offer.repairmanProfile || {};
-  const repairmanName =
+  const repairmanName: Msg =
     typeof repairman === 'object' && repairman !== null
-      ? repairman.name || 'Certified Repair Tech'
-      : typeof repairman === 'string' && repairman.length > 0
-      ? 'Certified Repair Tech'
-      : 'Certified Repair Tech';
+      ? repairman.name || { key: 'chat.technician' }
+      : { key: 'chat.technician' };
 
-  const shopName = profile.shopName || 'Certified Repair Shop';
-  const rating = Number(profile.rating || 5.0);
+  const shopName = profile.shopName || '';
+  const rating = Number(profile.rating || 0);
   const totalJobs = Number(profile.totalJobs || 0);
-  const successRate = Number(offer.experience?.successRate || 98);
+  const successRate = Number(offer.experience?.successRate || 0);
 
   // 2. Pricing
   const pricing = offer.pricing || {};
@@ -275,40 +266,33 @@ export function normalizeOffer(offer: any): NormalizedOffer | null {
   const finalTotal = totalPrice + (pickupAvailable ? pickupCharge : 0);
 
   // 4. Warranty - CRITICAL: Always ensure string to prevent React Native crash
-  let warrantyLabel = '30 Days Warranty';
+  let warrantyLabel: Msg = { key: 'customerMsg.warranty30' };
   if (typeof offer.warranty === 'string' && offer.warranty.trim()) {
     warrantyLabel = offer.warranty.trim();
   } else if (typeof offer.warranty === 'object' && offer.warranty !== null) {
     if (offer.warranty.duration) {
-      warrantyLabel = `${offer.warranty.duration} Days Warranty`;
+      warrantyLabel = { key: 'customerMsg.warrantyDaysLabel', params: { days: offer.warranty.duration } };
     } else if (offer.warranty.description) {
       warrantyLabel = String(offer.warranty.description);
     }
   }
 
   // 5. Estimated Time
-  let timeLabel = 'Same Day';
+  let timeLabel: Msg = { key: 'customerMsg.sameDay' };
   if (offer.estimatedTime) {
     if (typeof offer.estimatedTime === 'object' && offer.estimatedTime !== null) {
       const val = offer.estimatedTime.value || '';
       const unit = offer.estimatedTime.unit || 'hours';
-      timeLabel = val ? `${val} ${unit}` : 'Same Day';
+      timeLabel = val ? { key: 'customerMsg.timeValue', params: { value: val, unit } } : { key: 'customerMsg.sameDay' };
     } else if (typeof offer.estimatedTime === 'string') {
       timeLabel = offer.estimatedTime;
     }
   }
 
   // 6. Start date / availability
-  let startLabel = 'Available now';
+  let startLabel: Msg = { key: 'customerMsg.availableNow' };
   if (offer.availability?.canStartBy) {
-    try {
-      startLabel = new Date(offer.availability.canStartBy).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-      });
-    } catch {
-      startLabel = 'Available now';
-    }
+    startLabel = { date: String(offer.availability.canStartBy), style: 'short' };
   }
 
   // 7. Status
@@ -316,9 +300,9 @@ export function normalizeOffer(offer: any): NormalizedOffer | null {
 
   // 8. Required Parts
   const requiredParts = Array.isArray(offer.requiredParts)
-    ? offer.requiredParts.map((p: any) => ({
-        id: String(p._id || p.id || Math.random()),
-        name: String(p.name || 'Replacement Part'),
+    ? offer.requiredParts.map((p: any, partIdx: number) => ({
+        id: String(p._id || p.id || `part-${partIdx}`),
+        name: p.name ? String(p.name) : { key: 'customer.replacementPart' },
         price: Number(p.price || 0),
         image: Array.isArray(p.images) && p.images[0] ? p.images[0] : null,
         condition: typeof p.condition === 'string' ? p.condition : '',
@@ -377,18 +361,18 @@ export function mapBackendJobDetail(
       ? raw.deviceInfo.model
       : '';
 
-  const title = [brandName, modelName].filter(Boolean).join(' ') || raw?.title || 'Device Repair Job';
+  const title: Msg = [brandName, modelName].filter(Boolean).join(' ') || raw?.title || { key: 'customer.deviceRepairJob' };
 
   const budgetObj = raw?.preferredBudget || raw?.budget || {};
   const priceMin = Number(budgetObj.min || raw?.estimatedCost?.min || 0);
   const priceMax = Number(budgetObj.max || raw?.estimatedCost?.max || priceMin);
   const priceLabel =
     priceMin === priceMax
-      ? `TRY ${priceMin.toLocaleString()}`
-      : `TRY ${priceMin.toLocaleString()} - ${priceMax.toLocaleString()}`;
+      ? formatMoney(priceMin)
+      : `${formatMoney(priceMin)} - ${formatMoney(priceMax)}`;
 
   const servicesList: string[] = Array.isArray(raw?.services)
-    ? raw.services.map(resolveServiceName)
+    ? raw.services.map(resolveServiceName).filter(Boolean)
     : [];
 
   const locationCity =
@@ -406,11 +390,12 @@ export function mapBackendJobDetail(
       : '';
 
   const locationParts = [locationCity, locationState].filter(Boolean);
-  const locationLabel = locationParts.join(', ') || 'Local Service';
+  const locationLabel: Msg = locationParts.join(', ') || { key: 'customer.localService' };
 
-  const statusStr = String(raw?.status || 'Open');
-  const urgency = String(raw?.urgency || 'Normal priority');
-  const chips = [statusStr, urgency, 'Job posting'];
+  const statusStr = String(raw?.status || 'open');
+  const urgency = String(raw?.urgency || 'normal');
+  // raw words; the screen shows them with chipLabel() in the app language
+  const chips = [statusStr, urgency, 'job_posting'];
 
   let selectedOffer =
     payload?.selectedOffer && typeof payload.selectedOffer === 'object'
@@ -435,11 +420,11 @@ export function mapBackendJobDetail(
     selectedOffer = {
       id: String(b.offerId || b._id || 'booking-offer'),
       repairmanId: String(rep._id || rep.id || b.repairmanId || 'rep-tech'),
-      repairmanName: rep.name || 'Certified Repair Tech',
-      shopName: repProfile.shopName || 'Certified Repair Center',
-      rating: Number(repProfile.rating || 5.0),
+      repairmanName: rep.name || { key: 'chat.technician' },
+      shopName: repProfile.shopName || '',
+      rating: Number(repProfile.rating || 0),
       totalJobs: Number(repProfile.totalJobs || 0),
-      successRate: 98,
+      successRate: Number(b.experience?.successRate || 0),
       basePrice: Number(bp.basePrice || bp.totalAmount || priceMin || 0),
       partsEstimate: Number(bp.partsPrice || 0),
       totalPrice: Number(bp.totalAmount || priceMin || 0),
@@ -449,16 +434,16 @@ export function mapBackendJobDetail(
       homeService: bd.serviceType === 'home-service',
       dropOffLocation: typeof bd.location?.address === 'string' ? bd.location.address : locationLabel,
       warrantyLabel: bw.duration
-        ? `${bw.duration} Days Warranty`
+        ? { key: 'customerMsg.warrantyDaysLabel', params: { days: bw.duration } }
         : typeof bw === 'string'
         ? bw
-        : '30 Days Warranty',
-      timeLabel: 'Standard Service',
+        : { key: 'customerMsg.warranty30' },
+      timeLabel: { key: 'customerMsg.standardService' },
       startLabel: bd.scheduledDate
-        ? new Date(bd.scheduledDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-        : 'Scheduled',
+        ? { date: String(bd.scheduledDate), style: 'short' }
+        : { key: 'customerMsg.status.scheduled' },
       currency: bp.currency || 'TRY',
-      description: 'Accepted offer proposal and confirmed repair specifications.',
+      description: { key: 'customer.acceptedOfferProposalAndConfirmed' },
       status: 'accepted',
       partsQuality: '',
       requiredParts: [],
@@ -503,9 +488,9 @@ export function mapBackendJobDetail(
     (payload?.booking?.repairmanId
       ? {
           id: String(payload.booking.repairmanId),
-          name: 'Certified Repair Technician',
-          shopName: 'Certified Service Center',
-          rating: 5.0,
+          name: 'Technician',
+          shopName: '',
+          rating: 0,
           totalJobs: 0,
           city: '',
         }
@@ -545,9 +530,7 @@ export function mapBackendJobDetail(
         },
         warranty:
           bd.warranty ||
-          (selectedOffer?.warrantyLabel
-            ? { duration: 30, description: selectedOffer.warrantyLabel }
-            : { duration: 30, description: '30 Days Warranty' }),
+          (selectedOffer?.warrantyLabel ? { description: selectedOffer.warrantyLabel } : undefined),
         location: bd.location || { address: locationLabel },
       },
       repairman:
@@ -555,9 +538,9 @@ export function mapBackendJobDetail(
         (normalizedBooking.repairmanId
           ? {
               id: String(normalizedBooking.repairmanId),
-              name: 'Certified Repair Technician',
-              shopName: 'Certified Service Center',
-              rating: 5.0,
+              name: 'Technician',
+              shopName: '',
+              rating: 0,
             }
           : null),
     };
@@ -570,19 +553,20 @@ export function mapBackendJobDetail(
     title,
     chips,
     priceLabel,
-    urgencyNote: raw?.urgency ? `Priority: ${raw.urgency}` : 'Standard priority',
-    description: typeof raw?.description === 'string' ? raw.description : 'No description provided.',
-    services: servicesList.length > 0 ? servicesList : ['Repair & Diagnostics'],
-    locationNote: 'Drop-off at technician workshop or pickup arranged on request.',
+    urgencyNote: raw?.urgency
+      ? { key: 'customerMsg.priorityIs', params: { priority: String(raw.urgency) } }
+      : { key: 'customerMsg.standardPriority' },
+    description: typeof raw?.description === 'string' ? raw.description : { key: 'customer.noDescriptionProvided' },
+    services: servicesList,
+    locationNote: { key: 'customerMsg.dropOffNote' },
     locationLabel,
-    servicePreference: raw?.servicePreference || raw?.serviceType || 'Drop-off',
+    servicePreference: raw?.servicePreference || raw?.serviceType || 'drop-off',
     stats: [
-      { label: 'Total Offers', value: String(normalizedOffers.length || raw?.offersCount || '0') },
-      { label: 'Status', value: statusStr },
-      { label: 'Max Offers', value: String(raw?.maxOffers || '10') },
-      { label: 'Warranty', value: '30 Days' },
+      { label: { key: 'customer.totalOffers' }, value: String(normalizedOffers.length || raw?.offersCount || '0') },
+      { label: { key: 'customer.status' }, value: { key: 'customerMsg.statusValue', params: { status: statusStr } } },
+      ...(raw?.maxOffers ? [{ label: { key: 'customer.maxOffers' } as Msg, value: String(raw.maxOffers) as Msg }] : []),
     ],
-    createdAt: raw?.createdAt ? new Date(raw.createdAt).toLocaleDateString() : 'Recent',
+    createdAt: raw?.createdAt ? { date: String(raw.createdAt) } : '',
     offers: normalizedOffers,
     selectedOffer,
     booking: normalizedBooking,
@@ -616,7 +600,7 @@ export function mapBackendQuotationDetail(payload: any): MobileJobDetail {
       ? quotation.deviceInfo.modelName
       : '';
 
-  const title = [brandName, modelName].filter(Boolean).join(' ') || 'Device Repair Quotation';
+  const title: Msg = [brandName, modelName].filter(Boolean).join(' ') || { key: 'customer.deviceRepairQuotation' };
 
   const total = Number(
     booking?.bookingDetails?.pricing?.totalAmount ||
@@ -624,19 +608,19 @@ export function mapBackendQuotationDetail(payload: any): MobileJobDetail {
       quotation?.estimatedCost ||
       0,
   );
-  const priceLabel = `TRY ${total.toLocaleString()}`;
+  const priceLabel = formatMoney(total);
 
   let rawServices = quotation?.deviceInfo?.repairServices || quotation?.requiredParts || [];
-  const servicesList: string[] = Array.isArray(rawServices)
-    ? rawServices.map((s: any) => (typeof s === 'string' ? s : s?.name || s?.title || 'Repair Service'))
-    : ['Diagnostic & Repair'];
+  const servicesList: Msg[] = Array.isArray(rawServices)
+    ? rawServices.map((s: any): Msg => (typeof s === 'string' ? s : s?.name || s?.title || { key: 'customer.repairService' }))
+    : [];
 
-  const statusStr = String(booking?.status || quotation?.status || 'Booked');
-  const chips = [statusStr, 'Direct Message', 'Certified Repair'];
+  const statusStr = String(booking?.status || quotation?.status || 'booked');
+  const chips = [statusStr, 'direct_message'];
 
   const repairmanProfile = repairman?.repairmanProfile || {};
-  const shopName = repairmanProfile?.shopName || 'Certified Repair Center';
-  const rating = Number(repairmanProfile?.rating || 5.0);
+  const shopName = repairmanProfile?.shopName || '';
+  const rating = Number(repairmanProfile?.rating || 0);
 
   return {
     id: String(booking?._id || quotation?._id || payload?._id || ''),
@@ -645,25 +629,28 @@ export function mapBackendQuotationDetail(payload: any): MobileJobDetail {
     title,
     chips,
     priceLabel,
-    urgencyNote: 'Direct quote booking with repair technician',
-    description: typeof quotation?.repairmanNotes === 'string' ? quotation.repairmanNotes : 'Direct quotation repair job.',
+    urgencyNote: { key: 'customerMsg.directQuoteNote' },
+    description: typeof quotation?.repairmanNotes === 'string' ? quotation.repairmanNotes : { key: 'customer.directQuotationRepairJob' },
     services: servicesList,
-    locationNote: 'Drop-off at technician workshop or pickup arranged on request.',
-    locationLabel: repairmanProfile?.city || 'Local Technician',
-    servicePreference: quotation?.serviceDetails?.serviceType || 'Drop-off',
+    locationNote: { key: 'customerMsg.dropOffNote' },
+    locationLabel: repairmanProfile?.city || { key: 'customer.localTechnician' },
+    servicePreference: quotation?.serviceDetails?.serviceType || 'drop-off',
     stats: [
-      { label: 'Booking ID', value: String(booking?._id || '').slice(-6).toUpperCase() || 'Direct' },
-      { label: 'Status', value: statusStr },
-      { label: 'Technician', value: repairman?.name || 'Assigned Tech' },
-      { label: 'Shop', value: shopName },
+      { label: { key: 'customer.bookingId' }, value: String(booking?._id || '').slice(-6).toUpperCase() || { key: 'customerMsg.direct' } },
+      { label: { key: 'customer.status' }, value: { key: 'customerMsg.statusValue', params: { status: statusStr } } },
+      { label: { key: 'chat.technician' }, value: repairman?.name || { key: 'customer.assignedTech' } },
+      { label: { key: 'customer.shop' }, value: shopName },
     ],
-    createdAt: quotation?.sentAt || booking?.createdAt ? new Date(quotation?.sentAt || booking?.createdAt).toLocaleDateString() : 'Recent',
+    createdAt:
+      quotation?.sentAt || booking?.createdAt
+        ? { date: String(quotation?.sentAt || booking?.createdAt) }
+        : { key: 'customerMsg.recent' },
     offers: [],
     selectedOffer: null,
     booking,
     repairman: {
       id: String(repairman?._id || repairman?.id || ''),
-      name: repairman?.name || 'Certified Repair Technician',
+      name: repairman?.name || '',
       shopName,
       rating,
       phone: repairman?.phone || '',
@@ -681,9 +668,21 @@ export const customerJobApi = {
    * 1. Get Customer's posted repair jobs
    */
   async getMyJobs(params?: { status?: string; page?: number; limit?: number }): Promise<MobileCustomerJob[]> {
-    const res = await apiClient.get('/repair-jobs/my-jobs', { params });
-    const rawJobs = res.data?.data?.jobs || res.data?.jobs || res.data?.data;
-    return Array.isArray(rawJobs) ? rawJobs.map(mapBackendJobToMobile) : [];
+    const limit = params?.limit || 50;
+    const fetchPage = async (page: number) => {
+      const res = await apiClient.get('/repair-jobs/my-jobs', { params: { ...params, page, limit } });
+      const rawJobs = res.data?.data?.jobs || res.data?.jobs || res.data?.data;
+      return Array.isArray(rawJobs) ? rawJobs.map(mapBackendJobToMobile) : [];
+    };
+    if (params?.page) return fetchPage(params.page);
+    // all pages (the backend sends 50 per page); a failed request throws
+    const all: MobileCustomerJob[] = [];
+    for (let page = 1; page <= 10; page++) {
+      const items = await fetchPage(page);
+      all.push(...items);
+      if (items.length < limit) break;
+    }
+    return all;
   },
 
   /**
@@ -728,7 +727,8 @@ export const customerJobApi = {
 
       return mapBackendJobDetail(job, Array.isArray(offers) ? offers : [], payload);
     } catch (err: any) {
-      if (__DEV__) console.warn(`getMyJobDetail(${jobId}) error:`, err?.message);
+      // no connection or a server failure is not "job not found": the screen offers a retry
+      if (err?.isNetworkError || err?.isTimeout || (err?.status && err.status >= 500)) throw err;
       return null;
     }
   },
@@ -736,68 +736,6 @@ export const customerJobApi = {
   /**
    * 3. Get Offers for a Job
    */
-  async getJobOffers(jobId: string): Promise<NormalizedOffer[]> {
-    if (!jobId) return [];
-    try {
-      const res = await apiClient.get(`/repair-jobs/my-jobs/${jobId}/offers`);
-      const offers = res.data?.data?.offers || res.data?.offers || res.data?.data || [];
-      if (Array.isArray(offers)) {
-        return offers.map(normalizeOffer).filter(Boolean) as NormalizedOffer[];
-      }
-      return [];
-    } catch {
-      return [];
-    }
-  },
-
-  /**
-   * 4. Select Offer / Book
-   */
-  async selectOffer(
-    jobId: string,
-    offerId: string,
-    bookingData?: any,
-  ): Promise<{ success: boolean; message?: string }> {
-    try {
-      // Ensure scheduledDate is strictly in the future (at least 24 hours from now)
-      let scheduledDate = bookingData?.scheduledDate;
-      if (!scheduledDate || new Date(scheduledDate).getTime() <= Date.now()) {
-        const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
-        tomorrow.setHours(10, 0, 0, 0);
-        scheduledDate = tomorrow.toISOString();
-      }
-
-      const isPickUp = bookingData?.serviceType === 'pickup';
-      const pickUpAddress = bookingData?.pickUpAddress || bookingData?.address || '';
-
-      const res = await apiClient.post(`/repair-jobs/${jobId}/select-offer`, {
-        offerId,
-        serviceType: bookingData?.serviceType || 'drop-off',
-        scheduledDate,
-        specialInstructions: bookingData?.specialInstructions || '',
-        isPickUp,
-        pickUpAddress,
-      });
-      return { success: Boolean(res.data?.success), message: res.data?.message || 'Offer selected successfully!' };
-    } catch (err: any) {
-      return { success: false, message: err?.response?.data?.message || 'Failed to select offer' };
-    }
-  },
-
-  /**
-   * 5. Get Customer Bookings
-   */
-  async getMyBookings(params?: { status?: string; page?: number; limit?: number }): Promise<any[]> {
-    try {
-      const res = await apiClient.get('/repair-jobs/bookings/my-bookings', { params });
-      const bookings = res.data?.data?.bookings || res.data?.bookings || [];
-      return Array.isArray(bookings) ? bookings : [];
-    } catch (err: any) {
-      if (__DEV__) console.warn('getMyBookings error:', err?.message);
-      return [];
-    }
-  },
-
   /**
    * 6. Send Response to a Dispute
    */
@@ -806,10 +744,10 @@ export const customerJobApi = {
       const formData = new FormData();
       formData.append('message', message.trim());
       const res = await apiClient.post(`/disputes/${disputeId}/response`, formData);
-      return { success: Boolean(res.data?.success), message: res.data?.message || 'Response added successfully!' };
+      return { success: Boolean(res.data?.success), message: res.data?.message || i18n.t('customer.responseAddedSuccessfully') };
     } catch (err: any) {
       if (__DEV__) console.warn('sendDisputeResponse error:', err?.message);
-      return { success: false, message: err?.response?.data?.message || err?.message || 'Failed to send response' };
+      return { success: false, message: err?.response?.data?.message || err?.message || i18n.t('customer.failedToSendResponse') };
     }
   },
 
@@ -829,11 +767,11 @@ export const customerJobApi = {
       const res = await apiClient.post('/reviews', payload);
       return {
         success: Boolean(res.data?.success),
-        message: res.data?.message || 'Review submitted successfully',
+        message: res.data?.message || i18n.t('customer.reviewSubmittedSuccessfully'),
         review: res.data?.review || res.data?.data,
       };
     } catch (err: any) {
-      const msg = err?.response?.data?.message || err?.message || 'Failed to submit review';
+      const msg = err?.response?.data?.message || err?.message || i18n.t('customer.failedToSubmitReview');
       throw new Error(msg);
     }
   },
@@ -841,16 +779,18 @@ export const customerJobApi = {
   /**
    * 8. Fetch Completed Jobs Available for Review
    */
-  async getCompletedJobsForReview(page = 1, limit = 20): Promise<any[]> {
-    try {
+  // All pages (up to 10). A failed request throws, so the screen never shows "nothing to review".
+  async getCompletedJobsForReview(limit = 20): Promise<any[]> {
+    const all: any[] = [];
+    for (let page = 1; page <= 10; page++) {
       const res = await apiClient.get('/reviews/my-completed-jobs', {
         params: { page, limit },
       });
-      return res.data?.data?.completedJobs || [];
-    } catch (err: any) {
-      if (__DEV__) console.warn('getCompletedJobsForReview error:', err?.message);
-      return [];
+      const list = res.data?.data?.completedJobs || [];
+      all.push(...list);
+      if (list.length < limit) break;
     }
+    return all;
   },
 
   /**
@@ -862,10 +802,10 @@ export const customerJobApi = {
       const res = await apiClient.patch(`/repair-jobs/${bookingId}/close-job`, {});
       return {
         success: Boolean(res.data?.success),
-        message: res.data?.message || 'Job closed successfully',
+        message: res.data?.message || i18n.t('customer.jobClosedSuccessfully'),
       };
     } catch (err: any) {
-      const msg = err?.response?.data?.message || err?.message || 'Failed to close job';
+      const msg = err?.response?.data?.message || err?.message || i18n.t('customer.failedToCloseJob2');
       throw new Error(msg);
     }
   },
@@ -882,11 +822,11 @@ export const customerJobApi = {
       const res = await apiClient.post('/disputes/create', payload);
       return {
         success: Boolean(res.data?.success),
-        message: res.data?.message || 'Dispute created successfully',
+        message: res.data?.message || i18n.t('customer.disputeCreatedSuccessfully'),
         dispute: res.data?.dispute || res.data?.data,
       };
     } catch (err: any) {
-      const msg = err?.response?.data?.message || err?.message || 'Failed to create dispute';
+      const msg = err?.response?.data?.message || err?.message || i18n.t('customer.failedToCreateDispute2');
       throw new Error(msg);
     }
   },

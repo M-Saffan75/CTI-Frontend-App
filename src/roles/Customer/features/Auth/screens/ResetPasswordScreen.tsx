@@ -11,8 +11,11 @@ import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { PASSWORD_MAX, validateConfirmPassword, validatePassword } from '@/utils/validators';
 import { resetPassword } from '../api/authApi';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 export default function ResetPasswordScreen({ navigation, route }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const email = route?.params?.email || '';
   const otp = route?.params?.otp || '';
@@ -42,8 +45,8 @@ export default function ResetPasswordScreen({ navigation, route }: any) {
     } catch (err: any) {
       setModal({
         visible: true,
-        title: 'Reset Failed',
-        message: err.message || 'Could not reset password',
+        title: i18n.t('customer.resetFailed'),
+        message: err.message || i18n.t('customer.couldNotResetPassword'),
       });
     } finally {
       setLoading(false);
@@ -51,10 +54,10 @@ export default function ResetPasswordScreen({ navigation, route }: any) {
   };
 
   return (
-    <AuthLayout title="Reset Your Password" subtitle="Enter a new password to secure your account">
+    <AuthLayout title={t('customer.resetYourPassword')} subtitle={t('customer.enterANewPasswordTo')}>
       <FadeUp delay={150} duration={700}>
         <Input
-          label="New Password"
+          label={t('profile.password.new')}
           value={password}
           onChangeText={text => {
             setPassword(text);
@@ -70,7 +73,7 @@ export default function ResetPasswordScreen({ navigation, route }: any) {
 
       <FadeUp delay={250} duration={700}>
         <Input
-          label="Confirm Password"
+          label={t('customer.confirmPassword')}
           value={confirm}
           onChangeText={text => {
             setConfirm(text);
@@ -86,7 +89,7 @@ export default function ResetPasswordScreen({ navigation, route }: any) {
 
       <FadeUp delay={350} duration={700}>
         <Button
-          title="Continue"
+          title={t('customer.continue')}
           size="lg"
           loading={loading}
           onPress={onSubmit}
@@ -94,7 +97,7 @@ export default function ResetPasswordScreen({ navigation, route }: any) {
         />
 
         <Pressable onPress={() => navigation.navigate('Login')} hitSlop={8} style={styles.back}>
-          <Text style={[styles.backText, { color: colors.primary }]}>Back to login</Text>
+          <Text style={[styles.backText, { color: colors.primary }]}>{t('customer.backToLogin')}</Text>
         </Pressable>
       </FadeUp>
 

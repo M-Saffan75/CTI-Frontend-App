@@ -65,9 +65,7 @@ export default function Button({
           {icon && iconPosition === 'left' && (
             <Icon source={icon} size={sizing.icon} color={tintIcon ? textColor : null} />
           )}
-          <Text
-            numberOfLines={1}
-            style={[styles.title, { color: textColor, fontSize: sizing.fontSize }, textStyle]}>
+          <Text style={[styles.title, { color: textColor, fontSize: sizing.fontSize }, textStyle]}>
             {title}
           </Text>
           {icon && iconPosition === 'right' && (
@@ -80,7 +78,7 @@ export default function Button({
 
   const box = [
     styles.box,
-    { height: sizing.height, paddingHorizontal: sizing.paddingHorizontal },
+    { minHeight: sizing.height, paddingHorizontal: sizing.paddingHorizontal },
     contentStyle,
   ];
 
@@ -117,9 +115,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     borderRadius: 12,
+    paddingVertical: 6,
     overflow: 'hidden',
   },
   title: {
     fontFamily: fonts.bold,
+    textAlign: 'center',
+    flexShrink: 1,
   },
 });

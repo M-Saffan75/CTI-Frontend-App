@@ -19,21 +19,25 @@ import {
   chevronLeftBold,
   chevronRightBold,
   closeIcon,
-  shieldBold,
   videoBold,
 } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import CtiVerifiedSellCard from '../components/CtiVerifiedSellCard';
 import RefurbishedHeader from '../components/RefurbishedHeader';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
+import { upper } from '@/i18n/locale';
 
 export default function UploadDeviceMediaScreen({ navigation, route }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
   const brand = route?.params?.brand || 'Apple';
   const brandSlug = route?.params?.brandSlug || brand.toLowerCase();
   const brandId = route?.params?.brandId;
-  const model = route?.params?.model || '12 pro max';
+  const model = route?.params?.model || t('customer.n12ProMax');
   const modelSlug =
     route?.params?.modelSlug || model.toLowerCase().replace(/\s+/g, '-');
   const modelId = route?.params?.modelId;
@@ -63,8 +67,8 @@ export default function UploadDeviceMediaScreen({ navigation, route }: any) {
       setModal({
         visible: true,
         type: 'warning',
-        title: 'Limit Reached',
-        message: 'You can upload a maximum of 10 pictures.',
+        title: i18n.t('customer.limitReached'),
+        message: i18n.t('customer.youCanUploadAMaximum'),
       });
       return;
     }
@@ -80,8 +84,8 @@ export default function UploadDeviceMediaScreen({ navigation, route }: any) {
           setModal({
             visible: true,
             type: 'error',
-            title: 'Media Error',
-            message: response.errorMessage || 'Failed to select pictures.',
+            title: i18n.t('customer.mediaError'),
+            message: response.errorMessage || i18n.t('customer.failedToSelectPictures'),
           });
           return;
         }
@@ -102,8 +106,8 @@ export default function UploadDeviceMediaScreen({ navigation, route }: any) {
       setModal({
         visible: true,
         type: 'warning',
-        title: 'Limit Reached',
-        message: 'You can upload a maximum of 3 videos.',
+        title: i18n.t('customer.limitReached'),
+        message: i18n.t('customer.youCanUploadAMaximum2'),
       });
       return;
     }
@@ -119,8 +123,8 @@ export default function UploadDeviceMediaScreen({ navigation, route }: any) {
           setModal({
             visible: true,
             type: 'error',
-            title: 'Media Error',
-            message: response.errorMessage || 'Failed to select videos.',
+            title: i18n.t('customer.mediaError'),
+            message: response.errorMessage || i18n.t('customer.failedToSelectVideos'),
           });
           return;
         }
@@ -149,8 +153,8 @@ export default function UploadDeviceMediaScreen({ navigation, route }: any) {
       setModal({
         visible: true,
         type: 'warning',
-        title: 'Pictures Required',
-        message: 'Please upload at least 1 clear picture of your device before proceeding.',
+        title: i18n.t('customer.picturesRequired'),
+        message: i18n.t('customer.pleaseUploadAtLeast1'),
       });
       return;
     }
@@ -188,7 +192,7 @@ export default function UploadDeviceMediaScreen({ navigation, route }: any) {
           scale={0.9}
           style={styles.backWrap}>
           <View style={[styles.back, { backgroundColor: colors.primary }]}>
-            <Icon source={arrowLeftBold} size={20} color="#FFFFFF" />
+            <Icon source={arrowLeftBold} size={20} color={colors.onPrimary} />
           </View>
         </Squeeze>
 
@@ -199,10 +203,10 @@ export default function UploadDeviceMediaScreen({ navigation, route }: any) {
             { backgroundColor: colors.surface, borderColor: colors.border + '44' },
           ]}>
           <Text style={[styles.uploadTitle, { color: colors.text }]}>
-            Upload Device Photos & Media
+            {t('customer.uploadDevicePhotosAndMedia')}
           </Text>
           <Text style={[styles.uploadSub, { color: colors.textMuted }]}>
-            Upload images (max 10) and videos (max 3) of your device to verify its physical condition.
+            {t('customer.uploadImagesMax10And')}
           </Text>
 
           <View style={styles.dropzonesRow}>
@@ -217,18 +221,18 @@ export default function UploadDeviceMediaScreen({ navigation, route }: any) {
                 },
               ]}>
               <View style={styles.dropzoneHeader}>
-                <Text style={[styles.dropzoneType, { color: colors.text }]}>Picture</Text>
+                <Text style={[styles.dropzoneType, { color: colors.text }]}>{t('customer.picture')}</Text>
                 <Text style={[styles.dropzoneLimit, { color: colors.textMuted }]}>
-                  {images.length}/10 Max
+                  {t('customerMsg.maxPics', { count: images.length })}
                 </Text>
               </View>
               <View style={styles.dropzoneCenter}>
                 <Icon source={cameraBold} size={28} color={colors.primary} />
                 <Text style={[styles.dropzoneActionText, { color: colors.text }]}>
-                  Upload Pictures
+                  {t('customer.uploadPictures')}
                 </Text>
                 <Text style={[styles.dropzoneHint, { color: colors.textMuted }]}>
-                  PNG, JPG up to 10MB
+                  {t('customer.pngJpgUpTo10mb')}
                 </Text>
               </View>
             </TouchableOpacity>
@@ -244,18 +248,18 @@ export default function UploadDeviceMediaScreen({ navigation, route }: any) {
                 },
               ]}>
               <View style={styles.dropzoneHeader}>
-                <Text style={[styles.dropzoneType, { color: colors.text }]}>Video</Text>
+                <Text style={[styles.dropzoneType, { color: colors.text }]}>{t('customer.video')}</Text>
                 <Text style={[styles.dropzoneLimit, { color: colors.textMuted }]}>
-                  {videos.length}/3 Max
+                  {t('customerMsg.maxVids', { count: videos.length })}
                 </Text>
               </View>
               <View style={styles.dropzoneCenter}>
                 <Icon source={videoBold} size={28} color={colors.primary} />
                 <Text style={[styles.dropzoneActionText, { color: colors.text }]}>
-                  Upload Video
+                  {t('customer.uploadVideo')}
                 </Text>
                 <Text style={[styles.dropzoneHint, { color: colors.textMuted }]}>
-                  MP4, MOV up to 50MB
+                  {t('customer.mp4MovUpTo50mb')}
                 </Text>
               </View>
             </TouchableOpacity>
@@ -265,7 +269,7 @@ export default function UploadDeviceMediaScreen({ navigation, route }: any) {
           {images.length > 0 && (
             <View style={styles.mediaPreviewSection}>
               <Text style={[styles.mediaSectionTitle, { color: colors.text }]}>
-                Attached Photos ({images.length}/10)
+                {upper(t('customerMsg.attachedPhotos', { count: images.length }))}
               </Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.thumbnailsScroll}>
                 {images.map((img, idx) => (
@@ -286,10 +290,10 @@ export default function UploadDeviceMediaScreen({ navigation, route }: any) {
           {videos.length > 0 && (
             <View style={styles.mediaPreviewSection}>
               <Text style={[styles.mediaSectionTitle, { color: colors.text }]}>
-                Attached Videos ({videos.length}/3)
+                {upper(t('customerMsg.attachedVideos', { count: videos.length }))}
               </Text>
               {videos.map((vid, idx) => {
-                const vidName = vid.fileName || `Video ${idx + 1}.mp4`;
+                const vidName = vid.fileName || i18n.t('customerMsg.videoName', { n: idx + 1 });
                 const sizeMb = vid.fileSize ? (vid.fileSize / (1024 * 1024)).toFixed(2) + ' MB' : '';
                 return (
                   <View
@@ -325,7 +329,7 @@ export default function UploadDeviceMediaScreen({ navigation, route }: any) {
                 { borderColor: colors.border + '66', backgroundColor: colors.surfaceAlt },
               ]}>
               <Icon source={chevronLeftBold} size={14} color={colors.text} />
-              <Text style={[styles.navBtnOutlineText, { color: colors.text }]}>Previous Step</Text>
+              <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.navBtnOutlineText, { color: colors.text }]}>{t('customer.previousStep')}</Text>
             </TouchableOpacity>
 
             <Squeeze
@@ -338,8 +342,8 @@ export default function UploadDeviceMediaScreen({ navigation, route }: any) {
                 },
               ]}>
               <View style={styles.btnRow}>
-                <Text style={styles.navBtnFilledText}>Get Quote</Text>
-                <Icon source={chevronRightBold} size={14} color="#FFFFFF" style={{ marginLeft: 6 }} />
+                <Text style={styles.navBtnFilledText}>{t('customer.getQuote')}</Text>
+                <Icon source={chevronRightBold} size={14} color={colors.onPrimary} style={{ marginLeft: 6 }} />
               </View>
             </Squeeze>
           </View>
@@ -351,17 +355,17 @@ export default function UploadDeviceMediaScreen({ navigation, route }: any) {
             styles.detailsCard,
             { backgroundColor: colors.surface, borderColor: colors.border + '44' },
           ]}>
-          <Text style={[styles.detailsHeading, { color: colors.text }]}>Device Details</Text>
+          <Text style={[styles.detailsHeading, { color: colors.text }]}>{t('customer.deviceDetails')}</Text>
           <View style={[styles.divider, { backgroundColor: colors.border + '33' }]} />
 
           <View style={styles.detailRow}>
             <View>
-              <Text style={[styles.metaLabel, { color: colors.textMuted }]}>Brand</Text>
+              <Text style={[styles.metaLabel, { color: colors.textMuted }]}>{t('customer.brand2')}</Text>
               <Text style={[styles.metaValue, { color: colors.text }]}>{brand}</Text>
             </View>
 
             <View style={{ alignItems: 'flex-end' }}>
-              <Text style={[styles.metaLabel, { color: colors.textMuted }]}>Model</Text>
+              <Text style={[styles.metaLabel, { color: colors.textMuted }]}>{t('customer.model')}</Text>
               <Text style={[styles.metaValue, { color: colors.text }]}>
                 {model}
                 {selectedVariants && selectedVariants.length > 0
@@ -375,29 +379,15 @@ export default function UploadDeviceMediaScreen({ navigation, route }: any) {
 
           <View style={[styles.detailRow, { marginTop: 12 }]}>
             <View>
-              <Text style={[styles.metaLabel, { color: colors.textMuted }]}>Media Uploaded</Text>
+              <Text style={[styles.metaLabel, { color: colors.textMuted }]}>{t('customer.mediaUploaded')}</Text>
               <Text style={[styles.metaValue, { color: colors.primary }]}>
-                {images.length} Pics, {videos.length} Vids
+                {t('customerMsg.picsVids', { pics: images.length, vids: videos.length })}
               </Text>
             </View>
           </View>
         </View>
 
-        {/* Security & Guarantee Trust Card matching Figma */}
-        <View
-          style={[
-            styles.trustCard,
-            { backgroundColor: colors.surface, borderColor: colors.border + '44' },
-          ]}>
-          <View style={styles.trustHeader}>
-            <Icon source={shieldBold} size={20} color={colors.primary} />
-            <Text style={[styles.trustTitle, { color: colors.text }]}>Device Detail</Text>
-          </View>
-          <Text style={[styles.trustDesc, { color: colors.textMuted }]}>
-            Get paid instantly at your doorstep. We guarantee 100% data security and professional
-            device assessment through the CTI platform.
-          </Text>
-        </View>
+        <CtiVerifiedSellCard />
       </ScrollView>
 
       <AlertModal
@@ -466,10 +456,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   dropzoneType: {
+    flexShrink: 1,
     fontSize: 13,
     fontFamily: fonts.bold,
   },
   dropzoneLimit: {
+    flexShrink: 1,
     fontSize: 10,
     fontFamily: fonts.medium,
   },
@@ -495,7 +487,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: fonts.bold,
     marginBottom: 8,
-    textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   thumbnailsScroll: {
@@ -568,6 +559,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   navBtnOutlineText: {
+    flexShrink: 1,
     fontSize: 14,
     fontFamily: fonts.medium,
   },
@@ -584,6 +576,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   navBtnFilledText: {
+    flexShrink: 1,
     color: '#FFFFFF',
     fontSize: 14,
     fontFamily: fonts.bold,

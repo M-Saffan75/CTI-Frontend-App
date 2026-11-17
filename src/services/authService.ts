@@ -3,6 +3,7 @@ import apiClient from './apiClient';
 import { tokenStorage } from './tokenStorage';
 import { triggerCleanLogout } from './authEvents';
 import { normalizeApiError, ApiError } from './apiError';
+import i18n from '@/i18n';
 
 export interface AuthUser {
   id?: string;
@@ -80,6 +81,23 @@ export class AuthService {
   }
 
   /**
+   * Merge new values (name, photo) into the cached and stored user, so headers and Settings
+   * show them at once. The role is never changed here.
+   */
+  static async updateStoredUser(patch: Partial<AuthUser>): Promise<void> {
+    const merged = { ...(memoryUser || {}), ...patch };
+    memoryUser = merged;
+    try {
+      await AsyncStorage.setItem('user', JSON.stringify(merged));
+      if (memoryRole) {
+        await AsyncStorage.setItem('auth', JSON.stringify({ user: merged, role: memoryRole }));
+      }
+    } catch {
+      // the in-memory copy is already updated
+    }
+  }
+
+  /**
    * Login with email and password
    */
   static async login({ email, password, role, rememberMe = true }: LoginParams) {
@@ -103,7 +121,7 @@ export class AuthService {
           email: dataPayload?.email || cleanEmail,
           userId: dataPayload?.userId,
           role: dataPayload?.role || role,
-          message: resData?.message || 'Please verify your email first.',
+          message: resData?.message || i18n.t('appMsg.auth.verifyFirst'),
         };
       }
 
@@ -148,7 +166,7 @@ export class AuthService {
         refreshToken,
         user,
         role: userRole,
-        message: resData?.message || 'Login successful',
+        message: resData?.message || i18n.t('appMsg.auth.loginOk'),
       };
     } catch (error: any) {
       const normalized = normalizeApiError(error);
@@ -191,7 +209,7 @@ export class AuthService {
         email: cleanEmail,
         role,
         data: resData?.data,
-        message: resData?.message || 'Registration successful. Please verify OTP.',
+        message: resData?.message || i18n.t('appMsg.auth.registerOk'),
       };
     } catch (error: any) {
       const normalized = normalizeApiError(error);
@@ -213,7 +231,7 @@ export class AuthService {
       return {
         ok: true,
         email: cleanEmail,
-        message: response.data?.message || 'Verification code sent to your email.',
+        message: response.data?.message || i18n.t('appMsg.auth.codeSent'),
       };
     } catch (error: any) {
       const normalized = normalizeApiError(error);
@@ -291,7 +309,7 @@ export class AuthService {
         token,
         refreshToken,
         user: dataPayload?.user,
-        message: resData?.message || 'OTP verified successfully',
+        message: resData?.message || i18n.t('appMsg.auth.otpOk'),
       };
     } catch (error: any) {
       const normalized = normalizeApiError(error);
@@ -324,7 +342,7 @@ export class AuthService {
 
       return {
         ok: true,
-        message: response.data?.message || 'OTP resent successfully.',
+        message: response.data?.message || i18n.t('appMsg.auth.otpResent'),
       };
     } catch (error: any) {
       const normalized = normalizeApiError(error);
@@ -353,7 +371,7 @@ export class AuthService {
       const response = await apiClient.post('/auth/reset-password', payload);
       return {
         ok: true,
-        message: response.data?.message || 'Password reset successfully.',
+        message: response.data?.message || i18n.t('appMsg.auth.resetOk'),
       };
     } catch (error: any) {
       const normalized = normalizeApiError(error);
@@ -411,7 +429,7 @@ export class AuthService {
 
       return {
         ok: true,
-        message: response.data?.message || 'Password changed successfully.',
+        message: response.data?.message || i18n.t('appMsg.auth.changeOk'),
       };
     } catch (error: any) {
       const normalized = normalizeApiError(error);
@@ -425,6 +443,31 @@ export class AuthService {
    */
   static async fetchUserProfile(): Promise<AuthUser | null> {
     try {
+      // A seller's KYC lives in the Seller record, not in /auth/user-details (which has no seller KYC fields),
+      // so the seller status comes from the same request the web profile page uses.
+      if (memoryRole === 'seller') {
+        const sellerRes = await apiClient.get('/seller/profile/me-seller');
+        const seller = sellerRes.data?.data;
+        if (!seller) return null;
+
+        const sellerKycCompleted = Boolean(seller.isKycCompleted);
+        const sellerUser: AuthUser = {
+          ...(memoryUser || {}),
+          isKycCompleted: sellerKycCompleted,
+          kycStatus: seller.kycStatus || (sellerKycCompleted ? 'pending' : 'incomplete'),
+          sellerId: seller.sellerId ?? memoryUser?.sellerId,
+          // The name and photo the seller sees in Settings and the dashboard are the ones of the store profile
+          name: seller.fullName || memoryUser?.name,
+          businessName: seller.businessName || memoryUser?.businessName,
+          avatar: seller.profilePictureOrLogo || memoryUser?.avatar,
+          profileImage: seller.profilePictureOrLogo || memoryUser?.profileImage,
+        };
+        await AsyncStorage.setItem('user', JSON.stringify(sellerUser));
+        await AsyncStorage.setItem('auth', JSON.stringify({ user: sellerUser, role: memoryRole }));
+        memoryUser = sellerUser;
+        return sellerUser;
+      }
+
       const response = await apiClient.get('/auth/user-details');
       const resData = response.data;
       const rawUser = resData?.data || resData?.user || resData;
@@ -441,7 +484,7 @@ export class AuthService {
         rawUser.kycStatus ||
         rawUser.repairmanProfile?.kycInfo?.kycStatus ||
         rawUser.sellerProfile?.kycStatus ||
-        (isKycCompleted ? 'approved' : 'incomplete');
+        (isKycCompleted ? 'pending' : 'incomplete');
 
       const updatedUser: AuthUser = {
         ...rawUser,

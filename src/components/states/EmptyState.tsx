@@ -13,6 +13,7 @@ import Button from '@/components/Button';
 import { inboxBold } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import { useTranslation } from 'react-i18next';
 
 export interface EmptyStateAction {
   label: string;
@@ -36,7 +37,7 @@ export interface EmptyStateProps {
 }
 
 export default function EmptyState({
-  title = 'No data found',
+  title,
   message,
   icon = inboxBold,
   action,
@@ -44,6 +45,7 @@ export default function EmptyState({
   style,
 }: EmptyStateProps) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
 
   return (
     <View style={[styles.container, fullScreen && styles.fullScreen, style]}>
@@ -57,7 +59,7 @@ export default function EmptyState({
         </View>
       )}
 
-      <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
+      <Text style={[styles.title, { color: colors.text }]}>{title ?? t('common.noDataFound')}</Text>
 
       {Boolean(message) && (
         <Text style={[styles.message, { color: colors.textMuted }]}>

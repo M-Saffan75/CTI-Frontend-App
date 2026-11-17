@@ -5,35 +5,38 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from '@/components/Icon';
 import Button from '@/components/Button';
 import ThemePicker from '@/components/ThemePicker';
+import LanguagePicker from '@/components/LanguagePicker';
 import { FadeUp } from '@/animations';
 import { arrowRightBold, customerIcon, repairmanIcon, sellerIcon } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { ROLES } from '@/constants/roles';
+import { useTranslation } from 'react-i18next';
 
 const OPTIONS = [
   {
     role: ROLES.CUSTOMER,
-    title: 'Customer',
-    description: 'Book a repair or browse products',
+    title: 'glossary.customer',
+    description: 'roleSelect.customerDesc',
     icon: customerIcon,
   },
   {
     role: ROLES.REPAIRMAN,
-    title: 'Repairman',
-    description: 'Accept bookings and manage repair jobs',
+    title: 'glossary.repairman',
+    description: 'roleSelect.repairmanDesc',
     icon: repairmanIcon,
   },
   {
     role: ROLES.SELLER,
-    title: 'Seller',
-    description: 'List your products and manage orders',
+    title: 'glossary.seller',
+    description: 'roleSelect.sellerDesc',
     icon: sellerIcon,
   },
 ];
 
 export default function RoleSelectScreen({ onNext = null }) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const [selected, setSelected] = useState(ROLES.CUSTOMER);
 
@@ -43,13 +46,16 @@ export default function RoleSelectScreen({ onNext = null }) {
         styles.screen,
         { backgroundColor: colors.background, paddingTop: insets.top + 40, paddingBottom: insets.bottom + 20 },
       ]}>
-      <ThemePicker style={styles.themePicker} />
+      <View style={styles.topBar}>
+        <LanguagePicker />
+        <ThemePicker />
+      </View>
 
       <Text style={[styles.title, { color: colors.text }]}>
-        In which role will you be working?
+        {t('roleSelect.title')}
       </Text>
       <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-        Choose your role and we'll personalize the app just for you
+        {t('roleSelect.subtitle')}
       </Text>
 
       <View style={styles.list}>
@@ -79,9 +85,9 @@ export default function RoleSelectScreen({ onNext = null }) {
               </View>
 
               <View style={styles.cardText}>
-                <Text style={[styles.cardTitle, { color: colors.text }]}>{option.title}</Text>
+                <Text style={[styles.cardTitle, { color: colors.text }]}>{t(option.title)}</Text>
                 <Text style={[styles.cardDescription, { color: colors.textMuted }]}>
-                  {option.description}
+                  {t(option.description)}
                 </Text>
               </View>
 
@@ -99,7 +105,7 @@ export default function RoleSelectScreen({ onNext = null }) {
       </View>
 
       <Button
-        title="Next"
+        title={t('roleSelect.next')}
         icon={arrowRightBold}
         size="lg"
         onPress={() => onNext && onNext(selected)}
@@ -114,8 +120,10 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 20,
   },
-  themePicker: {
-    alignSelf: 'flex-end',
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 20,
   },
   title: {

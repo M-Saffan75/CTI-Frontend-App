@@ -1,13 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
+  Image,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { launchImageLibrary } from 'react-native-image-picker';
 
 import Button from '@/components/Button';
 import Icon from '@/components/Icon';
@@ -17,476 +19,546 @@ import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
   chevronDownBold,
-  filmBold,
+  closeIcon,
   imageBold,
   infoCircleBold,
   packageBold,
-  shieldBold,
   tagBold,
-  videoBold,
 } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
-import { createSellerProductApi } from '@/roles/Seller/services/sellerApi';
+import { getWebSellerProductAddUrl } from '@/constants/config';
+import {
+  createSellerProductApi,
+  SellerOption,
+} from '@/roles/Seller/services/sellerApi';
+import { markProductsDirty, openWebsite } from '@/roles/Seller/utils/sellerUtils';
+import useProductOptions from '@/roles/Seller/utils/useProductOptions';
+import OptionPickerModal from '../components/OptionPickerModal';
+import KeyboardSafeView from '@/components/KeyboardSafeView';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
+
+const MAX_IMAGES = 3;
+
+type FieldKey = 'title' | 'modelNumber' | 'description' | 'categoryId' | 'price' | 'stock' | 'images';
+type FieldErrors = Partial<Record<FieldKey, string>>;
+
+interface PickedImage {
+  uri: string;
+  name: string;
+  type: string;
+}
+
+interface AlertState {
+  visible: boolean;
+  type: AlertModalType;
+  title: string;
+  message: string;
+  onClose?: () => void;
+}
+
+const HIDDEN_ALERT: AlertState = { visible: false, type: 'info', title: '', message: '' };
 
 export default function AddProductScreen({ navigation }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
-  // Form states matching Figma exactly
   const [title, setTitle] = useState('');
   const [modelNumber, setModelNumber] = useState('');
   const [shortDesc, setShortDesc] = useState('');
   const [description, setDescription] = useState('');
-
-  const [category, setCategory] = useState('Select');
-  const [subCategory, setSubCategory] = useState('Male');
-  const [brand, setBrand] = useState('Select');
-
-  const [basePrice, setBasePrice] = useState('');
+  const [category, setCategory] = useState<SellerOption | null>(null);
+  const [brand, setBrand] = useState<SellerOption | null>(null);
+  const [price, setPrice] = useState('');
   const [stock, setStock] = useState('0');
-  const [enableDiscount, setEnableDiscount] = useState(false);
+  const [images, setImages] = useState<PickedImage[]>([]);
 
-  const [tagInput, setTagInput] = useState('');
-  const [hasWarranty, setHasWarranty] = useState(false); // false = "No Warranty" (selected in figma)
+  const { categories, brands, error: optionsError, retry: retryOptions } = useProductOptions();
+  const [picker, setPicker] = useState<'category' | 'brand' | null>(null);
+  const [errors, setErrors] = useState<FieldErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const [alert, setAlert] = useState<AlertState>(HIDDEN_ALERT);
+  const mounted = useRef(true);
 
-  // AlertModal State
-  const [alertConfig, setAlertConfig] = useState<{
-    visible: boolean;
-    type: AlertModalType;
-    title: string;
-    message: string;
-    onOk?: () => void;
-  }>({
-    visible: false,
-    type: 'info',
-    title: '',
-    message: '',
-  });
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
-  const handleCreateProduct = async () => {
-    if (!title.trim() || !basePrice.trim()) {
-      setAlertConfig({
+  const clearError = (key: FieldKey) =>
+    setErrors(prev => (prev[key] ? { ...prev, [key]: undefined } : prev));
+
+  const pickImages = () => {
+    if (images.length >= MAX_IMAGES) {
+      setAlert({
         visible: true,
         type: 'warning',
-        title: 'Required Fields',
-        message: 'Product Title and Base Price are required to publish a listing.',
+        title: i18n.t('sellerAuto.limitReached'),
+        message: i18n.t('sellerMsg.imagesLimit', { max: MAX_IMAGES }),
       });
       return;
     }
 
+    launchImageLibrary(
+      { mediaType: 'photo', selectionLimit: MAX_IMAGES - images.length },
+      response => {
+        if (response.didCancel) return;
+        if (response.errorCode) {
+          setAlert({
+            visible: true,
+            type: 'error',
+            title: i18n.t('sellerAuto.imageError'),
+            message: response.errorMessage || i18n.t('sellerAuto.couldNotSelectTheImage'),
+          });
+          return;
+        }
+        const picked: PickedImage[] = (response.assets || [])
+          .filter(a => !!a.uri)
+          .map((a, i) => ({
+            uri: a.uri as string,
+            name: a.fileName || `product-${Date.now()}-${i}.jpg`,
+            type: a.type || 'image/jpeg',
+          }));
+        if (picked.length > 0) {
+          setImages(prev => [...prev, ...picked].slice(0, MAX_IMAGES));
+          clearError('images');
+        }
+      },
+    );
+  };
+
+  const validate = (): FieldErrors => {
+    const next: FieldErrors = {};
+    if (!title.trim()) next.title = i18n.t('sellerMsg.product.titleReq');
+    if (!modelNumber.trim()) next.modelNumber = i18n.t('sellerMsg.product.modelReq');
+    if (!description.trim()) next.description = i18n.t('sellerMsg.product.descReq');
+    if (!category) next.categoryId = i18n.t('sellerMsg.product.categoryReq');
+    const priceNum = Number(price);
+    if (!price.trim()) next.price = i18n.t('sellerMsg.product.priceReq');
+    else if (!isFinite(priceNum) || priceNum <= 0) next.price = i18n.t('sellerMsg.product.priceInvalid');
+    if (stock.trim() && !/^\d+$/.test(stock.trim())) next.stock = i18n.t('sellerMsg.product.stockWhole');
+    if (images.length === 0) next.images = i18n.t('sellerMsg.product.imageReq');
+    return next;
+  };
+
+  const handleCreateProduct = async () => {
+    if (submittingRef.current) return;
+
+    const found = validate();
+    setErrors(found);
+    if (Object.keys(found).length > 0) return;
+
+    submittingRef.current = true;
     setIsSubmitting(true);
     try {
-      const payload = {
-        title: title.trim(),
-        modelNumber: modelNumber.trim(),
-        shortDescription: shortDesc.trim(),
-        description: description.trim(),
-        category: category !== 'Select' ? category : undefined,
-        brand: brand !== 'Select' ? brand : undefined,
-        basePrice: parseFloat(basePrice) || 0,
-        stock: parseInt(stock, 10) || 0,
-        hasWarranty,
-        tags: tagInput ? tagInput.split(',').map(t => t.trim()) : [],
-      };
+      const formData = new FormData();
+      formData.append('title', title.trim());
+      formData.append('modelNumber', modelNumber.trim());
+      formData.append('description', description.trim());
+      if (shortDesc.trim()) formData.append('shortDescription', shortDesc.trim());
+      formData.append('categoryId', category!.id);
+      if (brand) formData.append('brandId', brand.id);
+      formData.append('price', String(Number(price)));
+      formData.append('stock', String(Number(stock.trim() || '0')));
+      formData.append('discountPercentage', '0');
+      formData.append('tags', JSON.stringify([]));
+      formData.append('warranty[type]', 'no');
+      formData.append('warranty[months]', '0');
+      images.forEach(img => formData.append('images', img as any));
 
-      await createSellerProductApi(payload);
-
-      setAlertConfig({
+      const res = await createSellerProductApi(formData);
+      markProductsDirty();
+      if (!mounted.current) return;
+      setAlert({
         visible: true,
         type: 'success',
-        title: 'Product Created',
-        message: 'Your new product listing has been successfully saved to your store!',
-        onOk: () => navigation?.goBack(),
+        title: i18n.t('sellerAuto.productCreated'),
+        message: res?.message || i18n.t('sellerAuto.productCreatedSuccessfully'),
+        onClose: () => navigation?.goBack(),
       });
     } catch (err: any) {
-      const errMsg = err?.response?.data?.message || 'Product saved locally. Server synchronization will occur shortly.';
-      setAlertConfig({
+      if (!mounted.current) return;
+      if (err?.fieldErrors) {
+        const fieldErrors: FieldErrors = {};
+        (['title', 'modelNumber', 'description', 'categoryId'] as FieldKey[]).forEach(key => {
+          if (err.fieldErrors[key]) fieldErrors[key] = err.fieldErrors[key];
+        });
+        if (Object.keys(fieldErrors).length > 0) setErrors(prev => ({ ...prev, ...fieldErrors }));
+      }
+      setAlert({
         visible: true,
-        type: err?.response?.status ? 'error' : 'success',
-        title: err?.response?.status ? 'Creation Failed' : 'Product Stored',
-        message: errMsg,
-        onOk: !err?.response?.status ? () => navigation?.goBack() : undefined,
+        type: 'error',
+        title: i18n.t('sellerAuto.creationFailed'),
+        message: err?.message || i18n.t('sellerAuto.couldNotCreateTheProduct'),
       });
     } finally {
-      setIsSubmitting(false);
+      submittingRef.current = false;
+      if (mounted.current) setIsSubmitting(false);
     }
   };
 
+  const openFullFormOnWebsite = async () => {
+    const opened = await openWebsite(getWebSellerProductAddUrl());
+    if (!opened && mounted.current) {
+      setAlert({
+        visible: true,
+        type: 'info',
+        title: i18n.t('sellerAuto.openTheWebsite'),
+        message: i18n.t('sellerMsg.product.fullForm', { url: getWebSellerProductAddUrl() }),
+      });
+    }
+  };
+
+  const inputStyle = (hasError: boolean) => [
+    styles.input,
+    {
+      backgroundColor: colors.surfaceAlt,
+      color: colors.text,
+      borderColor: hasError ? colors.error ?? '#EF4444' : colors.border,
+    },
+  ];
+
+  const errorText = (key: FieldKey) =>
+    errors[key] ? (
+      <Text style={[styles.errorText, { color: colors.error ?? '#EF4444' }]}>{errors[key]}</Text>
+    ) : null;
+
+  const closeAlert = () => {
+    const after = alert.onClose;
+    setAlert(HIDDEN_ALERT);
+    after?.();
+  };
+
   return (
-    <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: insets.top + 8 }]}>
-      <ScrollView
-        contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 40 }]}
-        showsVerticalScrollIndicator={false}>
-        {/* Header matching Figma with yellow circular back button */}
-        <FadeUp delay={20} duration={300}>
-          <View style={styles.headerRow}>
-            <Squeeze onPress={() => navigation?.goBack()} scale={0.9}>
-              <View style={[styles.backBtnCircle, { backgroundColor: colors.primary }]}>
-                <Icon source={arrowLeftBold} size={18} color="#fff" />
-              </View>
-            </Squeeze>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.headerTitle, { color: colors.text }]}>Add New Product</Text>
-              <Text style={[styles.headerSubtitle, { color: colors.textMuted }]}>
-                Enter product details, pricing, and inventory information to add it to your store.
-              </Text>
-            </View>
-          </View>
-        </FadeUp>
-
-        {/* Section 1: Basic Information */}
-        <FadeUp delay={50} duration={300}>
-          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={styles.cardHeaderRow}>
-              <Icon source={infoCircleBold} size={18} color={colors.primary} />
-              <Text style={[styles.cardSectionTitle, { color: colors.text }]}>Basic Information</Text>
-            </View>
-
-            <View style={styles.fieldGroup}>
-              <Text style={[styles.fieldLabel, { color: colors.text }]}>Title</Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: colors.surfaceAlt, color: colors.text, borderColor: colors.border }]}
-                placeholder="e.g. Primium Cotton T shirt"
-                placeholderTextColor={colors.textMuted}
-                value={title}
-                onChangeText={setTitle}
-              />
-            </View>
-
-            <View style={styles.fieldGroup}>
-              <Text style={[styles.fieldLabel, { color: colors.text }]}>Model Number</Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: colors.surfaceAlt, color: colors.text, borderColor: colors.border }]}
-                placeholder="e.g MOD - 1234"
-                placeholderTextColor={colors.textMuted}
-                value={modelNumber}
-                onChangeText={setModelNumber}
-              />
-            </View>
-
-            <View style={styles.fieldGroup}>
-              <Text style={[styles.fieldLabel, { color: colors.text }]}>Short description</Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: colors.surfaceAlt, color: colors.text, borderColor: colors.border }]}
-                placeholder="e.g MOD - 1234"
-                placeholderTextColor={colors.textMuted}
-                value={shortDesc}
-                onChangeText={setShortDesc}
-              />
-            </View>
-
-            <View style={styles.fieldGroup}>
-              <Text style={[styles.fieldLabel, { color: colors.text }]}>Description</Text>
-              <TextInput
-                style={[
-                  styles.input,
-                  styles.textArea,
-                  { backgroundColor: colors.surfaceAlt, color: colors.text, borderColor: colors.border },
-                ]}
-                placeholder="Detail Product Description"
-                placeholderTextColor={colors.textMuted}
-                multiline
-                numberOfLines={4}
-                textAlignVertical="top"
-                value={description}
-                onChangeText={setDescription}
-              />
-            </View>
-          </View>
-        </FadeUp>
-
-        {/* Section 2: Categorization */}
-        <FadeUp delay={80} duration={300}>
-          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={styles.cardHeaderRow}>
-              <Icon source={packageBold} size={18} color={colors.primary} />
-              <Text style={[styles.cardSectionTitle, { color: colors.text }]}>Categorization</Text>
-            </View>
-
-            <View style={styles.fieldGroup}>
-              <Text style={[styles.fieldLabel, { color: colors.text }]}>Category</Text>
-              <View style={[styles.selectorBox, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
-                <Text style={[styles.selectorText, { color: colors.textMuted }]}>{category}</Text>
-                <Icon source={chevronDownBold} size={14} color={colors.textMuted} />
-              </View>
-            </View>
-
-            <View style={styles.fieldGroup}>
-              <Text style={[styles.fieldLabel, { color: colors.text }]}>Sub Category</Text>
-              <View style={[styles.selectorBox, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
-                <Text style={[styles.selectorText, { color: colors.text }]}>{subCategory}</Text>
-                <Icon source={chevronDownBold} size={14} color={colors.textMuted} />
-              </View>
-            </View>
-
-            <View style={styles.fieldGroup}>
-              <Text style={[styles.fieldLabel, { color: colors.text }]}>Brand</Text>
-              <View style={[styles.selectorBox, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
-                <Text style={[styles.selectorText, { color: colors.textMuted }]}>{brand}</Text>
-                <Icon source={chevronDownBold} size={14} color={colors.textMuted} />
-              </View>
-            </View>
-          </View>
-        </FadeUp>
-
-        {/* Section 3: Pricing & Stock (Categorization in Figma) */}
-        <FadeUp delay={110} duration={300}>
-          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={styles.cardHeaderRow}>
-              <Icon source={tagBold} size={18} color={colors.primary} />
-              <Text style={[styles.cardSectionTitle, { color: colors.text }]}>Categorization</Text>
-            </View>
-
-            <View style={styles.fieldGroup}>
-              <Text style={[styles.fieldLabel, { color: colors.text }]}>Base Price</Text>
-              <TextInput
-                style={[
-                  styles.input,
-                  {
-                    backgroundColor: colors.surfaceAlt,
-                    color: colors.text,
-                    borderColor: '#EF4444',
-                    borderWidth: 1.5,
-                  },
-                ]}
-                placeholder="$ 0.00"
-                placeholderTextColor={colors.textMuted}
-                keyboardType="numeric"
-                value={basePrice}
-                onChangeText={setBasePrice}
-              />
-            </View>
-
-            <View style={styles.fieldGroup}>
-              <Text style={[styles.fieldLabel, { color: colors.text }]}>Stock</Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: colors.surfaceAlt, color: colors.text, borderColor: colors.border }]}
-                placeholder="0"
-                placeholderTextColor={colors.textMuted}
-                keyboardType="numeric"
-                value={stock}
-                onChangeText={setStock}
-              />
-            </View>
-
-            <Text style={styles.errorText}>Base price is required</Text>
-
-            <View style={styles.switchRow}>
-              <Switch
-                value={enableDiscount}
-                onValueChange={setEnableDiscount}
-                trackColor={{ false: colors.border, true: colors.primary }}
-                thumbColor="#fff"
-              />
-              <Text style={[styles.switchLabel, { color: colors.text }]}>Enable discount</Text>
-            </View>
-          </View>
-        </FadeUp>
-
-        {/* Section 4: Product Images (0/5) */}
-        <FadeUp delay={140} duration={300}>
-          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={styles.cardHeaderBetween}>
-              <View style={styles.cardHeaderRow}>
-                <Icon source={imageBold} size={18} color={colors.primary} />
-                <Text style={[styles.cardSectionTitle, { color: colors.text }]}>Product Images</Text>
-              </View>
-              <Text style={[styles.countLabel, { color: colors.textMuted }]}>0/5</Text>
-            </View>
-
-            <View style={[styles.dashedBox, { borderColor: colors.border }]}>
-              <Text style={[styles.dashedPlus, { color: colors.textMuted }]}>+</Text>
-              <Text style={[styles.dashedAddText, { color: colors.textMuted }]}>Add</Text>
-            </View>
-          </View>
-        </FadeUp>
-
-        {/* Section 5: Product Videos (0/5) */}
-        <FadeUp delay={170} duration={300}>
-          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={styles.cardHeaderBetween}>
-              <View style={styles.cardHeaderRow}>
-                <Icon source={videoBold} size={18} color={colors.primary} />
-                <Text style={[styles.cardSectionTitle, { color: colors.text }]}>Product Images</Text>
-              </View>
-              <Text style={[styles.countLabel, { color: colors.textMuted }]}>0/5</Text>
-            </View>
-
-            <View style={[styles.dashedBox, { borderColor: colors.border, paddingVertical: 28 }]}>
-              <Icon source={filmBold} size={26} color={colors.textMuted} />
-              <Text style={[styles.dashedTitle, { color: colors.text, marginTop: 8 }]}>
-                Click to upload video
-              </Text>
-              <Text style={[styles.dashedSub, { color: colors.textMuted }]}>
-                MP4, WebM, MOV - up to 50MB each
-              </Text>
-            </View>
-
-            <Text style={[styles.hintSubtext, { color: colors.textMuted }]}>
-              Videos help buyers see the product in action. You can add up to 3.
-            </Text>
-          </View>
-        </FadeUp>
-
-        {/* Section 6: Tags */}
-        <FadeUp delay={200} duration={300}>
-          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={styles.cardHeaderRow}>
-              <Icon source={tagBold} size={18} color={colors.primary} />
-              <Text style={[styles.cardSectionTitle, { color: colors.text }]}>Tags</Text>
-            </View>
-
-            <TextInput
-              style={[styles.input, { backgroundColor: colors.surfaceAlt, color: colors.text, borderColor: colors.border }]}
-              placeholder="Type a tag and press Enter..."
-              placeholderTextColor={colors.textMuted}
-              value={tagInput}
-              onChangeText={setTagInput}
-            />
-            <Text style={[styles.hintSubtext, { color: colors.textMuted }]}>
-              e.g gaming, premium, sale,refurbished
-            </Text>
-
-            {/* Section 7: Warranty */}
-            <View style={[styles.cardHeaderRow, { marginTop: 14 }]}>
-              <Icon source={shieldBold} size={18} color={colors.primary} />
-              <Text style={[styles.cardSectionTitle, { color: colors.text }]}>Warranty</Text>
-            </View>
-
-            <View style={styles.warrantyButtonsCol}>
-              <Squeeze onPress={() => setHasWarranty(false)}>
-                <View
-                  style={[
-                    styles.warrantyBtn,
-                    !hasWarranty
-                      ? { backgroundColor: '#ECFDF5', borderColor: '#10B981', borderWidth: 1.5 }
-                      : { backgroundColor: colors.surfaceAlt, borderColor: colors.border, borderWidth: 1 },
-                  ]}>
-                  <Text style={[styles.warrantyBtnText, { color: !hasWarranty ? '#10B981' : colors.textMuted }]}>
-                    ✕  No Warranty
-                  </Text>
+    <KeyboardSafeView
+      style={styles.flex}>
+      <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: insets.top + 8 }]}>
+        <ScrollView
+          contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 40 }]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}>
+          <FadeUp delay={20} duration={300}>
+            <View style={styles.headerRow}>
+              <Squeeze onPress={() => navigation?.goBack()} scale={0.9}>
+                <View style={[styles.backBtnCircle, { backgroundColor: colors.primary }]}>
+                  <Icon source={arrowLeftBold} size={18} color={colors.onPrimary} />
                 </View>
               </Squeeze>
+              <View style={styles.flex1}>
+                <Text style={[styles.headerTitle, { color: colors.text }]}>{t('sellerAuto.addNewProduct')}</Text>
+                <Text style={[styles.headerSubtitle, { color: colors.textMuted }]}>
+                  {t('sellerAuto.enterTheBasicProductDetails')}
+                </Text>
+              </View>
+            </View>
+          </FadeUp>
 
-              <Squeeze onPress={() => setHasWarranty(true)}>
-                <View
+          <FadeUp delay={50} duration={300}>
+            <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <View style={styles.cardHeaderRow}>
+                <Icon source={infoCircleBold} size={18} color={colors.primary} />
+                <Text style={[styles.cardSectionTitle, { color: colors.text }]}>{t('sellerAuto.basicInformation')}</Text>
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={[styles.fieldLabel, { color: colors.text }]}>{t('sellerAuto.title')}</Text>
+                <TextInput
+                  style={inputStyle(!!errors.title)}
+                  placeholder={t('sellerAuto.eGPremiumCottonT')}
+                  placeholderTextColor={colors.textMuted}
+                  value={title}
+                  editable={!isSubmitting}
+                  onChangeText={value => {
+                    setTitle(value);
+                    clearError('title');
+                  }}
+                />
+                {errorText('title')}
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={[styles.fieldLabel, { color: colors.text }]}>{t('sellerAuto.modelNumber')}</Text>
+                <TextInput
+                  style={inputStyle(!!errors.modelNumber)}
+                  placeholder={t('sellerAuto.eGMod1234')}
+                  placeholderTextColor={colors.textMuted}
+                  value={modelNumber}
+                  editable={!isSubmitting}
+                  autoCapitalize="characters"
+                  onChangeText={value => {
+                    setModelNumber(value);
+                    clearError('modelNumber');
+                  }}
+                />
+                {errorText('modelNumber')}
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={[styles.fieldLabel, { color: colors.text }]}>{t('sellerAuto.shortDescriptionOptional')}</Text>
+                <TextInput
+                  style={inputStyle(false)}
+                  placeholder={t('sellerAuto.oneLineSummary')}
+                  placeholderTextColor={colors.textMuted}
+                  value={shortDesc}
+                  editable={!isSubmitting}
+                  onChangeText={setShortDesc}
+                />
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={[styles.fieldLabel, { color: colors.text }]}>{t('sellerAuto.description')}</Text>
+                <TextInput
+                  style={[...inputStyle(!!errors.description), styles.textArea]}
+                  placeholder={t('sellerAuto.detailProductDescription')}
+                  placeholderTextColor={colors.textMuted}
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                  value={description}
+                  editable={!isSubmitting}
+                  onChangeText={value => {
+                    setDescription(value);
+                    clearError('description');
+                  }}
+                />
+                {errorText('description')}
+              </View>
+            </View>
+          </FadeUp>
+
+          <FadeUp delay={80} duration={300}>
+            <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <View style={styles.cardHeaderRow}>
+                <Icon source={packageBold} size={18} color={colors.primary} />
+                <Text style={[styles.cardSectionTitle, { color: colors.text }]}>{t('sellerAuto.categorization')}</Text>
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={[styles.fieldLabel, { color: colors.text }]}>{t('sellerAuto.category')}</Text>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  disabled={isSubmitting}
+                  onPress={() => setPicker('category')}
                   style={[
-                    styles.warrantyBtn,
-                    hasWarranty
-                      ? { backgroundColor: '#ECFDF5', borderColor: '#10B981', borderWidth: 1.5 }
-                      : { backgroundColor: colors.surfaceAlt, borderColor: colors.border, borderWidth: 1 },
+                    styles.selectorBox,
+                    {
+                      backgroundColor: colors.surfaceAlt,
+                      borderColor: errors.categoryId ? colors.error ?? '#EF4444' : colors.border,
+                    },
                   ]}>
-                  <Text style={[styles.warrantyBtnText, { color: hasWarranty ? '#10B981' : colors.textMuted }]}>
-                    ✓  Yes, has warranty
+                  <Text
+                    style={[styles.selectorText, { color: category ? colors.text : colors.textMuted }]}
+                    numberOfLines={1}>
+                    {category ? category.name : t('sellerAuto.selectCategory')}
                   </Text>
+                  <Icon source={chevronDownBold} size={14} color={colors.textMuted} />
+                </TouchableOpacity>
+                {errorText('categoryId')}
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={[styles.fieldLabel, { color: colors.text }]}>{t('sellerAuto.brandOptional')}</Text>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  disabled={isSubmitting}
+                  onPress={() => setPicker('brand')}
+                  style={[
+                    styles.selectorBox,
+                    { backgroundColor: colors.surfaceAlt, borderColor: colors.border },
+                  ]}>
+                  <Text
+                    style={[styles.selectorText, { color: brand ? colors.text : colors.textMuted }]}
+                    numberOfLines={1}>
+                    {brand ? brand.name : t('sellerAuto.selectBrand')}
+                  </Text>
+                  <Icon source={chevronDownBold} size={14} color={colors.textMuted} />
+                </TouchableOpacity>
+              </View>
+            </View>
+          </FadeUp>
+
+          <FadeUp delay={110} duration={300}>
+            <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <View style={styles.cardHeaderRow}>
+                <Icon source={tagBold} size={18} color={colors.primary} />
+                <Text style={[styles.cardSectionTitle, { color: colors.text }]}>{t('sellerAuto.pricingAndStock')}</Text>
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={[styles.fieldLabel, { color: colors.text }]}>{t('sellerAuto.basePrice')}</Text>
+                <TextInput
+                  style={inputStyle(!!errors.price)}
+                  placeholder="0.00"
+                  placeholderTextColor={colors.textMuted}
+                  keyboardType="decimal-pad"
+                  value={price}
+                  editable={!isSubmitting}
+                  onChangeText={value => {
+                    setPrice(value.replace(',', '.'));
+                    clearError('price');
+                  }}
+                />
+                {errorText('price')}
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={[styles.fieldLabel, { color: colors.text }]}>{t('sellerAuto.stock')}</Text>
+                <TextInput
+                  style={inputStyle(!!errors.stock)}
+                  placeholder="0"
+                  placeholderTextColor={colors.textMuted}
+                  keyboardType="number-pad"
+                  value={stock}
+                  editable={!isSubmitting}
+                  onChangeText={value => {
+                    setStock(value);
+                    clearError('stock');
+                  }}
+                />
+                {errorText('stock')}
+              </View>
+            </View>
+          </FadeUp>
+
+          <FadeUp delay={140} duration={300}>
+            <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <View style={styles.cardHeaderBetween}>
+                <View style={styles.cardHeaderRow}>
+                  <Icon source={imageBold} size={18} color={colors.primary} />
+                  <Text style={[styles.cardSectionTitle, { color: colors.text }]}>{t('sellerAuto.productImages')}</Text>
                 </View>
-              </Squeeze>
+                <Text style={[styles.countLabel, { color: colors.textMuted }]}>
+                  {images.length}/{MAX_IMAGES}
+                </Text>
+              </View>
+
+              <View style={styles.imagesRow}>
+                {images.map((img, index) => (
+                  <View
+                    key={img.uri}
+                    style={[styles.thumbWrap, { borderColor: colors.border, backgroundColor: colors.surfaceAlt }]}>
+                    <Image source={{ uri: img.uri }} style={styles.thumb} resizeMode="cover" />
+                    <TouchableOpacity
+                      disabled={isSubmitting}
+                      onPress={() => setImages(prev => prev.filter((_, i) => i !== index))}
+                      style={styles.removeBtn}>
+                      <Icon source={closeIcon} size={10} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+
+                {images.length < MAX_IMAGES && (
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    disabled={isSubmitting}
+                    onPress={pickImages}
+                    style={[
+                      styles.dashedBox,
+                      { borderColor: errors.images ? colors.error ?? '#EF4444' : colors.border },
+                    ]}>
+                    <Text style={[styles.dashedPlus, { color: colors.textMuted }]}>+</Text>
+                    <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.dashedAddText, { color: colors.textMuted }]}>{t('sellerAuto.add')}</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              {errorText('images')}
+              <Text style={[styles.hintSubtext, { color: colors.textMuted }]}>
+                {t('sellerAuto.theFirstImageBecomesThe')}
+              </Text>
             </View>
-          </View>
-        </FadeUp>
+          </FadeUp>
 
-        {/* Section 8: Summary Table */}
-        <FadeUp delay={230} duration={300}>
-          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={styles.cardHeaderRow}>
-              <Icon source={videoBold} size={18} color={colors.primary} />
-              <Text style={[styles.cardSectionTitle, { color: colors.text }]}>Summary</Text>
+          <FadeUp delay={170} duration={300}>
+            <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Text style={[styles.cardSectionTitle, { color: colors.text }]}>{t('sellerAuto.needMoreOptions')}</Text>
+              <Text style={[styles.hintSubtext, styles.hintLong, { color: colors.textMuted }]}>
+                {t('sellerAuto.variantsDiscountsVideosTagsWarranty')}
+              </Text>
+              <Button
+                title={t('sellerAuto.openFullFormOnWebsite')}
+                variant="outline"
+                size="md"
+                disabled={isSubmitting}
+                onPress={openFullFormOnWebsite}
+              />
             </View>
+          </FadeUp>
 
-            <View style={styles.summaryTable}>
-              <View style={[styles.summaryRow, { borderBottomColor: colors.border }]}>
-                <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>Base price</Text>
-                <Text style={[styles.summaryValue, { color: colors.text }]}>{basePrice || '—'}</Text>
-              </View>
-              <View style={[styles.summaryRow, { borderBottomColor: colors.border }]}>
-                <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>Selling Price</Text>
-                <Text style={[styles.summaryValue, { color: colors.text }]}>—</Text>
-              </View>
-              <View style={[styles.summaryRow, { borderBottomColor: colors.border }]}>
-                <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>Discount</Text>
-                <Text style={[styles.summaryValue, { color: colors.text }]}>—</Text>
-              </View>
-              <View style={[styles.summaryRow, { borderBottomColor: colors.border }]}>
-                <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>Stock</Text>
-                <Text style={[styles.summaryValue, { color: colors.text }]}>{stock}</Text>
-              </View>
-              <View style={[styles.summaryRow, { borderBottomColor: colors.border }]}>
-                <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>Images</Text>
-                <Text style={[styles.summaryValue, { color: colors.text }]}>0/5</Text>
-              </View>
-              <View style={[styles.summaryRow, { borderBottomColor: colors.border }]}>
-                <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>Videos</Text>
-                <Text style={[styles.summaryValue, { color: colors.text }]}>None</Text>
-              </View>
-              <View style={styles.summaryRow}>
-                <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>Category</Text>
-                <Text style={[styles.summaryValue, { color: colors.text }]}>—</Text>
-              </View>
+          <FadeUp delay={200} duration={300}>
+            <View style={styles.actionBtnsCol}>
+              <Button
+                title={isSubmitting ? t('sellerAuto.creating') : t('sellerAuto.createProduct')}
+                variant="primary"
+                size="lg"
+                loading={isSubmitting}
+                disabled={isSubmitting}
+                onPress={handleCreateProduct}
+              />
+              <Button
+                title={t('common.cancel')}
+                variant="outline"
+                size="lg"
+                disabled={isSubmitting}
+                onPress={() => navigation?.goBack()}
+              />
             </View>
-          </View>
-        </FadeUp>
+          </FadeUp>
+        </ScrollView>
 
-        {/* Action Buttons */}
-        <FadeUp delay={260} duration={300}>
-          <View style={styles.actionBtnsCol}>
-            <Button
-              title={isSubmitting ? 'Creating...' : 'Create Product'}
-              variant="primary"
-              size="lg"
-              disabled={isSubmitting}
-              onPress={handleCreateProduct}
-            />
-            <Button
-              title="Cancel"
-              variant="outline"
-              size="lg"
-              disabled={isSubmitting}
-              onPress={() => navigation?.goBack()}
-            />
-          </View>
-        </FadeUp>
+        <OptionPickerModal
+          visible={picker === 'category'}
+          title={t('sellerAuto.selectCategory')}
+          options={categories}
+          error={optionsError}
+          onRetry={retryOptions}
+          selectedId={category?.id}
+          onSelect={option => {
+            setCategory(option);
+            clearError('categoryId');
+            setPicker(null);
+          }}
+          onClose={() => setPicker(null)}
+        />
+        <OptionPickerModal
+          visible={picker === 'brand'}
+          title={t('sellerAuto.selectBrand')}
+          options={brands}
+          error={optionsError}
+          onRetry={retryOptions}
+          selectedId={brand?.id}
+          clearLabel={t('sellerAuto.noBrand')}
+          onSelect={option => {
+            setBrand(option);
+            setPicker(null);
+          }}
+          onClose={() => setPicker(null)}
+        />
 
-        {/* Section 9: Tips */}
-        <FadeUp delay={290} duration={300}>
-          <View style={[styles.tipsCard, { backgroundColor: '#FEF3C7', borderColor: '#F59E0B' }]}>
-            <View style={styles.tipsHeaderRow}>
-              <Text style={{ fontSize: 16 }}>💡</Text>
-              <Text style={[styles.tipsTitle, { color: '#B45309' }]}>Tips</Text>
-            </View>
-            <Text style={[styles.tipBullet, { color: '#92400E' }]}>
-              • The first image becomes the main display image.
-            </Text>
-            <Text style={[styles.tipBullet, { color: '#92400E' }]}>
-              • You can add variants after creating the product.
-            </Text>
-          </View>
-        </FadeUp>
-      </ScrollView>
-
-      {/* Alert Modal */}
-      <AlertModal
-        visible={alertConfig.visible}
-        type={alertConfig.type}
-        title={alertConfig.title}
-        message={alertConfig.message}
-        onClose={() => {
-          setAlertConfig(prev => ({ ...prev, visible: false }));
-          if (alertConfig.onOk) {
-            alertConfig.onOk();
-          }
-        }}
-      />
-    </View>
+        <AlertModal
+          visible={alert.visible}
+          type={alert.type}
+          title={alert.title}
+          message={alert.message}
+          onClose={closeAlert}
+        />
+      </View>
+    </KeyboardSafeView>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: { flex: 1 },
+  flex1: { flex: 1 },
+  hintLong: { lineHeight: 18 },
   screen: { flex: 1 },
   container: {
     paddingHorizontal: 16,
-    paddingTop: 10,
+    paddingTop: 12,
     gap: 16,
   },
   headerRow: {
@@ -503,16 +575,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 2,
   },
-  headerTitle: {
-    fontFamily: fonts.bold,
-    fontSize: 24,
-  },
-  headerSubtitle: {
-    fontFamily: fonts.regular,
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: 4,
-  },
+  headerTitle: { fontFamily: fonts.bold, fontSize: 24 },
+  headerSubtitle: { fontFamily: fonts.regular, fontSize: 13, lineHeight: 18, marginTop: 4 },
 
   card: {
     borderRadius: 16,
@@ -520,32 +584,17 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 14,
   },
-  cardHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
+  cardHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   cardHeaderBetween: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  cardSectionTitle: {
-    fontFamily: fonts.bold,
-    fontSize: 16,
-  },
-  countLabel: {
-    fontFamily: fonts.medium,
-    fontSize: 12,
-  },
+  cardSectionTitle: { flexShrink: 1, fontFamily: fonts.bold, fontSize: 16 },
+  countLabel: { fontFamily: fonts.medium, fontSize: 12 },
 
-  fieldGroup: {
-    gap: 6,
-  },
-  fieldLabel: {
-    fontFamily: fonts.medium,
-    fontSize: 13,
-  },
+  fieldGroup: { gap: 6 },
+  fieldLabel: { fontFamily: fonts.medium, fontSize: 13 },
   input: {
     borderRadius: 10,
     borderWidth: 1,
@@ -554,128 +603,52 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     fontSize: 13,
   },
-  textArea: {
-    minHeight: 88,
-    paddingTop: 10,
-  },
+  textArea: { minHeight: 88, paddingTop: 10 },
   selectorBox: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 8,
     borderRadius: 10,
     borderWidth: 1,
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
-  selectorText: {
-    fontFamily: fonts.regular,
-    fontSize: 13,
-  },
+  selectorText: { fontFamily: fonts.regular, fontSize: 13, flex: 1 },
+  errorText: { fontFamily: fonts.medium, fontSize: 12 },
 
-  errorText: {
-    color: '#EF4444',
-    fontFamily: fonts.medium,
-    fontSize: 12,
-    marginTop: -4,
+  imagesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  thumbWrap: {
+    width: 88,
+    height: 88,
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: 'hidden',
   },
-  switchRow: {
-    flexDirection: 'row',
+  thumb: { width: '100%', height: '100%' },
+  removeBtn: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.6)',
     alignItems: 'center',
-    gap: 10,
-    marginTop: 4,
+    justifyContent: 'center',
   },
-  switchLabel: {
-    fontFamily: fonts.medium,
-    fontSize: 13,
-  },
-
   dashedBox: {
+    width: 88,
+    height: 88,
     borderWidth: 1.5,
     borderStyle: 'dashed',
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 32,
   },
-  dashedPlus: {
-    fontSize: 26,
-    fontFamily: fonts.regular,
-  },
-  dashedAddText: {
-    fontFamily: fonts.medium,
-    fontSize: 13,
-    marginTop: 2,
-  },
-  dashedTitle: {
-    fontFamily: fonts.bold,
-    fontSize: 14,
-  },
-  dashedSub: {
-    fontFamily: fonts.regular,
-    fontSize: 12,
-    marginTop: 3,
-  },
-  hintSubtext: {
-    fontFamily: fonts.regular,
-    fontSize: 12,
-  },
+  dashedPlus: { fontSize: 24, fontFamily: fonts.regular },
+  dashedAddText: { fontFamily: fonts.medium, fontSize: 12 },
+  hintSubtext: { fontFamily: fonts.regular, fontSize: 12 },
 
-  warrantyButtonsCol: {
-    gap: 10,
-    marginTop: 4,
-  },
-  warrantyBtn: {
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  warrantyBtnText: {
-    fontFamily: fonts.bold,
-    fontSize: 13,
-  },
-
-  summaryTable: {
-    gap: 4,
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-  },
-  summaryLabel: {
-    fontFamily: fonts.regular,
-    fontSize: 13,
-  },
-  summaryValue: {
-    fontFamily: fonts.medium,
-    fontSize: 13,
-  },
-
-  actionBtnsCol: {
-    gap: 10,
-  },
-
-  tipsCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 16,
-    gap: 8,
-  },
-  tipsHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  tipsTitle: {
-    fontFamily: fonts.bold,
-    fontSize: 15,
-  },
-  tipBullet: {
-    fontFamily: fonts.regular,
-    fontSize: 13,
-    lineHeight: 18,
-  },
+  actionBtnsCol: { gap: 10 },
 });

@@ -1,5 +1,7 @@
 import apiClient from '@/services/apiClient';
+import { pickImageUrl } from '@/utils/imageUtils';
 import dayjs from 'dayjs';
+import i18n from '@/i18n';
 
 export interface MobileOrderItem {
   id: string;
@@ -36,10 +38,8 @@ export interface MobileOrder {
   };
   subtotal?: number;
   shipping?: number;
-  warranty?: {
-    returnId: string;
-    date: string;
-  };
+  isRefurbished: boolean;
+  createdAt?: string;
   raw?: any;
 }
 
@@ -48,7 +48,7 @@ const STEP_KEYS = ['pending', 'processing', 'shipping', 'shipped', 'delivered'];
 /**
  * Adapter: Map Backend MongoDB Order to Mobile Order Shape
  */
-export function mapBackendToOrder(raw: any): MobileOrder {
+export function mapBackendToOrder(raw: any, isRefurbished = false): MobileOrder {
   if (!raw) {
     return {
       id: '',
@@ -68,6 +68,7 @@ export function mapBackendToOrder(raw: any): MobileOrder {
       customer: { name: '', phone: '', city: '', address: '' },
       subtotal: 0,
       shipping: 0,
+      isRefurbished,
       raw: null,
     };
   }
@@ -93,7 +94,7 @@ export function mapBackendToOrder(raw: any): MobileOrder {
     const prod = item.productId || item.product || {};
     const variantObj = item.variantId || item.variant || {};
 
-    let title = 'Purchased Item';
+    let title = '';
     if (typeof prod === 'object' && prod.title && typeof prod.title === 'string') {
       title = prod.title.trim();
     } else if (typeof prod === 'object' && prod.name && typeof prod.name === 'string') {
@@ -105,10 +106,10 @@ export function mapBackendToOrder(raw: any): MobileOrder {
     } else if (typeof variantObj === 'object' && variantObj.title && typeof variantObj.title === 'string') {
       title = variantObj.title.trim();
     } else {
-      title = `Item ${idx + 1}`;
+      title = "";
     }
 
-    let variantTitle = 'Standard';
+    let variantTitle = '';
     if (typeof item.variant === 'string' && item.variant.trim()) {
       variantTitle = item.variant.trim();
     } else if (item.variant && typeof item.variant === 'object') {
@@ -127,46 +128,25 @@ export function mapBackendToOrder(raw: any): MobileOrder {
         const vals = Object.values(item.variant).filter(
           v => typeof v === 'string' || typeof v === 'number',
         );
-        variantTitle = vals.length > 0 ? vals.join(' / ') : 'Standard';
+        variantTitle = vals.length > 0 ? vals.join(' / ') : '';
       }
     } else if (typeof item.variantId === 'object' && item.variantId !== null) {
-      variantTitle = item.variantId.title || item.variantId.name || 'Standard';
+      variantTitle = item.variantId.title || item.variantId.name || '';
     } else if (item.variantTitle && typeof item.variantTitle === 'string') {
       variantTitle = item.variantTitle;
     }
 
-    // Resolve Image from variant or product with full fallback
-    const prodImages = Array.isArray(prod?.images) ? prod.images : [];
-    const variantImages = Array.isArray(item.variantId?.images)
-      ? item.variantId.images
-      : Array.isArray(item.variant?.images)
-      ? item.variant.images
-      : [];
-
-    const firstVariantImg = variantImages[0];
-    const firstProdImg = prodImages[0];
-
-    const rawImg =
-      (typeof firstVariantImg === 'object' && firstVariantImg?.url ? firstVariantImg.url : firstVariantImg) ||
-      (typeof firstProdImg === 'object' && firstProdImg?.url ? firstProdImg.url : firstProdImg) ||
-      prod?.image ||
-      prod?.thumbnail ||
-      (typeof prod?.images === 'string' ? prod.images : null) ||
-      item.image ||
-      item.imageUrl ||
-      item.photo;
-
-    let imgUrl = '';
-    if (typeof rawImg === 'string' && rawImg.trim()) {
-      const cleanImg = rawImg.trim();
-      if (cleanImg.startsWith('http://') || cleanImg.startsWith('https://')) {
-        imgUrl = cleanImg;
-      } else if (cleanImg.startsWith('/')) {
-        imgUrl = `https://tbt-backend-hwu3.onrender.com${cleanImg}`;
-      } else if (cleanImg.startsWith('uploads/')) {
-        imgUrl = `https://tbt-backend-hwu3.onrender.com/${cleanImg}`;
-      }
-    }
+    const imgUrl =
+      pickImageUrl(
+        item.variantId?.images,
+        item.variant?.images,
+        prod?.images,
+        prod?.image,
+        prod?.thumbnail,
+        item.image,
+        item.imageUrl,
+        item.photo,
+      ) || '';
 
     const price = Number(
       item.price ??
@@ -186,7 +166,7 @@ export function mapBackendToOrder(raw: any): MobileOrder {
       qty,
       price,
       image: imgUrl,
-      status: String(item.status || item.itemStatus || raw.orderStatus || 'Pending'),
+      status: String(item.status || item.itemStatus || raw.orderStatus || 'pending'),
       sellerId: item.sellerId ? String(item.sellerId) : undefined,
     };
   });
@@ -198,9 +178,9 @@ export function mapBackendToOrder(raw: any): MobileOrder {
   const createdAt = raw.createdAt ? dayjs(raw.createdAt) : dayjs();
 
   const rawAddress = raw.shippingAddress || raw.address;
-  let addressStr = 'Pakistan';
+  let addressStr = '';
   let customerInfo = {
-    name: 'Customer',
+    name: '',
     phone: '',
     city: '',
     address: '',
@@ -222,7 +202,7 @@ export function mapBackendToOrder(raw: any): MobileOrder {
       .join(', ');
 
     customerInfo = {
-      name: String(rawAddress.fullName || raw.customer?.name || raw.user?.name || raw.userId?.name || 'Customer'),
+      name: String(rawAddress.fullName || raw.customer?.name || raw.user?.name || raw.userId?.name || ''),
       phone: String(rawAddress.phone || raw.customer?.phone || raw.userId?.phone || ''),
       city: String(rawAddress.city || ''),
       address: String(rawAddress.addressLine || rawAddress.address || rawAddress.street || addressStr),
@@ -230,10 +210,11 @@ export function mapBackendToOrder(raw: any): MobileOrder {
   }
 
   const total = Number(raw.totalAmount ?? raw.total ?? raw.grandTotal ?? raw.amount ?? 0);
-  const shipping = Number(raw.shippingFee ?? raw.shippingPrice ?? raw.shipping ?? (total > 0 ? 10 : 0));
+  // The backend charges no shipping to the customer, so a missing value is 0, never an invented fee
+  const shipping = Number(raw.shippingFee ?? raw.shippingPrice ?? raw.shipping ?? 0);
   const subtotal = Number(raw.subTotal ?? raw.subtotal ?? (total > shipping ? total - shipping : total));
-  const statusTag = String(raw.orderStatus || 'Pending').toUpperCase();
-  const paymentTag = String(raw.paymentStatus || 'Pending').toUpperCase();
+  const statusTag = String(raw.orderStatus || 'pending').toUpperCase();
+  const paymentTag = String(raw.paymentStatus || 'pending').toUpperCase();
 
   return {
     id: String(raw._id || raw.id || ''),
@@ -242,11 +223,12 @@ export function mapBackendToOrder(raw: any): MobileOrder {
     statusTag,
     paymentTag,
     tags: [statusTag, paymentTag],
-    date: createdAt.format('DD MMMM YYYY'),
-    time: createdAt.format('hh:mm A'),
+    // ISO dates; the screens format them in the app language
+    date: createdAt.toISOString(),
+    time: createdAt.toISOString(),
     itemCount: mappedItems.length,
     total,
-    paymentStatus: String(raw.paymentStatus || 'Pending'),
+    paymentStatus: String(raw.paymentStatus || 'pending'),
     payment: String(raw.paymentMethod || raw.paymentStatus || 'CARD'),
     items: mappedItems,
     progressStep,
@@ -254,65 +236,48 @@ export function mapBackendToOrder(raw: any): MobileOrder {
     customer: customerInfo,
     subtotal,
     shipping,
-    warranty: {
-      returnId: String(raw.returnId || `RET-${(raw._id || '000000').slice(-6).toUpperCase()}`),
-      date: createdAt.format('M/D/YYYY'),
-    },
+    isRefurbished,
+    createdAt: raw.createdAt ? String(raw.createdAt) : undefined,
     raw,
   };
 }
 
-/**
- * 1. Fetch Customer Orders (Marketplace & Refurbished)
- */
-/**
- * Fetch All Orders combined (Marketplace + Refurbished)
- */
-export async function getAllCustomerOrders(params?: {
-  search?: string;
-}): Promise<MobileOrder[]> {
-  try {
-    const [ecom, refurb] = await Promise.all([
-      getCustomerOrders({ search: params?.search, isRefurbished: false }),
-      getCustomerOrders({ search: params?.search, isRefurbished: true }),
-    ]);
-
-    const combined = [...ecom, ...refurb];
-    return combined.sort((a, b) => {
-      const timeA = new Date(a.raw?.createdAt || a.date).getTime() || 0;
-      const timeB = new Date(b.raw?.createdAt || b.date).getTime() || 0;
-      return timeB - timeA;
-    });
-  } catch {
-    return [];
-  }
+export interface OrdersPage {
+  orders: MobileOrder[];
+  page: number;
+  pages: number;
 }
 
-export async function getCustomerOrders(params?: {
+// One page of one store's orders. A failed request throws.
+export async function getCustomerOrdersPage(params: {
   page?: number;
   limit?: number;
   search?: string;
   isRefurbished?: boolean;
-}): Promise<MobileOrder[]> {
-  try {
-    const endpoint = params?.isRefurbished ? '/refurbished/orders' : '/e-commerce/orders';
-    const res = await apiClient.get(endpoint, {
-      params: {
-        page: params?.page || 1,
-        limit: params?.limit || 20,
-        search: params?.search?.trim() || undefined,
-      },
-    });
+}): Promise<OrdersPage> {
+  const isRefurbished = Boolean(params.isRefurbished);
+  const endpoint = isRefurbished ? '/refurbished/orders' : '/e-commerce/orders';
+  const page = params.page || 1;
+  const res = await apiClient.get(endpoint, {
+    params: { page, limit: params.limit || 10, search: params.search?.trim() || undefined },
+  });
+  const data = res.data?.data || res.data?.orders;
+  const orders = Array.isArray(data) ? data.map((raw: any) => mapBackendToOrder(raw, isRefurbished)) : [];
+  const pages = Number(res.data?.pagination?.totalPages || 1);
+  return { orders, page, pages };
+}
 
-    const data = res.data?.orders || res.data?.data || res.data?.order || res.data;
-    if (Array.isArray(data)) {
-      return data.map(mapBackendToOrder);
-    }
-    return [];
-  } catch (err: any) {
-    if (__DEV__) console.warn('getCustomerOrders error:', err?.message);
-    return [];
-  }
+// Marketplace and refurbished orders together, newest first. "pages" is the larger of the two stores.
+export async function getAllCustomerOrdersPage(params: { page?: number; search?: string }): Promise<OrdersPage> {
+  const page = params.page || 1;
+  const [ecom, refurb] = await Promise.all([
+    getCustomerOrdersPage({ page, search: params.search, isRefurbished: false }),
+    getCustomerOrdersPage({ page, search: params.search, isRefurbished: true }),
+  ]);
+  const orders = [...ecom.orders, ...refurb.orders].sort(
+    (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime(),
+  );
+  return { orders, page, pages: Math.max(ecom.pages, refurb.pages) };
 }
 
 /**
@@ -336,13 +301,13 @@ export async function getCustomerOrderDetail(
 
     try {
       res = await apiClient.get(primaryEndpoint);
-    } catch {
-      try {
-        res = await apiClient.get(fallbackEndpoint);
-      } catch (err: any) {
-        if (__DEV__) console.warn(`getCustomerOrderDetail(${orderId}) error:`, err?.message);
+    } catch (first: any) {
+      // No connection or a server failure: let the screen offer a retry instead of "not found"
+      if (first?.isNetworkError || first?.isTimeout || (first?.status && first.status >= 500)) throw first;
+      res = await apiClient.get(fallbackEndpoint).catch((err: any) => {
+        if (err?.isNetworkError || err?.isTimeout || (err?.status && err.status >= 500)) throw err;
         return null;
-      }
+      });
     }
 
     if (!res || !res.data) return null;
@@ -358,11 +323,12 @@ export async function getCustomerOrderDetail(
     }
 
     if (rawOrder && typeof rawOrder === 'object') {
-      return mapBackendToOrder(rawOrder);
+      return mapBackendToOrder(rawOrder, isRefurbished);
     }
 
     return null;
   } catch (err: any) {
+    if (err?.isNetworkError || err?.isTimeout || (err?.status && err.status >= 500)) throw err;
     if (__DEV__) console.warn(`getCustomerOrderDetail(${orderId}) error:`, err?.message);
     return null;
   }
@@ -380,14 +346,10 @@ export async function cancelCustomerOrder(
       ? `/refurbished/orders/${orderId}/cancel`
       : `/e-commerce/orders/${orderId}/cancel`;
     const res = await apiClient.put(endpoint);
-    return {
-      success: true,
-      message: res.data?.message || 'Order cancelled successfully',
-    };
+    return { success: true, message: res.data?.message || '' };
   } catch (err: any) {
-    const msg =
-      err?.response?.data?.message || err?.message || 'Could not cancel order';
-    throw new Error(msg);
+    // the ApiError already carries the backend message
+    throw err;
   }
 }
 
@@ -415,45 +377,23 @@ export async function createCustomerOrderApi(payload: {
   cvc?: string;
   items?: Array<{ productId: string; variantId?: string; quantity: number }>;
   cartId?: string;
+  sellerId?: string;
   isRefurbished?: boolean;
 }): Promise<any> {
-  try {
-    const endpoint = payload.isRefurbished
-      ? '/refurbished/orders/create'
-      : '/e-commerce/orders/create';
-
-    const res = await apiClient.post(endpoint, payload);
-
-    // Clear cart if successful
-    try {
-      const clearUrl = payload.isRefurbished
-        ? '/refurbished/cart/my-cart/clear'
-        : '/e-commerce/cart/my-cart/clear';
-      await apiClient.delete(clearUrl);
-    } catch {}
-
-    return res.data;
-  } catch (err: any) {
-    const msg =
-      err?.response?.data?.message || err?.message || 'Failed to place order';
-    throw new Error(msg);
-  }
+  const { isRefurbished, ...body } = payload;
+  const endpoint = isRefurbished ? '/refurbished/orders/create' : '/e-commerce/orders/create';
+  // Errors are not wrapped, so the screen can tell "refused" from "no answer" (isNetworkError / isTimeout)
+  const res = await apiClient.post(endpoint, body);
+  return res.data;
 }
 
 /**
  * 5. Fetch Customer Returns
  */
 export async function getCustomerReturnsApi(isRefurbished = false): Promise<any[]> {
-  try {
-    const endpoint = isRefurbished
-      ? '/refurbished/orders/my-returns'
-      : '/e-commerce/orders/my-returns';
-    const res = await apiClient.get(endpoint);
-    return res.data?.data || [];
-  } catch (err: any) {
-    console.warn('getCustomerReturnsApi error fallback:', err?.message);
-    return [];
-  }
+  const endpoint = isRefurbished ? '/refurbished/orders/my-returns' : '/e-commerce/orders/my-returns';
+  const res = await apiClient.get(endpoint);
+  return res.data?.data || [];
 }
 
 /**
@@ -476,7 +416,7 @@ export async function sendOrderQueryApi(params: {
     return res.data;
   } catch (err: any) {
     const msg =
-      err?.response?.data?.message || err?.message || 'Failed to send message to seller';
+      err?.response?.data?.message || err?.message || i18n.t('customer.failedToSendMessageTo');
     throw new Error(msg);
   }
 }

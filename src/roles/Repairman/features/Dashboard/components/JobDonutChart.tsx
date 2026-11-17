@@ -3,6 +3,7 @@ import Svg, { Circle, G } from 'react-native-svg';
 
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import { useTranslation } from 'react-i18next';
 
 const SIZE = 200;
 const STROKE = 26;
@@ -11,6 +12,7 @@ const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
 /** A multi-colour donut built from stacked circles — the standard pure-SVG trick. */
 export default function JobDonutChart({ data, total, label }) {
+  useTranslation();
   const { colors } = useTheme();
 
   const sum = data.reduce((acc, slice) => acc + slice.value, 0);
@@ -53,14 +55,22 @@ export default function JobDonutChart({ data, total, label }) {
 
       <View style={styles.center}>
         <Text style={[styles.total, { color: colors.text }]}>{total}</Text>
-        <Text style={[styles.totalLabel, { color: colors.textMuted }]}>{label}</Text>
+        <Text style={[styles.totalLabel, { color: colors.textMuted }]}>
+          {label}
+        </Text>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: { width: SIZE, height: SIZE, alignSelf: 'center', alignItems: 'center', justifyContent: 'center' },
+  wrap: {
+    width: SIZE,
+    height: SIZE,
+    alignSelf: 'center',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   center: { position: 'absolute', alignItems: 'center' },
   total: { fontFamily: fonts.bold, fontSize: 26 },
   totalLabel: { fontFamily: fonts.regular, fontSize: 13, marginTop: 2 },

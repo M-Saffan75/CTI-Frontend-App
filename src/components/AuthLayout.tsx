@@ -2,7 +2,6 @@ import { useEffect, useRef } from 'react';
 import {
   Image,
   Keyboard,
-  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
@@ -15,6 +14,7 @@ import Paragraph from '@/components/Paragraph';
 import { FadeUp } from '@/animations';
 import { ctiLogo } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
+import KeyboardSafeView from '@/components/KeyboardSafeView';
 
 // The logo + title + subtitle block is identical on all five auth screens.
 export default function AuthLayout({ title, subtitle = null, children }) {
@@ -36,9 +36,8 @@ export default function AuthLayout({ title, subtitle = null, children }) {
   }, []);
 
   return (
-    <KeyboardAvoidingView
-      style={[styles.screen, { backgroundColor: colors.background }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardSafeView
+      style={[styles.screen, { backgroundColor: colors.background }]}>
       <ScrollView
         ref={scroll}
         contentContainerStyle={[styles.body, { paddingTop: insets.top + 60 }]}
@@ -53,7 +52,7 @@ export default function AuthLayout({ title, subtitle = null, children }) {
 
         <View style={styles.content}>{children}</View>
       </ScrollView>
-    </KeyboardAvoidingView>
+    </KeyboardSafeView>
   );
 }
 

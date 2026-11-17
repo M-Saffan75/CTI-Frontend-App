@@ -3,6 +3,7 @@ import { StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import CtiLoader from '@/components/CtiLoader';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import { useTranslation } from 'react-i18next';
 
 export interface PaginationFooterProps {
   /** Whether the next page is currently being fetched */
@@ -22,11 +23,12 @@ export default function PaginationFooter({
   style,
 }: PaginationFooterProps) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
 
   if (loading) {
     return (
       <View style={[styles.container, style]}>
-        <CtiLoader size="xs" text="Loading more..." />
+        <CtiLoader size="xs" text={t('common.loadingMore')} />
       </View>
     );
   }

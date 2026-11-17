@@ -4,11 +4,21 @@ import Svg, { Circle, Line, Polyline } from 'react-native-svg';
 
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 const HEIGHT = 140;
 const PADDING = 16;
 
-export default function RevenueTrendChart({ data }) {
+export interface RevenuePoint {
+  label: string;
+  value: number;
+  tooltipDate: string;
+  tooltipValue: string;
+}
+
+export default function RevenueTrendChart({ data }: { data: RevenuePoint[] }) {
+  useTranslation();
   const { colors } = useTheme();
   const [width, setWidth] = useState(0);
 
@@ -21,6 +31,11 @@ export default function RevenueTrendChart({ data }) {
     y: toY(point.value),
     ...point,
   }));
+
+  const peak = data.reduce<RevenuePoint | null>(
+    (best, p) => (p.value > 0 && (!best || p.value > best.value) ? p : best),
+    null,
+  );
 
   const gridSteps = [0, 0.25, 0.5, 0.75, 1];
 
@@ -56,11 +71,14 @@ export default function RevenueTrendChart({ data }) {
         </Svg>
       )}
 
-      {/* Tooltip simulation for design fidelity */}
-      <View style={[styles.tooltip, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <Text style={[styles.tooltipDate, { color: colors.textMuted }]}>Tue, July 4</Text>
-        <Text style={[styles.tooltipRevenue, { color: colors.primary }]}>Revenue: Rs.0</Text>
-      </View>
+      {peak && (
+        <View style={[styles.tooltip, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Text style={[styles.tooltipDate, { color: colors.textMuted }]}>{peak.tooltipDate}</Text>
+          <Text style={[styles.tooltipRevenue, { color: colors.primary }]}>
+            {i18n.t('sellerMsg.bestDay', { value: peak.tooltipValue })}
+          </Text>
+        </View>
+      )}
 
       <View style={styles.labels}>
         {data.map(point => (
@@ -80,8 +98,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 8,
     borderWidth: 1,
-    marginTop: -80,
-    marginBottom: 40,
+    marginTop: 8,
     alignItems: 'center',
     elevation: 2,
     shadowColor: '#000',

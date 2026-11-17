@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { formatMoney } from '@/utils/money';
 import {
   Image,
   RefreshControl,
@@ -8,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useIsFocused } from '@react-navigation/native';
 
 import CtiLoader from '@/components/CtiLoader';
 import Icon from '@/components/Icon';
@@ -16,72 +18,50 @@ import Squeeze from '@/components/Squeeze';
 import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import { arrowLeftBold, commentDotsBold, mapPinBold, packageBold, sendBold } from '@/assets/icons';
-import { ctiLogo, demoProductPhoto } from '@/assets/images';
+import { ctiLogo } from '@/assets/images';
+import ProductThumb from '@/components/ProductThumb';
 import { useTheme } from '@/theme/ThemeContext';
-import { badges, palette } from '@/theme/colors';
+import { badges } from '@/theme/colors';
+import { normalizeApiError } from '@/services/apiError';
 import { fonts } from '@/theme/fonts';
 import ContactSellerModal from '../components/ContactSellerModal';
 import { getCustomerOrderDetail, MobileOrder } from '../services/orderApi';
+import { subscribeOrderStatus, useOrderStatusChecker } from '../utils/orderLive';
+import useRefreshOnActive from '@/utils/useRefreshOnActive';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
+import { lower, upper } from '@/i18n/locale';
+import { paymentMethodLabel, statusLabel, tx } from '@/utils/labels';
 
-const PROGRESS_STEPS = ['Pending', 'Processing', 'Shipping', 'Shipped', 'Delivered'];
+// the API status words, in order; the shown text comes from statusLabel()
+const PROGRESS_STEPS = ['pending', 'processing', 'shipping', 'shipped', 'delivered'];
 
-const money = (n: number = 0) => `$${Number(n || 0).toFixed(2)}`;
+const money = (n: number = 0) => formatMoney(n);
 
-function OrderItemImage({ uri, style }: { uri?: string; style?: any }) {
-  const [loadError, setLoadError] = useState(false);
-  const { colors } = useTheme();
-
-  const hasValidUri = Boolean(
-    !loadError &&
-    uri &&
-    typeof uri === 'string' &&
-    uri.trim().length > 0 &&
-    (uri.startsWith('http://') || uri.startsWith('https://')) &&
-    !uri.includes('via.placeholder.com')
-  );
-
-  return (
-    <View
-      style={[
-        style,
-        {
-          backgroundColor: colors.surfaceAlt,
-          overflow: 'hidden',
-          alignItems: 'center',
-          justifyContent: 'center',
-        },
-      ]}>
-      {hasValidUri ? (
-        <Image
-          source={{ uri }}
-          style={{ width: '100%', height: '100%' }}
-          resizeMode="cover"
-          onError={() => setLoadError(true)}
-        />
-      ) : (
-        <Image
-          source={demoProductPhoto}
-          style={{ width: '100%', height: '100%' }}
-          resizeMode="cover"
-        />
-      )}
-    </View>
-  );
+function statusBadge(status: string) {
+  const t = String(status || '').toLowerCase();
+  if (t.includes('deliver') || t === 'paid' || t.includes('success')) return badges.accepted;
+  if (t.includes('cancel') || t.includes('fail') || t.includes('return') || t.includes('refund')) return badges.dispute;
+  if (t.includes('shipp')) return badges.booked;
+  return badges.inProgress;
 }
 
+const isClosedOrder = (status: string) => /cancel|return|fail/i.test(String(status || ''));
+
 export default function OrderDetailScreen({ navigation, route }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [contactOpen, setContactOpen] = useState(false);
 
   const passedOrder: MobileOrder | undefined = route?.params?.order;
   const orderId: string = passedOrder?.id || route?.params?.orderId || '';
-  const isRefurbished: boolean =
-    route?.params?.isRefurbished ?? passedOrder?.orderNo?.startsWith('REF-') ?? false;
+  const isRefurbished: boolean = route?.params?.isRefurbished ?? passedOrder?.isRefurbished ?? false;
 
   const [order, setOrder] = useState<MobileOrder | null>(passedOrder || null);
   const [loading, setLoading] = useState<boolean>(!passedOrder && !!orderId);
   const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [loadError, setLoadError] = useState('');
 
   // AlertModal State
   const [modal, setModal] = useState<{
@@ -96,48 +76,70 @@ export default function OrderDetailScreen({ navigation, route }: any) {
     message: '',
   });
 
-  const loadOrderDetail = async (isRefresh = false) => {
+  const loadOrderDetail = async (isRefresh = false, silent = false) => {
     if (!orderId) return;
     if (isRefresh) setRefreshing(true);
-    else if (!order) setLoading(true);
+    else if (!order && !silent) setLoading(true);
 
     try {
       const fetched = await getCustomerOrderDetail(orderId, isRefurbished);
       if (fetched) {
         setOrder(fetched);
+        setLoadError('');
       }
     } catch (err: any) {
-      setModal({
-        visible: true,
-        type: 'error',
-        title: 'Error Loading Order',
-        message: err?.message || 'Failed to load order details.',
-      });
+      // No connection / server failure: keep what is on screen, or offer a retry when there is nothing yet
+      if (!silent) {
+        const message = normalizeApiError(err).message;
+        if (order) {
+          setModal({ visible: true, type: 'error', title: i18n.t('customer.couldNotRefresh'), message });
+        } else {
+          setLoadError(message);
+        }
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
+      markLoaded();
     }
   };
 
   useEffect(() => {
     loadOrderDetail();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId]);
+
+  // The seller changed this order: reload quietly while the screen is open, or when the app returns
+  const isFocused = useIsFocused();
+  const reloadQuietly = () => {
+    loadOrderDetail(false, true);
+  };
+  const reloadRef = useRef(reloadQuietly);
+  const focusedRef = useRef(isFocused);
+  reloadRef.current = reloadQuietly;
+  focusedRef.current = isFocused;
+  const orderStatusChanged = useOrderStatusChecker();
+  const markLoaded = useRefreshOnActive(isFocused, reloadQuietly, orderStatusChanged);
+
+  useEffect(
+    () =>
+      subscribeOrderStatus(event => {
+        if (event.orderId === orderId && focusedRef.current && orderStatusChanged()) reloadRef.current();
+      }),
+    [orderId, orderStatusChanged],
+  );
 
   const onRefresh = () => {
     loadOrderDetail(true);
   };
 
   const rawTags = order?.tags || [order?.statusTag, order?.paymentTag].filter(Boolean);
-  const tags = Array.from(new Set((rawTags || []).map(t => String(t || '').trim()).filter(Boolean)));
+  const tags = Array.from(new Set((rawTags || []).map(tag => String(tag || '').trim()).filter(Boolean)));
   const customer = order?.customer || {
-    name: 'Customer',
+    name: '',
     phone: '',
     city: '',
     address: order?.shippingAddress || '',
-  };
-  const warranty = order?.warranty || {
-    returnId: `RET-${(order?.id || '396191').slice(-6).toUpperCase()}`,
-    date: order?.date || 'Today',
   };
 
   return (
@@ -163,38 +165,45 @@ export default function OrderDetailScreen({ navigation, route }: any) {
           </View>
         </Squeeze>
 
-        <Text style={[styles.title, { color: colors.text }]}>Orders detail</Text>
+        <Text style={[styles.title, { color: colors.text }]}>{t('customer.orderDetails')}</Text>
         {order && (
           <>
             <Text style={[styles.orderId, { color: colors.textMuted }]}>{order.orderId || order.orderNo}</Text>
 
             <View style={styles.tags}>
               {tags.map((tag, idx) => (
-                <View key={`tag-${tag}-${idx}`} style={[styles.pill, { backgroundColor: badges.accepted.bg }]}>
-                  <Text style={[styles.pillText, { color: badges.accepted.text }]}>{tag}</Text>
+                <View key={`tag-${tag}-${idx}`} style={[styles.pill, { backgroundColor: statusBadge(tag).bg }]}>
+                  <Text style={[styles.pillText, { color: statusBadge(tag).text }]}>{upper(statusLabel(tag))}</Text>
                 </View>
               ))}
             </View>
 
-            <ProgressBar step={order.progressStep ?? 0} />
+            {isClosedOrder(order.statusTag) ? (
+              <Text style={{ color: colors.error, fontFamily: fonts.medium, fontSize: 13, marginTop: 10 }}>
+                {t('customerMsg.orderClosed', { status: lower(statusLabel(order.statusTag)) })}
+              </Text>
+            ) : (
+              <ProgressBar step={order.progressStep ?? 0} />
+            )}
           </>
         )}
 
         {loading && !refreshing ? (
           <CtiLoader
             size="md"
-            text="Loading order details..."
+            text={t('customer.loadingOrderDetails')}
             style={{ paddingVertical: 40 }}
           />
         ) : !order ? (
           <View style={{ paddingVertical: 60, alignItems: 'center' }}>
             <Icon source={packageBold} size={48} color={colors.textMuted} />
             <Text style={[styles.title, { color: colors.text, fontSize: 18, marginTop: 12 }]}>
-              Order Not Found
+              {loadError ? t('customer.couldNotLoadTheOrder') : t('customer.orderNotFound')}
             </Text>
             <Text style={{ color: colors.textMuted, fontFamily: fonts.regular, fontSize: 13, marginTop: 6, textAlign: 'center' }}>
-              The requested order details could not be found or loaded.
+              {loadError || t('customer.thisOrderCouldNotBe')}
             </Text>
+            {loadError ? <Button title={t('customer.tryAgain')} size="sm" onPress={() => loadOrderDetail()} style={{ marginTop: 14 }} /> : null}
           </View>
         ) : (
           <>
@@ -203,7 +212,7 @@ export default function OrderDetailScreen({ navigation, route }: any) {
                 <View style={styles.cardHead}>
                   <Icon source={packageBold} size={16} color={colors.text} />
                   <Text style={[styles.cardTitle, { color: colors.text }]}>
-                    Order Items ({(order.items || []).length})
+                    {t('customerMsg.orderItemsCount', { count: (order.items || []).length })}
                   </Text>
                 </View>
                 <View style={[styles.divider, { backgroundColor: colors.border }]} />
@@ -213,32 +222,36 @@ export default function OrderDetailScreen({ navigation, route }: any) {
                     typeof item.variant === 'string'
                       ? item.variant
                       : typeof item.variant === 'object' && item.variant !== null
-                      ? Object.values(item.variant).filter(v => typeof v === 'string' || typeof v === 'number').join(' / ') || 'Standard'
-                      : 'Standard';
+                      ? Object.values(item.variant).filter(v => typeof v === 'string' || typeof v === 'number').join(' / ')
+                      : '';
 
                   return (
                     <View key={`item-${item.id || idx}-${idx}`} style={styles.item}>
-                      <OrderItemImage uri={item.image} style={styles.itemImage} />
+                      <ProductThumb uri={item.image} size={48} radius={8} />
                       <View style={styles.itemText}>
                         <Text style={[styles.itemName, { color: colors.text }]}>
-                          {String(item.name || 'Purchased Item')}
+                          {String(item.name || '')}
                         </Text>
-                        <Text style={[styles.itemVariant, { color: colors.textMuted }]}>
-                          {variantStr}
-                        </Text>
+                        {variantStr ? (
+                          <Text style={[styles.itemVariant, { color: colors.textMuted }]}>
+                            {variantStr}
+                          </Text>
+                        ) : null}
                         <Text style={[styles.itemQty, { color: colors.textMuted }]}>
-                          QTY.{item.qty || 1}  {money(item.price)} each
+                          {t('customerMsg.qtyTimes', { qty: item.qty || 1, price: money(item.price) })}
                         </Text>
                       </View>
                       <View style={styles.itemEnd}>
                         <Text style={[styles.itemPrice, { color: colors.text }]}>
-                          {money(item.price)}
+                          {money((item.price || 0) * (item.qty || 1))}
                         </Text>
-                        <View style={[styles.pill, { backgroundColor: badges.accepted.bg, marginTop: 6 }]}>
-                          <Text style={[styles.pillText, { color: badges.accepted.text }]}>
-                            {String(item.status || order.statusTag || 'Pending')}
-                          </Text>
-                        </View>
+                        {item.status || order.statusTag ? (
+                          <View style={[styles.pill, { backgroundColor: statusBadge(String(item.status || order.statusTag)).bg, marginTop: 6 }]}>
+                            <Text style={[styles.pillText, { color: statusBadge(String(item.status || order.statusTag)).text }]}>
+                              {upper(statusLabel(item.status || order.statusTag))}
+                            </Text>
+                          </View>
+                        ) : null}
                       </View>
                     </View>
                   );
@@ -250,13 +263,15 @@ export default function OrderDetailScreen({ navigation, route }: any) {
               <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                 <View style={styles.cardHead}>
                   <Icon source={mapPinBold} size={16} color={colors.text} />
-                  <Text style={[styles.cardTitle, { color: colors.text }]}>Shipping Address</Text>
+                  <Text style={[styles.cardTitle, { color: colors.text }]}>{t('customer.shippingAddress')}</Text>
                 </View>
                 <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
-                <Text style={[styles.customerName, { color: colors.text }]}>
-                  {customer.name}
-                </Text>
+                {!!customer.name && (
+                  <Text style={[styles.customerName, { color: colors.text }]}>
+                    {customer.name}
+                  </Text>
+                )}
                 {!!customer.phone && (
                   <Text style={[styles.text, { color: colors.textMuted }]}>{customer.phone}</Text>
                 )}
@@ -271,29 +286,29 @@ export default function OrderDetailScreen({ navigation, route }: any) {
 
             <FadeUp delay={220} duration={500}>
               <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                <Text style={[styles.cardTitle, { color: colors.text }]}>Order Info</Text>
+                <Text style={[styles.cardTitle, { color: colors.text }]}>{t('customer.orderInfo')}</Text>
                 <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
-                <Row label="Order ID" value={order.orderId} />
-                <Row label="Order No." value={order.orderNo} />
-                <Row label="Date" value={order.date} />
-                <Row label="Payment" value={order.payment || order.paymentStatus || 'CARD'} />
+                <Row label={t('customer.orderId')} value={order.orderId} />
+                <Row label={t('customer.orderNo')} value={order.orderNo} />
+                <Row label={t('customer.date')} value={tx({ date: order.date, style: 'long' })} />
+                <Row label={t('customer.payment')} value={paymentMethodLabel(order.payment || order.paymentStatus)} />
               </View>
             </FadeUp>
 
             <FadeUp delay={280} duration={500}>
               <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                <Text style={[styles.cardTitle, { color: colors.text }]}>Price Summary</Text>
+                <Text style={[styles.cardTitle, { color: colors.text }]}>{t('customer.priceSummary')}</Text>
                 <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
-                <Row label="Subtotal" value={money(order.subtotal ?? (order.total - (order.shipping || 0)))} />
-                <Row label="Shipping" value={money(order.shipping ?? 0)} />
+                <Row label={t('customer.subtotal')} value={money(order.subtotal ?? (order.total - (order.shipping || 0)))} />
+                <Row label={t('customerMsg.shippingCost')} value={money(order.shipping ?? 0)} />
                 <View style={[styles.divider, { backgroundColor: colors.border }]} />
-                <Row label="Total" value={money(order.total)} bold />
+                <Row label={t('customer.total')} value={money(order.total)} bold />
               </View>
 
               <Button
-                title="Contact Seller"
+                title={t('customer.contactSeller')}
                 variant="outline"
                 icon={sendBold}
                 iconPosition="left"
@@ -301,22 +316,13 @@ export default function OrderDetailScreen({ navigation, route }: any) {
                 style={styles.button}
               />
               <Button
-                title="My Messages"
+                title={t('settings.menu.myMessages')}
                 variant="outline"
                 icon={commentDotsBold}
                 iconPosition="left"
                 onPress={() => navigation.navigate('ChatList')}
                 style={styles.button}
               />
-
-              <View style={[styles.warranty, { backgroundColor: palette.mintBg }]}>
-                <Text style={[styles.warrantyTitle, { color: colors.success }]}>
-                  Warranty Information
-                </Text>
-                <Text style={[styles.warrantyText, { color: colors.success }]}>
-                  Return #{warranty.returnId} - {warranty.date}
-                </Text>
-              </View>
             </FadeUp>
           </>
         )}
@@ -332,8 +338,8 @@ export default function OrderDetailScreen({ navigation, route }: any) {
           setModal({
             visible: true,
             type: 'success',
-            title: 'Message Sent',
-            message: 'Your query has been sent to the seller successfully.',
+            title: i18n.t('customer.messageSent'),
+            message: i18n.t('customer.yourQueryHasBeenSent'),
           });
         }}
       />
@@ -351,6 +357,7 @@ export default function OrderDetailScreen({ navigation, route }: any) {
 
 function ProgressBar({ step }) {
   const { colors } = useTheme();
+  useTranslation();
 
   return (
     <View style={styles.progress}>
@@ -374,7 +381,7 @@ function ProgressBar({ step }) {
               { color: index <= step ? colors.primary : colors.textMuted },
               index <= step && { fontFamily: fonts.bold },
             ]}>
-            {label}
+            {statusLabel(label)}
           </Text>
         ))}
       </View>
@@ -431,11 +438,10 @@ const styles = StyleSheet.create({
 
   card: { borderRadius: 14, borderWidth: 1, padding: 16, marginTop: 16 },
   cardHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  cardTitle: { fontFamily: fonts.bold, fontSize: 15 },
+  cardTitle: { flexShrink: 1, fontFamily: fonts.bold, fontSize: 15 },
   divider: { height: 1, marginVertical: 12 },
 
   item: { flexDirection: 'row', gap: 10 },
-  itemImage: { width: 48, height: 48, borderRadius: 8 },
   itemText: { flex: 1, gap: 2 },
   itemName: { fontFamily: fonts.bold, fontSize: 14 },
   itemVariant: { fontFamily: fonts.regular, fontSize: 12 },

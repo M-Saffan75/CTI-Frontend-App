@@ -17,12 +17,15 @@ import CtiLoader from '@/components/CtiLoader';
 import { FadeUp } from '@/animations';
 import { arrowLeftBold, eyeBold, searchBold, starExtra } from '@/assets/icons';
 import { ctiLogo } from '@/assets/images';
+import { ErrorState } from '@/components/states';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import academyApi, {
   AcademicCategoryItem,
   AcademicCourseItem,
 } from '@/services/academyApi';
+import { Trans, useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 function CourseCardItem({
   course,
@@ -33,14 +36,15 @@ function CourseCardItem({
   index: number;
   onPress: () => void;
 }) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const [imgError, setImgError] = useState(false);
 
   const cleanDesc = (course.shortDescription || course.description || course.about || '')
     .replace(/<[^>]+>/g, ' ')
     .trim();
-  const ratingDisplay = course.averageRating > 0 ? course.averageRating.toFixed(1) : '4.5';
-  const badgeText = course.subCategory || course.category || 'Course';
+  const ratingDisplay = course.averageRating > 0 ? course.averageRating.toFixed(1) : '';
+  const badgeText = course.subCategory || course.category || i18n.t('customerMsg.courseFallback');
   const hasValidThumb = !!course.thumbnail && course.thumbnail.startsWith('http') && !imgError;
 
   return (
@@ -80,12 +84,14 @@ function CourseCardItem({
 
           <View style={styles.metaRow}>
             {/* Star Rating */}
-            <View style={styles.ratingRow}>
-              <Icon source={starExtra} size={13} color="#F59E0B" />
-              <Text style={[styles.ratingText, { color: colors.text }]}>
-                {ratingDisplay}
-              </Text>
-            </View>
+            {!!ratingDisplay && (
+              <View style={styles.ratingRow}>
+                <Icon source={starExtra} size={13} color="#F59E0B" />
+                <Text style={[styles.ratingText, { color: colors.text }]}>
+                  {ratingDisplay}
+                </Text>
+              </View>
+            )}
 
             {/* Views */}
             <View style={styles.views}>
@@ -97,7 +103,7 @@ function CourseCardItem({
           </View>
 
           <Button
-            title="Start Learning"
+            title={t('customer.startLearning')}
             size="sm"
             onPress={onPress}
             style={styles.cardButton}
@@ -109,6 +115,7 @@ function CourseCardItem({
 }
 
 export default function CoursesListScreen({ navigation, route }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -121,6 +128,7 @@ export default function CoursesListScreen({ navigation, route }: any) {
   const [selectedCatName, setSelectedCatName] = useState<string | null>(initialCatName);
   const [search, setSearch] = useState(initialSearch);
   const [courses, setCourses] = useState<AcademicCourseItem[]>([]);
+  const [loadError, setLoadError] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -149,23 +157,28 @@ export default function CoursesListScreen({ navigation, route }: any) {
   // Fetch courses
   const fetchCourses = useCallback(async (catId: string | null, query: string) => {
     setLoading(true);
+    setLoadError('');
     try {
       const data = await academyApi.getCourses({
         categoryId: catId || 'all',
         search: query.trim() || undefined,
-        limit: 50,
       });
       setCourses(data);
-    } catch (err) {
-      if (__DEV__) console.warn('Failed to load courses:', err);
+    } catch (err: any) {
+      // never show "no courses" when the request failed
       setCourses([]);
+      setLoadError(err?.message || i18n.t('customer.couldNotLoadTheCourses'));
     } finally {
       setLoading(false);
     }
   }, []);
 
+  // A new category reloads the list; typing is handled by handleSearchChange, so the effect reads the latest text from a ref
+  const searchRef = useRef(search);
+  searchRef.current = search;
+
   useEffect(() => {
-    fetchCourses(selectedCatId, search);
+    fetchCourses(selectedCatId, searchRef.current);
   }, [fetchCourses, selectedCatId]);
 
   const handleSearchChange = (text: string) => {
@@ -228,17 +241,17 @@ export default function CoursesListScreen({ navigation, route }: any) {
             value={search}
             onChangeText={handleSearchChange}
             onSubmitEditing={() => fetchCourses(selectedCatId, search)}
-            placeholder="Search Courses"
+            placeholder={t('customer.searchCourses')}
             placeholderTextColor={colors.textMuted}
             style={[styles.searchInput, { color: colors.text }]}
           />
         </View>
 
         <Text style={[styles.title, { color: colors.text }]}>
-          Academy <Text style={{ color: colors.primary }}>Courses</Text>
+          <Trans i18nKey="customerMsg.academyCourses" components={{ hl: <Text style={{ color: colors.primary }} /> }} />
         </Text>
         <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-          Discover high-quality courses to grow your skills
+          {t('customer.discoverHighQualityCoursesTo')}
         </Text>
 
         {/* Category Pills */}
@@ -260,7 +273,7 @@ export default function CoursesListScreen({ navigation, route }: any) {
                   styles.filterText,
                   { color: selectedCatId === null ? colors.onPrimary : colors.text },
                 ]}>
-                All
+                {t('customer.all')}
               </Text>
             </View>
           </Squeeze>
@@ -293,20 +306,22 @@ export default function CoursesListScreen({ navigation, route }: any) {
         <View style={styles.headingRow}>
           <View style={[styles.headingBar, { backgroundColor: colors.primary }]} />
           <Text style={[styles.heading, { color: colors.text }]}>
-            {selectedCatName ?? 'All Courses'}
+            {selectedCatName ?? t('customer.allCourses')}
           </Text>
         </View>
 
         {loading && !refreshing ? (
           <CtiLoader
             size="md"
-            text="Loading courses..."
+            text={t('customer.loadingCourses')}
             style={{ paddingVertical: 40 }}
           />
+        ) : loadError ? (
+          <ErrorState error={loadError} onRetry={() => fetchCourses(selectedCatId, search)} fullScreen={false} />
         ) : courses.length === 0 ? (
           <View style={styles.emptyWrap}>
             <Text style={[styles.empty, { color: colors.textMuted }]}>
-              No courses found in this category.
+              {t('customer.noCoursesFoundInThis')}
             </Text>
           </View>
         ) : (

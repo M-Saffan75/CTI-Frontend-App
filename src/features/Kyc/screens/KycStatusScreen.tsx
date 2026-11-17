@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Linking,
@@ -23,10 +23,16 @@ import {
 } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
-import { WEB_LOGIN_URL } from '@/constants/config';
+import { getWebLoginUrl } from '@/constants/config';
 import AuthService, { AuthUser } from '@/services/authService';
 
-export type KycStatusType = 'incomplete' | 'pending' | 'revision' | 'rejected' | 'approved';
+import { effectiveKycStatus, KycStatusType } from '../kycGate';
+import { getLocaleTag } from '@/i18n/locale';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
+import { statusLabel } from '@/utils/labels';
+
+export type { KycStatusType };
 
 export interface KycStatusScreenProps {
   status?: KycStatusType | string;
@@ -57,6 +63,7 @@ export default function KycStatusScreen({
   navigation,
   route,
 }: KycStatusScreenProps) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -75,70 +82,72 @@ export default function KycStatusScreen({
   const [currentStatus, setCurrentStatus] = useState<KycStatusType>(initialStatus);
   const [opening, setOpening] = useState(false);
   const [checking, setChecking] = useState(false);
+  const checkBusy = useRef(false);
+  const logoutBusy = useRef(false);
   const [linkError, setLinkError] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const role = propRole || routeRole || propUser?.role || 'provider';
-  const roleDisplay = role === 'seller' ? 'Seller' : 'Repair Technician';
+  const roleDisplay = role === 'seller' ? i18n.t('glossary.seller') : i18n.t('repairmanMsg.repairTechnician');
 
   const getStatusConfig = (st: KycStatusType): StatusConfig => {
     switch (st) {
       case 'approved':
         return {
-          badge: 'Approved',
+          badge: i18n.t('repairman.approved'),
           badgeBg: colors.success + '20',
           badgeTextColor: colors.success,
-          title: 'Account Approved',
-          description: 'Your verification has been approved! You now have full access to your provider dashboard.',
+          title: i18n.t('repairman.accountApproved'),
+          description: i18n.t('repairman.yourVerificationHasBeenApproved'),
           icon: shieldBold,
           iconColor: colors.success,
         };
       case 'revision':
         return {
-          badge: 'Revision Required',
+          badge: i18n.t('repairman.revisionRequired'),
           badgeBg: '#FF820A20',
           badgeTextColor: '#FF820A',
-          title: 'Updates Required',
+          title: i18n.t('repairman.updatesRequired'),
           description:
             routeMessage ||
-            'Some of your submitted documents require revisions. Please log in to the website to review admin feedback and re-upload the requested files.',
+            i18n.t('repairman.someOfYourSubmittedDocuments'),
           icon: exclamationCircleBold,
           iconColor: '#FF820A',
         };
       case 'rejected':
         return {
-          badge: 'Application Rejected',
+          badge: i18n.t('repairman.applicationRejected'),
           badgeBg: colors.error + '20',
           badgeTextColor: colors.error,
-          title: 'Verification Rejected',
+          title: i18n.t('repairman.verificationRejected'),
           description:
             routeMessage ||
-            'Your provider application could not be approved at this time. Please visit the website for further details or contact support for help.',
+            i18n.t('repairman.yourProviderApplicationCouldNot'),
           icon: exclamationCircleBold,
           iconColor: colors.error,
         };
       case 'pending':
         return {
-          badge: 'Under Review',
+          badge: i18n.t('customer.underReview'),
           badgeBg: colors.primary + '20',
           badgeTextColor: colors.primary,
-          title: 'Documents Under Review',
+          title: i18n.t('repairman.documentsUnderReview'),
           description:
             routeMessage ||
-            'Your verification documents have been received and are currently being reviewed by our compliance team. Verification usually takes 12 to 24 hours.',
+            i18n.t('repairman.yourVerificationDocumentsHaveBeen'),
           icon: clockBold,
           iconColor: colors.primary,
         };
       case 'incomplete':
       default:
         return {
-          badge: 'Verification Incomplete',
+          badge: i18n.t('repairman.verificationIncomplete'),
           badgeBg: colors.primary + '20',
           badgeTextColor: colors.primary,
-          title: 'Complete Profile on Website',
+          title: i18n.t('repairman.completeProfileOnWebsite'),
           description:
             routeMessage ||
-            `To activate your ${roleDisplay} account, identity verification and business details must be completed on our website.`,
+            i18n.t('repairmanMsg.activateAccount', { role: roleDisplay }),
           icon: infoCircleBold,
           iconColor: colors.primary,
         };
@@ -151,9 +160,9 @@ export default function KycStatusScreen({
     setOpening(true);
     setLinkError(false);
     try {
-      const supported = await Linking.canOpenURL(WEB_LOGIN_URL);
+      const supported = await Linking.canOpenURL(getWebLoginUrl());
       if (supported) {
-        await Linking.openURL(WEB_LOGIN_URL);
+        await Linking.openURL(getWebLoginUrl());
       } else {
         setLinkError(true);
       }
@@ -166,20 +175,22 @@ export default function KycStatusScreen({
 
   const handleCheckStatus = async () => {
     if (noToken) {
-      setFeedback('Profile must be submitted on the website first. Once submitted, log in to sync your status.');
+      setFeedback(i18n.t('repairman.profileMustBeSubmittedOn'));
       return;
     }
+    if (checkBusy.current) return;
+    checkBusy.current = true;
 
     setChecking(true);
     setFeedback(null);
     try {
       const updatedUser = await AuthService.fetchUserProfile();
       if (updatedUser) {
-        const newStatus = (updatedUser.kycStatus || (updatedUser.isKycCompleted ? 'approved' : 'incomplete')) as KycStatusType;
+        const newStatus = effectiveKycStatus(role, updatedUser);
         setCurrentStatus(newStatus);
 
         if (newStatus === 'approved') {
-          setFeedback('Your account has been approved! Redirecting to dashboard...');
+          setFeedback(i18n.t('repairman.yourAccountHasBeenApproved'));
           if (onApproved) {
             onApproved(updatedUser);
           } else if (navigation?.canGoBack?.()) {
@@ -188,19 +199,31 @@ export default function KycStatusScreen({
           return;
         }
 
-        setFeedback(`Status checked at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}: ${newStatus}`);
+        setFeedback(
+          i18n.t('repairmanMsg.statusChecked', {
+            time: new Date().toLocaleTimeString(getLocaleTag(), { hour: '2-digit', minute: '2-digit' }),
+            status: statusLabel(newStatus),
+          }),
+        );
       } else {
-        setFeedback('Could not fetch updated status. Please try again.');
+        setFeedback(i18n.t('repairman.couldNotFetchUpdatedStatus'));
       }
     } catch (err: any) {
-      setFeedback(err?.message || 'Unable to connect to server. Please try again.');
+      setFeedback(err?.message || i18n.t('repairman.unableToConnectToServer'));
     } finally {
+      checkBusy.current = false;
       setChecking(false);
     }
   };
 
   const handleLogout = async () => {
-    await AuthService.logout();
+    if (logoutBusy.current) return;
+    logoutBusy.current = true;
+    try {
+      await AuthService.logout();
+    } finally {
+      logoutBusy.current = false;
+    }
     if (onLogout) {
       onLogout();
     } else if (navigation) {
@@ -224,13 +247,13 @@ export default function KycStatusScreen({
           },
         ]}>
         <Text style={[styles.headerRole, { color: colors.text }]}>
-          {roleDisplay} Verification
+          {i18n.t('repairmanMsg.roleVerification', { role: roleDisplay })}
         </Text>
 
         <Squeeze onPress={handleLogout} scale={0.92}>
           <View style={[styles.logoutBtn, { borderColor: colors.border }]}>
             <Icon source={logOutBold} size={16} color={colors.error} />
-            <Text style={[styles.logoutText, { color: colors.error }]}>Log out</Text>
+            <Text style={[styles.logoutText, { color: colors.error }]}>{t('repairman.logOut')}</Text>
           </View>
         </Squeeze>
       </View>
@@ -277,10 +300,10 @@ export default function KycStatusScreen({
           <FadeUp delay={150} duration={300}>
             <View style={[styles.fallbackBox, { borderColor: colors.primary }]}>
               <Text style={[styles.fallbackTitle, { color: colors.text }]}>
-                Open this address in your phone browser:
+                {t('repairman.openThisAddressInYour')}
               </Text>
               <Text style={[styles.fallbackUrl, { color: colors.primary }]} selectable>
-                {WEB_LOGIN_URL}
+                {getWebLoginUrl()}
               </Text>
             </View>
           </FadeUp>
@@ -289,11 +312,12 @@ export default function KycStatusScreen({
         {/* Action Controls */}
         <FadeUp delay={200} duration={500} style={styles.actions}>
           <Button
-            title="Open Website"
+            title={t('repairman.openWebsite')}
             size="lg"
             loading={opening}
             onPress={handleOpenWebsite}
-            icon={<Icon source={globeBold} size={18} color={colors.onPrimary} />}
+            icon={globeBold}
+            iconPosition="left"
           />
 
           <TouchableOpacity
@@ -305,7 +329,7 @@ export default function KycStatusScreen({
               <ActivityIndicator size="small" color={colors.primary} />
             ) : (
               <Text style={[styles.checkBtnText, { color: colors.text }]}>
-                Check Status
+                {t('repairman.checkStatus')}
               </Text>
             )}
           </TouchableOpacity>
@@ -326,6 +350,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   headerRole: {
+    flexShrink: 1,
     fontSize: 16,
     fontFamily: fonts.bold,
   },
@@ -339,6 +364,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   logoutText: {
+    flexShrink: 1,
     fontSize: 12,
     fontFamily: fonts.medium,
   },

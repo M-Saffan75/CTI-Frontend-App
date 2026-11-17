@@ -283,6 +283,38 @@ class SocketService {
   }
 
   /**
+   * Server could not save a message (type 'message_send_error')
+   */
+  onChatError(callback: (data: { type?: string; message?: string }) => void): () => void {
+    return this.on('chat_error', callback);
+  }
+
+  /**
+   * Runs after the socket came back from a drop (not on the first connect),
+   * so screens can fetch what they missed while it was down.
+   */
+  onReconnect(callback: () => void): () => void {
+    let dropped = !this.isConnected();
+    const offDisconnect = this.on('disconnect', () => {
+      dropped = true;
+    });
+    const offError = this.on('connect_error', () => {
+      dropped = true;
+    });
+    const offConnect = this.on('connect', () => {
+      if (dropped) {
+        dropped = false;
+        callback();
+      }
+    });
+    return () => {
+      offDisconnect();
+      offError();
+      offConnect();
+    };
+  }
+
+  /**
    * Listen for chat list updates (new unread count, new message preview, etc.)
    */
   onChatListUpdated(callback: (data: any) => void): () => void {
@@ -394,7 +426,13 @@ class SocketService {
   // --- Specialized Helper Listeners matching Web App ---
 
   onNotification(callback: (notification: any) => void): () => void {
-    return this.on('notification', callback);
+    // The server sends 'push_notification'; 'notification' is kept for older server paths
+    const offPush = this.on('push_notification', callback);
+    const offLegacy = this.on('notification', callback);
+    return () => {
+      offPush();
+      offLegacy();
+    };
   }
 
   onNewOrder(callback: (order: any) => void): () => void {

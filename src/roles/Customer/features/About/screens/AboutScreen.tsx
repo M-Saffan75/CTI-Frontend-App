@@ -31,10 +31,12 @@ import {
   TIMELINE,
   WASTE_POINTS,
 } from '../data/about';
+import { Trans, useTranslation } from 'react-i18next';
 
 const PROMISE_ICONS = [starBold, shieldBold, checkCircleBold, stopwatchBold];
 
 export default function AboutScreen({ navigation }: any) {
+  const { t } = useTranslation();
   const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const { ids: wishlistIds } = useWishlist();
@@ -78,14 +80,13 @@ export default function AboutScreen({ navigation }: any) {
         {/* Section 1 - Hero (Reuse & Reduce) */}
         <FadeUp delay={60} duration={500}>
           <View style={[styles.heroCard, { backgroundColor: colors.primary }]}>
-            <Text style={styles.heroTag}>SUSTAINABILITY & INNOVATION</Text>
-            <Text style={styles.heroHeading}>Reuse & Reduce</Text>
+            <Text style={styles.heroTag}>{t('customer.sustainabilityAndInnovation')}</Text>
+            <Text style={styles.heroHeading}>{t('customer.reuseAndReduce')}</Text>
             <Text style={styles.heroSubtitle}>
-              Our grandparents lived a sustainable life — long before sustainability was even a concept.
+              {t('customer.ourGrandparentsLivedASustainable')}
             </Text>
             <Text style={styles.heroBody}>
-              Let's mindfully bring sustainable choices back into our modern lifestyle, starting with
-              technology for a better future.
+              {t('customer.letSMindfullyBringSustainable')}
             </Text>
             <Image source={aboutImages.hero} style={styles.cardImage} resizeMode="cover" />
           </View>
@@ -95,7 +96,7 @@ export default function AboutScreen({ navigation }: any) {
         <View style={[styles.marqueeContainer, { backgroundColor: isDark ? colors.surfaceAlt : colors.surface, borderColor: colors.border }]}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <Text style={[styles.marqueeText, { color: colors.text }]}>
-              BUY. REPAIR. SELL. REFURBISH. REUSE. REPEAT. • BUY. REPAIR. SELL. REFURBISH. REUSE. REPEAT.
+              {t('customer.buyRepairSellRefurbishReuse')}
             </Text>
           </ScrollView>
         </View>
@@ -103,12 +104,12 @@ export default function AboutScreen({ navigation }: any) {
         {/* Section 2 - Our Passion 1 */}
         <FadeUp delay={120} duration={500}>
           <View style={[styles.contentCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <Text style={[styles.tag, { color: colors.primary }]}>OUR PASSION</Text>
+            <Text style={[styles.tag, { color: colors.primary }]}>{t('customer.ourPassion')}</Text>
             <Text style={[styles.heading, { color: colors.text }]}>
-              Building a world where tech doesn't need to cost the pocket or the planet.
+              {t('customer.buildingAWorldWhereTech')}
             </Text>
             <Text style={[styles.text, { color: colors.textMuted }]}>
-              To change the lifecycle of every gadget by redefining what we choose to do with it.
+              {t('customer.toChangeTheLifecycleOf')}
             </Text>
             <Image source={aboutImages.passion1} style={styles.cardImage} resizeMode="cover" />
           </View>
@@ -117,10 +118,10 @@ export default function AboutScreen({ navigation }: any) {
         {/* Section 3 - Our Promise */}
         <FadeUp delay={180} duration={500}>
           <View style={styles.sectionHeader}>
-            <Text style={[styles.centerTag, { color: colors.primary }]}>OUR COMMITMENT</Text>
-            <Text style={[styles.centerHeading, { color: colors.text }]}>Our Promise</Text>
+            <Text style={[styles.centerTag, { color: colors.primary }]}>{t('customer.ourCommitment')}</Text>
+            <Text style={[styles.centerHeading, { color: colors.text }]}>{t('customer.ourPromise')}</Text>
             <Text style={[styles.centerText, { color: colors.textMuted }]}>
-              We promise to make sustainable technology accessible, affordable, and effortless for everyone.
+              {t('customer.wePromiseToMakeSustainable')}
             </Text>
           </View>
 
@@ -147,12 +148,12 @@ export default function AboutScreen({ navigation }: any) {
         {/* Section 4 - Our Passion 2 */}
         <FadeUp delay={240} duration={500}>
           <View style={[styles.contentCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <Text style={[styles.tag, { color: colors.primary }]}>OUR PASSION</Text>
+            <Text style={[styles.tag, { color: colors.primary }]}>{t('customer.ourPassion')}</Text>
             <Text style={[styles.heading, { color: colors.text }]}>
-              Adding “right way” to business for the planet and the people who live on it.
+              {t('customer.addingRightWayToBusiness')}
             </Text>
             <Text style={[styles.text, { color: colors.textMuted }]}>
-              To change the lifecycle of every gadget by redefining what we choose to do with it.
+              {t('customer.toChangeTheLifecycleOf')}
             </Text>
             <Image source={aboutImages.passion2} style={styles.cardImage} resizeMode="cover" />
           </View>
@@ -161,10 +162,10 @@ export default function AboutScreen({ navigation }: any) {
         {/* Section 5 - History Stepper */}
         <FadeUp delay={300} duration={500}>
           <View style={[styles.journeyHeader, { backgroundColor: colors.primary }]}>
-            <Text style={styles.journeyBadge}>OUR STORY</Text>
-            <Text style={styles.journeyTitle}>From Zero to Hero</Text>
+            <Text style={styles.journeyBadge}>{t('customer.ourStory')}</Text>
+            <Text style={styles.journeyTitle}>{t('customer.fromZeroToHero')}</Text>
             <Text style={styles.journeySub}>
-              A journey of innovation, sustainability, and commitment to changing how the world thinks about technology.
+              {t('customer.aJourneyOfInnovationSustainability')}
             </Text>
           </View>
 
@@ -236,10 +237,10 @@ export default function AboutScreen({ navigation }: any) {
         {/* Section 6 - Our Principles */}
         <FadeUp delay={360} duration={500}>
           <View style={[styles.principlesContainer, { backgroundColor: isDark ? colors.surface : '#111827' }]}>
-            <Text style={[styles.centerTag, { color: '#34D399' }]}>OUR FOUNDATION</Text>
-            <Text style={[styles.centerHeading, { color: '#FFFFFF' }]}>Our Principles</Text>
+            <Text style={[styles.centerTag, { color: '#34D399' }]}>{t('customer.ourFoundation')}</Text>
+            <Text style={[styles.centerHeading, { color: '#FFFFFF' }]}>{t('customer.ourPrinciples')}</Text>
             <Text style={[styles.centerText, { color: '#9CA3AF' }]}>
-              These core values guide every decision we make and shape our vision for the future.
+              {t('customer.theseCoreValuesGuideEvery')}
             </Text>
 
             <View style={styles.principlesGrid}>
@@ -262,13 +263,13 @@ export default function AboutScreen({ navigation }: any) {
         <FadeUp delay={420} duration={500}>
           <View style={styles.solutionHeader}>
             <View style={[styles.solutionTagWrap, { backgroundColor: colors.primary + '20' }]}>
-              <Text style={[styles.solutionTag, { color: colors.primary }]}>REUSE & IMPACT</Text>
+              <Text style={[styles.solutionTag, { color: colors.primary }]}>{t('customer.reuseAndImpact')}</Text>
             </View>
             <Text style={[styles.solutionHeading, { color: colors.text }]}>
-              Be a part of <Text style={{ color: colors.primary }}>Solution</Text>, not Pollution
+              <Trans i18nKey="customerMsg.aboutSolution" components={{ hl: <Text style={{ color: colors.primary }} /> }} />
             </Text>
             <Text style={[styles.solutionSub, { color: colors.textMuted }]}>
-              When you reuse just one phone:
+              {t('customer.whenYouReuseJustOne')}
             </Text>
           </View>
 
@@ -280,16 +281,16 @@ export default function AboutScreen({ navigation }: any) {
             ]}>
             <View style={styles.impactCardHeader}>
               <View style={[styles.impactPill, { backgroundColor: '#E0F2FE' }]}>
-                <Text style={[styles.impactPillText, { color: '#0284C7' }]}>WATER</Text>
+                <Text style={[styles.impactPillText, { color: '#0284C7' }]}>{t('customer.water')}</Text>
               </View>
-              <Text style={[styles.impactSaveLabel, { color: colors.textMuted }]}>YOU SAVE</Text>
+              <Text style={[styles.impactSaveLabel, { color: colors.textMuted }]}>{t('customer.youSave')}</Text>
               <View style={styles.impactNumberRow}>
                 <Text style={[styles.impactBigNum, { color: colors.primary }]}>909</Text>
-                <Text style={[styles.impactUnit, { color: colors.text }]}>liters</Text>
+                <Text style={[styles.impactUnit, { color: colors.text }]}>{t('customer.liters')}</Text>
               </View>
-              <Text style={[styles.impactCardTitle, { color: colors.text }]}>of water</Text>
+              <Text style={[styles.impactCardTitle, { color: colors.text }]}>{t('customer.ofWater')}</Text>
               <Text style={[styles.impactCardDesc, { color: colors.textMuted }]}>
-                & save people from staying thirsty for 100 years.
+                {t('customer.andSavePeopleFromStaying')}
               </Text>
             </View>
             <Image source={aboutImages.water} style={styles.impactImage} resizeMode="contain" />
@@ -303,16 +304,16 @@ export default function AboutScreen({ navigation }: any) {
             ]}>
             <View style={styles.impactCardHeader}>
               <View style={[styles.impactPill, { backgroundColor: '#FEF3C7' }]}>
-                <Text style={[styles.impactPillText, { color: '#D97706' }]}>ENERGY</Text>
+                <Text style={[styles.impactPillText, { color: '#D97706' }]}>{t('customer.energy')}</Text>
               </View>
-              <Text style={[styles.impactSaveLabel, { color: '#94A3B8' }]}>YOU SAVE</Text>
+              <Text style={[styles.impactSaveLabel, { color: '#94A3B8' }]}>{t('customer.youSave')}</Text>
               <View style={styles.impactNumberRow}>
                 <Text style={[styles.impactBigNum, { color: '#FBBF24' }]}>72</Text>
-                <Text style={[styles.impactUnit, { color: '#FFFFFF' }]}>kWh</Text>
+                <Text style={[styles.impactUnit, { color: '#FFFFFF' }]}>{t('customer.kwh')}</Text>
               </View>
-              <Text style={[styles.impactCardTitle, { color: '#FFFFFF' }]}>of energy</Text>
+              <Text style={[styles.impactCardTitle, { color: '#FFFFFF' }]}>{t('customer.ofEnergy')}</Text>
               <Text style={[styles.impactCardDesc, { color: '#CBD5E1' }]}>
-                & power homes for weeks.
+                {t('customer.andPowerHomesForWeeks')}
               </Text>
             </View>
             <Image source={aboutImages.energy} style={styles.impactImage} resizeMode="contain" />
@@ -326,13 +327,13 @@ export default function AboutScreen({ navigation }: any) {
             ]}>
             <View style={styles.impactCardHeader}>
               <View style={[styles.impactPill, { backgroundColor: '#DCFCE7' }]}>
-                <Text style={[styles.impactPillText, { color: '#16A34A' }]}>PLANET</Text>
+                <Text style={[styles.impactPillText, { color: '#16A34A' }]}>{t('customer.planet')}</Text>
               </View>
               <Text style={[styles.wasteCardTitle, { color: colors.text }]}>
-                You keep <Text style={{ color: colors.primary }}>toxic e-waste</Text> out of landfills & protect our planet
+                <Trans i18nKey="customerMsg.aboutEwaste" components={{ hl: <Text style={{ color: colors.primary }} /> }} />
               </Text>
               <Text style={[styles.impactCardDesc, { color: colors.textMuted }]}>
-                Every phone reused prevents toxic waste from polluting our environment and conserves precious natural resources for future generations.
+                {t('customer.everyPhoneReusedPreventsToxic')}
               </Text>
               <View style={styles.wastePillsRow}>
                 {WASTE_POINTS.map(point => (
@@ -340,7 +341,7 @@ export default function AboutScreen({ navigation }: any) {
                     key={point}
                     style={[styles.wastePointPill, { backgroundColor: colors.surfaceAlt }]}>
                     <Icon source={checkCircleBold} size={14} color={colors.primary} />
-                    <Text style={[styles.wastePointText, { color: colors.text }]}>{point}</Text>
+                    <Text style={[styles.wastePointText, { color: colors.text }]}>{t(point)}</Text>
                   </View>
                 ))}
               </View>
@@ -735,6 +736,7 @@ const styles = StyleSheet.create({
     lineHeight: 52,
   },
   impactUnit: {
+    flexShrink: 1,
     fontFamily: fonts.bold,
     fontSize: 18,
     marginBottom: 8,
@@ -770,6 +772,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   wastePointText: {
+    flexShrink: 1,
     fontFamily: fonts.medium,
     fontSize: 12,
   },

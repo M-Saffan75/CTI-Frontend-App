@@ -1,11 +1,13 @@
-import { useRef, useState } from 'react';
-import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState, Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
 import Input from '@/components/Input';
 import Button from '@/components/Button';
 import Squeeze from '@/components/Squeeze';
+import KeyboardSafeView from '@/components/KeyboardSafeView';
 import ConfirmModal from '@/components/ConfirmModal';
 import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
@@ -24,8 +26,14 @@ import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { useWishlist } from '../../../context/WishlistContext';
 import { useCart } from '../../../context/CartContext';
-import { createCustomerOrderApi } from '../../Orders/services/orderApi';
+import { createCustomerOrderApi, getAllCustomerOrdersPage } from '../../Orders/services/orderApi';
+import { clearRefurbishedCartApi } from '@/features/Refurbished/services/refurbishedApi';
+import { formatMoney } from '@/utils/money';
+
 import AuthService from '@/services/authService';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
+import { upper } from '@/i18n/locale';
 
 // Luhn algorithm validator for card numbers (Standard credit card checksum)
 function validateLuhn(numberStr: string): boolean {
@@ -77,35 +85,52 @@ function formatCvv(text: string): string {
 }
 
 export default function CheckoutScreen({ navigation, route }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { ids: wishlistIds } = useWishlist();
-  const { cartItems: contextCartItems, cartCount, refreshCart } = useCart();
+  const { cartCount, refreshCart, standardCartId, refurbishedCartId } = useCart();
 
-  const routeItems = route?.params?.cartItems;
-  const cartItems = routeItems && routeItems.length > 0 ? routeItems : contextCartItems;
-  const effectiveCartCount =
-    cartCount > 0 ? cartCount : (cartItems?.length || 0);
+  // Like the web: a cart checkout orders one group (one seller, or the refurbished store);
+  // Buy Now orders the chosen item directly and never touches the cart
+  const group = route?.params?.group;
+  const isBuyNow = !group;
+  const cartItems: any[] = group ? group.items || [] : route?.params?.cartItems || [];
+  const isRefurbishedOrder = group
+    ? group.type === 'refurbished'
+    : Boolean(route?.params?.isRefurbished || cartItems.some((i: any) => i.isRefurbished));
+  const cartId = isRefurbishedOrder ? refurbishedCartId : standardCartId;
+  const orderSubtotal = cartItems.reduce(
+    (sum: number, i: any) => sum + (Number(i.price) || 0) * (Number(i.quantity) || 1),
+    0,
+  );
+  const effectiveCartCount = cartCount > 0 ? cartCount : cartItems.length;
 
   const cachedUser = AuthService.getCachedUser();
-  const userNames = (cachedUser?.name || 'Customer').trim().split(' ');
-  const [firstName, setFirstName] = useState(userNames[0] || 'Customer');
+  const userNames = (cachedUser?.name || '').trim().split(' ');
+  const [firstName, setFirstName] = useState(userNames[0] || '');
   const [lastName, setLastName] = useState(userNames.slice(1).join(' ') || '');
-  const [email, setEmail] = useState(cachedUser?.email || '');
   const [phone, setPhone] = useState(cachedUser?.phone || '');
-  const [country, setCountry] = useState('Turkey');
+  // The order is always sent with country code TR, so the country is fixed
+  const country = 'Turkey';
   const [address, setAddress] = useState('');
   const [city, setCity] = useState('');
   const [postalCode, setPostalCode] = useState('');
 
   const [paymentMethod, setPaymentMethod] = useState<'card' | 'cod'>('card');
-  const [cardHolder, setCardHolder] = useState('Customer User');
+  const [cardHolder, setCardHolder] = useState(cachedUser?.name || '');
   const [cardNumber, setCardNumber] = useState('');
   const [cardExpiry, setCardExpiry] = useState('');
   const [cardCvv, setCardCvv] = useState('');
   const [placed, setPlaced] = useState(false);
   const [placing, setPlacing] = useState(false);
+  const placingRef = useRef(false);
   const [orderSuccessMsg, setOrderSuccessMsg] = useState('');
+  // Set when the order request got no answer: nobody knows if the order exists, so paying is blocked
+  // until the Orders list has been checked (this is what prevents a second charge)
+  const [pendingCheck, setPendingCheck] = useState<{ startedAt: number } | null>(null);
+  const [checking, setChecking] = useState(false);
+  const checkingRef = useRef(false);
   const scrollRef = useRef<any>(null);
 
   const cardBrand = getCardBrand(cardNumber);
@@ -125,26 +150,98 @@ export default function CheckoutScreen({ navigation, route }: any) {
 
   const rawCardDigits = cardNumber.replace(/\D/g, '');
   const canPlaceOrder =
+    !pendingCheck &&
     phone.trim() &&
     address.trim() &&
     city.trim() &&
     (paymentMethod === 'cod' ||
       (rawCardDigits.length === 16 && cardExpiry.length === 5 && cardCvv.length >= 3));
 
-  const fillSandboxTestCard = () => {
-    setCardNumber(formatCardNumber('5528790000000008'));
-    setCardHolder(`${firstName} ${lastName}`.trim() || 'Customer User');
-    setCardExpiry('12/28');
-    setCardCvv('123');
-  };
+  // Card number, expiry and CVV live only in this screen's state: never logged, stored or cached.
+  // They are cleared after every request, when the screen loses focus, when the app goes to the background,
+  // and when the customer switches to cash on delivery.
+  const clearCardFields = useCallback(() => {
+    setCardNumber('');
+    setCardExpiry('');
+    setCardCvv('');
+  }, []);
+
+  useFocusEffect(useCallback(() => clearCardFields, [clearCardFields]));
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', state => {
+      if (state !== 'active') clearCardFields();
+    });
+    return () => sub.remove();
+  }, [clearCardFields]);
+
+  // Looks in the Orders list for an order created since the unanswered request
+  const verifyPendingOrder = useCallback(async () => {
+    if (!pendingCheck || checkingRef.current) return;
+    checkingRef.current = true;
+    setChecking(true);
+    try {
+      const page = await getAllCustomerOrdersPage({ page: 1 });
+      // two minutes of slack for the difference between the phone clock and the server clock
+      const found = page.orders.some(
+        o => o.createdAt && new Date(o.createdAt).getTime() >= pendingCheck.startedAt - 120000,
+      );
+      setPendingCheck(null);
+      if (found) {
+        refreshCart({ silent: true });
+        setOrderSuccessMsg(i18n.t('customerMsg.orderPlacedMsg'));
+        setPlaced(true);
+      } else {
+        setModal({
+          visible: true,
+          type: 'info',
+          title: i18n.t('customer.noOrderFound'),
+          message: i18n.t('customer.noNewOrderWasFound'),
+        });
+      }
+    } catch (err: any) {
+      setModal({
+        visible: true,
+        type: 'error',
+        title: i18n.t('customer.couldNotCheckYourOrders'),
+        message: (err?.message || i18n.t('customer.pleaseTryAgain')) + i18n.t('customerMsg.placeOrderNote'),
+      });
+    } finally {
+      checkingRef.current = false;
+      setChecking(false);
+    }
+  }, [pendingCheck, refreshCart]);
+
+  // Coming back from the Orders screen checks again by itself (not right after the failed request)
+  const verifyRef = useRef(verifyPendingOrder);
+  verifyRef.current = verifyPendingOrder;
+  const pendingRef = useRef(pendingCheck);
+  pendingRef.current = pendingCheck;
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      if (pendingRef.current) verifyRef.current();
+    });
+    return unsubscribe;
+  }, [navigation]);
 
   const handlePlaceOrder = async () => {
+    if (placingRef.current || pendingCheck) return;
+    if (phone.replace(/\D/g, '').length < 10) {
+      setModal({
+        visible: true,
+        type: 'warning',
+        title: i18n.t('customer.invalidPhoneNumber'),
+        message: i18n.t('customer.pleaseEnterAPhoneNumber'),
+      });
+      return;
+    }
+
     if (!firstName.trim() || !address.trim() || !phone.trim() || !city.trim()) {
       setModal({
         visible: true,
         type: 'warning',
-        title: 'Missing Details',
-        message: 'Please fill in your full name, shipping address, city and phone number.',
+        title: i18n.t('customer.missingDetails'),
+        message: i18n.t('customer.pleaseFillInYourFull'),
       });
       return;
     }
@@ -153,8 +250,8 @@ export default function CheckoutScreen({ navigation, route }: any) {
       setModal({
         visible: true,
         type: 'warning',
-        title: 'Cart is Empty',
-        message: 'Please add items to your cart before proceeding to checkout.',
+        title: i18n.t('customer.nothingToOrder'),
+        message: i18n.t('customer.thereAreNoItemsTo'),
       });
       return;
     }
@@ -165,8 +262,8 @@ export default function CheckoutScreen({ navigation, route }: any) {
         setModal({
           visible: true,
           type: 'warning',
-          title: 'Invalid Card Number',
-          message: 'Card number must be exactly 16 digits.',
+          title: i18n.t('customer.invalidCardNumber'),
+          message: i18n.t('customer.cardNumberMustBeExactly'),
         });
         return;
       }
@@ -175,9 +272,9 @@ export default function CheckoutScreen({ navigation, route }: any) {
         setModal({
           visible: true,
           type: 'warning',
-          title: 'Invalid Card Number',
+          title: i18n.t('customer.invalidCardNumber'),
           message:
-            'Card number failed checksum verification. Please verify the digits or tap "Autofill Sandbox Test Card" below.',
+            i18n.t('customer.cardNumberFailedChecksumVerification'),
         });
         return;
       }
@@ -187,8 +284,8 @@ export default function CheckoutScreen({ navigation, route }: any) {
         setModal({
           visible: true,
           type: 'warning',
-          title: 'Card Holder Required',
-          message: 'Please enter the card holder name (at least 3 characters).',
+          title: i18n.t('customer.cardHolderRequired'),
+          message: i18n.t('customer.pleaseEnterTheCardHolder'),
         });
         return;
       }
@@ -197,8 +294,8 @@ export default function CheckoutScreen({ navigation, route }: any) {
         setModal({
           visible: true,
           type: 'warning',
-          title: 'Invalid Expiry Date',
-          message: 'Please enter expiry date in MM/YY format (e.g. 12/28).',
+          title: i18n.t('customer.invalidExpiryDate'),
+          message: i18n.t('customer.pleaseEnterExpiryDateIn'),
         });
         return;
       }
@@ -209,8 +306,8 @@ export default function CheckoutScreen({ navigation, route }: any) {
         setModal({
           visible: true,
           type: 'warning',
-          title: 'Invalid Expiry Month',
-          message: 'Expiry month must be between 01 and 12.',
+          title: i18n.t('customer.invalidExpiryMonth'),
+          message: i18n.t('customer.expiryMonthMustBeBetween'),
         });
         return;
       }
@@ -220,8 +317,8 @@ export default function CheckoutScreen({ navigation, route }: any) {
         setModal({
           visible: true,
           type: 'warning',
-          title: 'Card Expired',
-          message: 'This card has already expired. Please enter a valid future expiry date.',
+          title: i18n.t('customer.cardExpired'),
+          message: i18n.t('customer.thisCardHasAlreadyExpired'),
         });
         return;
       }
@@ -231,27 +328,19 @@ export default function CheckoutScreen({ navigation, route }: any) {
         setModal({
           visible: true,
           type: 'warning',
-          title: 'Invalid CVV',
-          message: 'CVV must be 3 or 4 digits.',
+          title: i18n.t('customer.invalidCvv'),
+          message: i18n.t('customer.cvvMustBe3Or'),
         });
         return;
       }
     }
 
+    placingRef.current = true;
+    const startedAt = Date.now();
     try {
       setPlacing(true);
       const [expireMonth, expireYearShort] = cardExpiry.split('/');
       const expireYear = expireYearShort ? `20${expireYearShort}` : undefined;
-
-      const isRefurbishedOrder = Boolean(
-        route?.params?.isRefurbished ||
-        cartItems.some((i: any) =>
-          i.isRefurbished ||
-          i.product?.isRefurbished ||
-          i.itemType === 'refurbished' ||
-          i.product?.condition === 'Refurbished'
-        )
-      );
 
       const orderItemsPayload = cartItems.map((i: any) => {
         const pId = String(i.productId || i.product?._id || i.product?.id || i.id || '');
@@ -268,11 +357,14 @@ export default function CheckoutScreen({ navigation, route }: any) {
         };
       });
 
+      // Same request as the web: a cart checkout sends the cart id (and the seller for marketplace items);
+      // Buy Now sends the item itself. The backend removes what it ordered from the cart.
+      const cartFlow = !isBuyNow && Boolean(cartId);
       const orderRes = await createCustomerOrderApi({
         shippingAddress: {
           fullName: `${firstName} ${lastName}`.trim(),
           phone: phone.trim(),
-          country: country.trim() || 'Turkey',
+          country,
           countryCode: 'TR',
           city: city.trim(),
           area: city.trim(),
@@ -285,30 +377,44 @@ export default function CheckoutScreen({ navigation, route }: any) {
         expireMonth: expireMonth?.trim(),
         expireYear: expireYear?.trim(),
         cvc: cardCvv.trim(),
-        items: orderItemsPayload,
+        ...(cartFlow
+          ? { cartId, ...(!isRefurbishedOrder && group?.sellerId ? { sellerId: group.sellerId } : {}) }
+          : { items: orderItemsPayload }),
         isRefurbished: isRefurbishedOrder,
       });
 
-      try {
-        await refreshCart();
-      } catch {}
+      // Like the web, the refurbished cart is emptied after its order; marketplace carts keep the other sellers' items
+      if (isRefurbishedOrder && !isBuyNow) {
+        await clearRefurbishedCartApi().catch(() => {});
+      }
+      refreshCart({ silent: true });
 
       if (orderRes?.message) {
         setOrderSuccessMsg(orderRes.message);
       }
       setPlaced(true);
     } catch (err: any) {
-      setModal({
-        visible: true,
-        type: 'error',
-        title: 'Order Failed',
-        message:
-          err?.response?.data?.message ||
-          err?.data?.message ||
-          err?.message ||
-          'Could not place your order. Please try again.',
-      });
+      // No answer at all (no connection, timeout, server failure): the order may exist and the card may have been charged
+      const noAnswer = err?.isNetworkError || err?.isTimeout || (err?.status && err.status >= 500);
+      if (noAnswer) {
+        setPendingCheck({ startedAt });
+        setModal({
+          visible: true,
+          type: 'warning',
+          title: i18n.t('customer.orderStatusUnknown'),
+          message: i18n.t('customer.orderStatusUnknownPleaseCheck'),
+        });
+      } else {
+        setModal({
+          visible: true,
+          type: 'error',
+          title: i18n.t('customer.orderFailed'),
+          message: err?.message || i18n.t('customer.couldNotPlaceYourOrder'),
+        });
+      }
     } finally {
+      clearCardFields();
+      placingRef.current = false;
       setPlacing(false);
     }
   };
@@ -347,9 +453,10 @@ export default function CheckoutScreen({ navigation, route }: any) {
         </View>
       </View>
 
+      <KeyboardSafeView>
       <ScrollView
         ref={scrollRef}
-        contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 280 }]}
+        contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled">
         <Squeeze onPress={() => navigation.goBack()} scale={0.9} style={styles.backWrap}>
@@ -362,17 +469,16 @@ export default function CheckoutScreen({ navigation, route }: any) {
           <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.cardHead}>
               <Icon source={mapPinBold} size={18} color={colors.primary} />
-              <Text style={[styles.cardTitle, { color: colors.text }]}>Shipping Address</Text>
+              <Text style={[styles.cardTitle, { color: colors.text }]}>{t('customer.shippingAddress')}</Text>
             </View>
 
-            <Input label="First Name" value={firstName} onChangeText={setFirstName} style={styles.field} />
-            <Input label="Last Name" value={lastName} onChangeText={setLastName} style={styles.field} />
-            <Input label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" style={styles.field} />
-            <Input label="Phone" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="Phone number" style={styles.field} />
-            <Input label="Country" value={country} onChangeText={setCountry} placeholder="Country (e.g. Turkey)" style={styles.field} />
-            <Input label="Address" value={address} onChangeText={setAddress} placeholder="House, street, area" style={styles.field} />
-            <Input label="City" value={city} onChangeText={setCity} style={styles.field} />
-            <Input label="Postal Code" value={postalCode} onChangeText={setPostalCode} keyboardType="numeric" style={styles.field} />
+            <Input label={t('customer.firstName')} value={firstName} onChangeText={setFirstName} style={styles.field} />
+            <Input label={t('customer.lastName')} value={lastName} onChangeText={setLastName} style={styles.field} />
+            <Input label={t('customer.phone')} value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder={t('customer.phoneNumber')} maxLength={20} style={styles.field} />
+            <Input label={t('profile.country')} value={country} onChangeText={() => {}} editable={false} style={styles.field} />
+            <Input label={t('customer.address')} value={address} onChangeText={setAddress} placeholder={t('customer.houseStreetArea')} style={styles.field} />
+            <Input label={t('profile.city')} value={city} onChangeText={setCity} style={styles.field} />
+            <Input label={t('customer.postalCode')} value={postalCode} onChangeText={setPostalCode} keyboardType="numeric" style={styles.field} />
           </View>
         </FadeUp>
 
@@ -380,7 +486,7 @@ export default function CheckoutScreen({ navigation, route }: any) {
           <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.cardHead}>
               <Icon source={creditCardBold} size={18} color={colors.primary} />
-              <Text style={[styles.cardTitle, { color: colors.text }]}>Select Payment Method</Text>
+              <Text style={[styles.cardTitle, { color: colors.text }]}>{t('customer.selectPaymentMethod')}</Text>
             </View>
 
             {/* Payment Method Choices */}
@@ -397,9 +503,9 @@ export default function CheckoutScreen({ navigation, route }: any) {
                 <View style={styles.paymentRowInner}>
                   <Icon source={creditCardBold} size={18} color={paymentMethod === 'card' ? colors.primary : colors.text} />
                   <View style={styles.paymentTextWrap}>
-                    <Text style={[styles.paymentLabel, { color: colors.text }]}>Credit / Debit Card</Text>
+                    <Text style={[styles.paymentLabel, { color: colors.text }]}>{t('customer.creditDebitCard')}</Text>
                     <Text style={[styles.paymentSub, { color: colors.textMuted }]}>
-                      Instant & secure online payment via Iyzico
+                      {t('customer.instantAndSecureOnlinePayment')}
                     </Text>
                   </View>
                   {paymentMethod === 'card' && <Icon source={checkCircleIcon} size={18} color={colors.primary} />}
@@ -407,7 +513,10 @@ export default function CheckoutScreen({ navigation, route }: any) {
               </Squeeze>
 
               <Squeeze
-                onPress={() => setPaymentMethod('cod')}
+                onPress={() => {
+                  clearCardFields();
+                  setPaymentMethod('cod');
+                }}
                 style={[
                   styles.paymentRow,
                   {
@@ -418,9 +527,9 @@ export default function CheckoutScreen({ navigation, route }: any) {
                 <View style={styles.paymentRowInner}>
                   <Icon source={packageBold} size={18} color={paymentMethod === 'cod' ? colors.primary : colors.text} />
                   <View style={styles.paymentTextWrap}>
-                    <Text style={[styles.paymentLabel, { color: colors.text }]}>Cash on Delivery (COD)</Text>
+                    <Text style={[styles.paymentLabel, { color: colors.text }]}>{t('customer.cashOnDeliveryCod')}</Text>
                     <Text style={[styles.paymentSub, { color: colors.textMuted }]}>
-                      Pay in cash when your order is delivered
+                      {t('customer.payInCashWhenYour')}
                     </Text>
                   </View>
                   {paymentMethod === 'cod' && <Icon source={checkCircleIcon} size={18} color={colors.primary} />}
@@ -431,7 +540,7 @@ export default function CheckoutScreen({ navigation, route }: any) {
             {paymentMethod === 'card' && (
               <FadeUp duration={350} style={styles.cardFields}>
                 <View style={styles.cardHeaderRow}>
-                  <Text style={[styles.cardSubTitle, { color: colors.textMuted }]}>Card Information</Text>
+                  <Text style={[styles.cardSubTitle, { color: colors.textMuted }]}>{upper(t('customer.cardInformation'))}</Text>
                   {cardBrand ? (
                     <View style={[styles.brandPill, { backgroundColor: colors.primary + '20' }]}>
                       <Text style={[styles.brandText, { color: colors.primary }]}>{cardBrand}</Text>
@@ -440,33 +549,38 @@ export default function CheckoutScreen({ navigation, route }: any) {
                 </View>
 
                 <Input
-                  label="Card Number"
+                  label={t('customer.cardNumber')}
                   value={cardNumber}
                   onChangeText={(val: string) => setCardNumber(formatCardNumber(val))}
                   keyboardType="numeric"
                   maxLength={19}
+                  autoComplete="off"
+                  importantForAutofill="no"
+                  autoCorrect={false}
                   placeholder="1234 5678 9012 3456"
                   onFocus={scrollToCardFields}
                   style={styles.field}
                 />
 
                 <Input
-                  label="Name on Card"
+                  label={t('customer.nameOnCard')}
                   value={cardHolder}
                   onChangeText={setCardHolder}
                   maxLength={50}
-                  placeholder="e.g. Customer User"
+                  placeholder={t('customer.nameOnYourCard')}
                   onFocus={scrollToCardFields}
                   style={styles.field}
                 />
 
                 <View style={styles.row}>
                   <Input
-                    label="Expiry"
+                    label={t('customer.expiry')}
                     value={cardExpiry}
                     onChangeText={(val: string) => setCardExpiry(formatExpiry(val))}
                     keyboardType="numeric"
                     maxLength={5}
+                    autoComplete="off"
+                    importantForAutofill="no"
                     placeholder="MM/YY"
                     onFocus={scrollToCardFields}
                     style={[styles.field, styles.rowField]}
@@ -477,24 +591,78 @@ export default function CheckoutScreen({ navigation, route }: any) {
                     onChangeText={(val: string) => setCardCvv(formatCvv(val))}
                     keyboardType="numeric"
                     maxLength={4}
+                    secureTextEntry
+                    autoComplete="off"
+                    importantForAutofill="no"
+                    autoCorrect={false}
                     placeholder="123"
                     onFocus={scrollToCardFields}
                     style={[styles.field, styles.rowField]}
                   />
                 </View>
-
-                <Squeeze onPress={fillSandboxTestCard} style={[styles.testCardBtn, { borderColor: colors.primary + '40' }]}>
-                  <Text style={[styles.testCardText, { color: colors.primary }]}>
-                    ⚡ Autofill Sandbox Test Card (5528...0008)
-                  </Text>
-                </Squeeze>
               </FadeUp>
             )}
           </View>
         </FadeUp>
 
+        <FadeUp delay={160} duration={500}>
+          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <View style={styles.cardHead}>
+              <Icon source={packageBold} size={18} color={colors.primary} />
+              <Text style={[styles.cardTitle, { color: colors.text }]}>{t('customer.orderSummary')}</Text>
+            </View>
+            {group?.sellerName ? (
+              <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: colors.textMuted, marginBottom: 8 }}>
+                {group.sellerName}
+              </Text>
+            ) : null}
+            {cartItems.map((item: any, index: number) => (
+              <View key={item.id || index} style={styles.summaryLine}>
+                <Text style={[styles.summaryName, { color: colors.text }]} numberOfLines={2}>
+                  {item.title}
+                  {item.variantLabel ? ' (' + item.variantLabel + ')' : ''}
+                </Text>
+                <Text style={[styles.summaryAmount, { color: colors.textMuted }]}>
+                  {item.quantity} x {formatMoney(item.price)}
+                </Text>
+              </View>
+            ))}
+            <View style={[styles.summaryLine, styles.summaryTotal, { borderTopColor: colors.border }]}>
+              <Text style={[styles.summaryName, { color: colors.textMuted }]}>{t('customerMsg.shippingCost')}</Text>
+              <Text style={[styles.summaryAmount, { color: colors.textMuted }]}>{t('customer.arrangedByTheSeller')}</Text>
+            </View>
+            <View style={styles.summaryLine}>
+              <Text style={[styles.summaryName, { color: colors.text, fontFamily: fonts.bold }]}>{t('customer.total')}</Text>
+              <Text style={[styles.summaryAmount, { color: colors.primary, fontFamily: fonts.bold, fontSize: 16 }]}>
+                {formatMoney(orderSubtotal)}
+              </Text>
+            </View>
+            {!isBuyNow && cartCount > cartItems.length ? (
+              <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: colors.textMuted, marginTop: 8 }}>
+                {t('customer.theOtherItemsInYour')}
+              </Text>
+            ) : null}
+          </View>
+        </FadeUp>
+
+        {pendingCheck ? (
+          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.error }]}>
+            <Text style={[styles.cardTitle, { color: colors.text }]}>{t('customer.orderStatusUnknown')}</Text>
+            <Text style={{ fontFamily: fonts.regular, fontSize: 13, color: colors.textMuted, marginVertical: 8 }}>
+              {t('customer.weDidNotGetAn')}
+            </Text>
+            <Button title={t('customer.checkMyOrders')} loading={checking} onPress={verifyPendingOrder} style={styles.placeOrder} />
+            <Button
+              title={t('customer.openMyOrders')}
+              variant="outline"
+              onPress={() => navigation.navigate('Orders')}
+              style={styles.placeOrder}
+            />
+          </View>
+        ) : null}
+
         <Button
-          title={placing ? 'Placing Order...' : 'Place Order Securely'}
+          title={placing ? t('customer.placingOrder') : t('customer.placeOrderSecurely')}
           icon={checkCircleIcon}
           iconPosition="left"
           disabled={!canPlaceOrder || placing}
@@ -503,16 +671,17 @@ export default function CheckoutScreen({ navigation, route }: any) {
           style={styles.placeOrder}
         />
       </ScrollView>
+      </KeyboardSafeView>
 
       <ConfirmModal
         visible={placed}
-        title="Order Placed!"
+        title={t('customer.orderPlaced')}
         message={
           orderSuccessMsg ||
-          "Your order has been placed successfully. We'll notify you once it starts shipping."
+          t('customer.yourOrderHasBeenPlaced')
         }
-        cancelText="Keep Shopping"
-        confirmText="View Orders"
+        cancelText={t('customer.keepShopping')}
+        confirmText={t('customer.viewOrders')}
         onCancel={() => {
           setPlaced(false);
           navigation.reset({
@@ -570,7 +739,7 @@ const styles = StyleSheet.create({
 
   card: { borderRadius: 16, borderWidth: 1, padding: 16, marginTop: 16 },
   cardHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 },
-  cardTitle: { fontFamily: fonts.bold, fontSize: 17 },
+  cardTitle: { flexShrink: 1, fontFamily: fonts.bold, fontSize: 17 },
   field: { marginBottom: 14 },
   row: { flexDirection: 'row', gap: 12 },
   rowField: { flex: 1 },
@@ -596,7 +765,6 @@ const styles = StyleSheet.create({
   cardSubTitle: {
     fontFamily: fonts.medium,
     fontSize: 12,
-    textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   brandPill: {
@@ -608,19 +776,9 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: 11,
   },
-  testCardBtn: {
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    alignItems: 'center',
-    marginTop: 2,
-  },
-  testCardText: {
-    fontFamily: fonts.medium,
-    fontSize: 12,
-  },
-
   placeOrder: { marginTop: 20 },
+  summaryLine: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, paddingVertical: 4 },
+  summaryTotal: { borderTopWidth: 1, marginTop: 6, paddingTop: 8 },
+  summaryName: { flex: 1, fontFamily: fonts.regular, fontSize: 13 },
+  summaryAmount: { flexShrink: 1, fontFamily: fonts.medium, fontSize: 13 },
 });

@@ -1,0 +1,81 @@
+import type enSeller from '@/i18n/locales/en/seller';
+
+const seller: typeof enSeller = {
+  seller: {
+    optionsLoadFailed: 'Liste yüklenemedi. Lütfen bağlantınızı kontrol edin.',
+    noOptions: 'Seçenek yok.',
+    bankCheckFailed: 'Banka bilgileriniz kontrol edilemedi.',
+    countsFailed: 'Sayılar yüklenemedi. Tekrar denemek için dokunun',
+    dashboard: {
+      pendingOrders: 'Bekleyen Siparişler',
+      needProcessing: 'İşlenmeyi bekliyor',
+      pendingDocuments: 'Bekleyen Belgeler',
+      documentsHint: 'KYC / banka bilgileri, web sitesinde tamamlanır',
+      orderQuestions: 'Sipariş Soruları',
+      openOrderQueries: 'Açık müşteri sipariş soruları',
+      productQuestions: 'Ürün Soruları',
+      openProductQueries: 'Açık müşteri ürün soruları',
+      returnRequests: 'Ürün İadesi Talepleri',
+      awaitingResponse: 'Yanıtınız bekleniyor',
+    },
+    unknown: 'Bilinmiyor',
+    cancelledFallback: 'İptal Edildi',
+    status: {
+      order: {
+        pending: 'Beklemede',
+        processing: 'Hazırlanıyor',
+        shipping: 'Kargoya Veriliyor',
+        shipped: 'Kargolandı',
+        delivered: 'Teslim Edildi',
+        cancelled: 'İptal Edildi',
+      },
+      return: { requested: 'Yeni Talep', shipped: 'Geri Gönderildi', approved: 'Onaylandı', rejected: 'Reddedildi' },
+      payment: {
+        PAID: 'Ödendi',
+        PENDING: 'Ödeme bekleniyor',
+        FAILED: 'Ödeme başarısız',
+        REFUNDED: 'Para iadesi yapıldı',
+        NA: 'Ödeme yok',
+      },
+      earning: { pending_release: 'Bekletiliyor', available: 'Kullanılabilir', withdrawn: 'Çekildi' },
+      withdraw: { pending: 'Beklemede', processing: 'İşleniyor', completed: 'Tamamlandı', rejected: 'Reddedildi' },
+      ad: {
+        draft: 'Taslak',
+        pending_approval: 'İnceleniyor',
+        active: 'Aktif',
+        paused: 'Duraklatıldı',
+        rejected: 'Reddedildi',
+        completed: 'Tamamlandı',
+      },
+      invoice: {
+        pending_submission: 'PDF bekleniyor',
+        submitted: 'Gönderildi',
+        approved: 'Onaylandı',
+        rejected: 'Reddedildi',
+      },
+      import: { success: 'Başarılı', partial: 'Kısmi', failed: 'Başarısız' },
+      query: { open: 'Açık', replied: 'Yanıtlandı', closed: 'Kapalı' },
+    },
+    cancelledBy: { user: 'Müşteri', seller: 'Siz', system: 'Sistem', admin: 'Yönetici' },
+    paymentMethod: {
+      credit_card: 'Kredi kartı',
+      debit_card: 'Banka kartı',
+      bkm: 'BKM Express',
+      installment: 'Taksit',
+      wallet: 'Cüzdan',
+      cash_on_delivery: 'Kapıda ödeme',
+    },
+    txType: {
+      TOPUP: 'Bakiye yükleme',
+      WITHDRAWAL: 'Para çekme',
+      JOB_EARNING: 'İş kazancı',
+      SALE_PROCEED: 'Satış geliri',
+      PURCHASE: 'Satın alma',
+      REFUND: 'Para iadesi',
+      COMMISSION_DEDUCTION: 'Komisyon kesintisi',
+      transaction: 'İşlem',
+    },
+  },
+};
+
+export default seller;

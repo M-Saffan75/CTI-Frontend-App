@@ -22,13 +22,19 @@ import {
 import { demoProductPhoto } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import LoadErrorBox from '../components/LoadErrorBox';
+import { normalizeApiError } from '@/services/apiError';
 import RefurbishedHeader from '../components/RefurbishedHeader';
 import { getAllSellModels, getSellDeviceModels } from '../services/refurbishedApi';
+import { Trans, useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
+import { upper } from '@/i18n/locale';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = (SCREEN_WIDTH - 44) / 2;
 
 export default function SelectModelScreen({ navigation, route }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const brand = route?.params?.brand || 'Apple';
@@ -41,28 +47,25 @@ export default function SelectModelScreen({ navigation, route }: any) {
 
   const isAllBrands = !brand || brand === 'All' || brandSlug === 'all';
 
+  const [loadError, setLoadError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
+
   useEffect(() => {
     setLoading(true);
-    if (isAllBrands) {
-      getAllSellModels()
-        .then(res => {
-          if (Array.isArray(res)) {
-            setModelsList(res);
-          }
-        })
-        .catch(() => {})
-        .finally(() => setLoading(false));
-    } else {
-      getSellDeviceModels(brandSlug || brand)
-        .then(res => {
-          if (Array.isArray(res)) {
-            setModelsList(res);
-          }
-        })
-        .catch(() => {})
-        .finally(() => setLoading(false));
-    }
-  }, [brand, brandSlug, isAllBrands]);
+    setLoadError('');
+    const request = isAllBrands ? getAllSellModels() : getSellDeviceModels(brandSlug || brand);
+    request
+      .then(res => {
+        if (Array.isArray(res)) {
+          setModelsList(res);
+        }
+      })
+      .catch(err => {
+        setModelsList([]);
+        setLoadError(normalizeApiError(err).message);
+      })
+      .finally(() => setLoading(false));
+  }, [brand, brandSlug, isAllBrands, reloadKey]);
 
   const filteredModels = (modelsList || []).filter(m => {
     const name = typeof m === 'string' ? m : m.name;
@@ -85,7 +88,7 @@ export default function SelectModelScreen({ navigation, route }: any) {
     const modelBrandId = modelItem.brandId?._id || modelItem.brandId || brandId;
 
     navigation.navigate('SelectVariant', {
-      brand: isAllBrands ? (modelItem.brandName || 'Device') : modelBrand,
+      brand: isAllBrands ? (modelItem.brandName || i18n.t('customerMsg.device')) : modelBrand,
       brandSlug: isAllBrands ? (modelItem.brandSlug || 'device') : modelBrandSlug,
       brandId: modelBrandId,
       model: modelName,
@@ -109,7 +112,7 @@ export default function SelectModelScreen({ navigation, route }: any) {
           style={styles.backLink}>
           <Icon source={chevronLeftBold} size={14} color={colors.primary} />
           <Text style={[styles.backLinkText, { color: colors.primary }]}>
-            Back To Brand Selection
+            {t('customer.backToBrandSelection')}
           </Text>
         </TouchableOpacity>
 
@@ -123,7 +126,7 @@ export default function SelectModelScreen({ navigation, route }: any) {
           <TextInput
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholder="Search device models..."
+            placeholder={t('customer.searchDeviceModels')}
             placeholderTextColor={colors.textMuted + '88'}
             style={[styles.searchInput, { color: colors.text }]}
           />
@@ -131,14 +134,13 @@ export default function SelectModelScreen({ navigation, route }: any) {
 
         {/* Title & Subtitle */}
         <View style={styles.titleSection}>
-          <Text style={[styles.heading, { color: colors.text }]}>Select Model</Text>
+          <Text style={[styles.heading, { color: colors.text }]}>{t('customer.selectModel')}</Text>
           <Text style={[styles.subheading, { color: colors.textMuted }]}>
             {isAllBrands ? (
-              'Showing all available device models'
+              t('customer.showingAllAvailableDeviceModels')
             ) : (
               <>
-                Showing models for{' '}
-                <Text style={{ color: colors.primary, fontFamily: fonts.bold }}>{brand}</Text>
+                <Trans i18nKey="customerMsg.showingModelsFor" values={{ brand: brand === 'All' ? t('customerMsg.all') : brand }} components={{ hl: <Text style={{ color: colors.primary, fontFamily: fonts.bold }} /> }} />
               </>
             )}
           </Text>
@@ -149,12 +151,14 @@ export default function SelectModelScreen({ navigation, route }: any) {
           <View style={styles.loaderBox}>
             <CtiLoader size="md" />
           </View>
+        ) : loadError ? (
+          <LoadErrorBox title={t('customer.couldNotLoadTheModels')} message={loadError} onRetry={() => setReloadKey(k => k + 1)} />
         ) : filteredModels.length === 0 ? (
           <View style={[styles.emptyBox, { backgroundColor: colors.surface, borderColor: colors.border + '33' }]}>
             <Icon source={searchBold} size={36} color={colors.textMuted} />
-            <Text style={[styles.emptyTitle, { color: colors.text }]}>No Models Found</Text>
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>{t('customer.noModelsFound')}</Text>
             <Text style={[styles.emptySub, { color: colors.textMuted }]}>
-              {searchQuery ? `No models match "${searchQuery}".` : `No active models found for ${brand}.`}
+              {searchQuery ? t('customerMsg.noModelsMatch', { query: searchQuery }) : t('customerMsg.noActiveModels', { brand })}
             </Text>
           </View>
         ) : (
@@ -187,7 +191,7 @@ export default function SelectModelScreen({ navigation, route }: any) {
                       />
                       {bBadge && isAllBrands ? (
                         <View style={[styles.brandBadge, { backgroundColor: colors.primary }]}>
-                          <Text style={styles.brandBadgeText}>{bBadge}</Text>
+                          <Text style={styles.brandBadgeText}>{upper(String(bBadge))}</Text>
                         </View>
                       ) : null}
                     </View>
@@ -220,6 +224,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   backLinkText: {
+    flexShrink: 1,
     fontSize: 14,
     fontFamily: fonts.medium,
   },
@@ -295,7 +300,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 10,
     fontFamily: fonts.bold,
-    textTransform: 'uppercase',
   },
   loaderBox: {
     paddingVertical: 60,

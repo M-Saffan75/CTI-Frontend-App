@@ -1,6 +1,7 @@
 import React from 'react';
 import { StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import CtiLoader, { CtiLoaderSize } from '@/components/CtiLoader';
+import { useTranslation } from 'react-i18next';
 
 export interface LoadingStateProps {
   /** Optional message displayed below the loader */
@@ -14,14 +15,15 @@ export interface LoadingStateProps {
 }
 
 export default function LoadingState({
-  text = 'Loading...',
+  text,
   size = 'md',
   fullScreen = true,
   style,
 }: LoadingStateProps) {
+  const { t } = useTranslation();
   return (
     <View style={[styles.container, fullScreen && styles.fullScreen, style]}>
-      <CtiLoader size={size} text={text} fullScreen={false} />
+      <CtiLoader size={size} text={text ?? t('common.loading')} fullScreen={false} />
     </View>
   );
 }

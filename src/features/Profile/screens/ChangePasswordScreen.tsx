@@ -1,7 +1,5 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -21,9 +19,12 @@ import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { PASSWORD_MAX, validateConfirmPassword, validatePassword } from '@/utils/validators';
 import AuthService from '@/services/authService';
+import KeyboardSafeView from '@/components/KeyboardSafeView';
+import { useTranslation } from 'react-i18next';
 
 export default function ChangePasswordScreen({ navigation }: any) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
 
   const [currentPassword, setCurrentPassword] = useState('');
@@ -35,6 +36,7 @@ export default function ChangePasswordScreen({ navigation }: any) {
     confirm: '',
   });
   const [loading, setLoading] = useState(false);
+  const busy = useRef(false);
   const [modal, setModal] = useState({
     visible: false,
     type: 'error' as 'error' | 'success' | 'warning',
@@ -45,17 +47,19 @@ export default function ChangePasswordScreen({ navigation }: any) {
 
   const onSubmit = async () => {
     const nextErrors = {
-      current: !currentPassword ? 'Current password is required' : '',
+      current: !currentPassword ? t('profile.password.currentRequired') : '',
       newPass: validatePassword(newPassword),
       confirm: validateConfirmPassword(confirmPassword, newPassword),
     };
 
     if (currentPassword && newPassword && currentPassword === newPassword) {
-      nextErrors.newPass = 'New password cannot be the same as old password';
+      nextErrors.newPass = t('profile.password.sameAsOld');
     }
 
     setErrors(nextErrors);
     if (Object.values(nextErrors).some(Boolean)) return;
+    if (busy.current) return;
+    busy.current = true;
 
     setLoading(true);
     try {
@@ -72,8 +76,8 @@ export default function ChangePasswordScreen({ navigation }: any) {
       setModal({
         visible: true,
         type: 'success',
-        title: 'Success',
-        message: res?.message || 'Password changed successfully!',
+        title: t('common.success'),
+        message: res?.message || t('profile.password.successFallback'),
         onPrimary: () => {
           setModal(m => ({ ...m, visible: false }));
           navigation.goBack();
@@ -83,22 +87,22 @@ export default function ChangePasswordScreen({ navigation }: any) {
       setModal({
         visible: true,
         type: 'error',
-        title: 'Change Password Failed',
+        title: t('profile.password.failedTitle'),
         message:
           err?.response?.data?.message ||
           err?.data?.message ||
           err?.message ||
-          'Could not change password. Please check your current password.',
+          t('profile.password.failedBody'),
         onPrimary: () => setModal(m => ({ ...m, visible: false })),
       });
     } finally {
+      busy.current = false;
       setLoading(false);
     }
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    <KeyboardSafeView
       style={[styles.screen, { backgroundColor: colors.background, paddingTop: insets.top + 10 }]}>
       {/* Header */}
       <View style={styles.header}>
@@ -107,7 +111,7 @@ export default function ChangePasswordScreen({ navigation }: any) {
             <Icon source={arrowLeftBold} size={18} color={colors.onPrimary} />
           </View>
         </Squeeze>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Change Password</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>{t('profile.password.title')}</Text>
         <View style={styles.headerRight} />
       </View>
 
@@ -122,9 +126,9 @@ export default function ChangePasswordScreen({ navigation }: any) {
               <Icon source={shieldBold} size={24} color={colors.primary} />
             </View>
             <View style={styles.infoTextWrap}>
-              <Text style={[styles.infoTitle, { color: colors.text }]}>Keep Your Account Secure</Text>
+              <Text style={[styles.infoTitle, { color: colors.text }]}>{t('profile.password.banner')}</Text>
               <Text style={[styles.infoSubtitle, { color: colors.textMuted }]}>
-                Ensure your new password has at least 8 characters with numbers, lowercase, and uppercase letters.
+                {t('profile.password.hint')}
               </Text>
             </View>
           </View>
@@ -133,13 +137,13 @@ export default function ChangePasswordScreen({ navigation }: any) {
         {/* Current Password Field */}
         <FadeUp delay={160} duration={600}>
           <Input
-            label="Current Password"
+            label={t('profile.password.current')}
             value={currentPassword}
             onChangeText={text => {
               setCurrentPassword(text);
               if (errors.current) setErrors({ ...errors, current: '' });
             }}
-            placeholder="Enter current password"
+            placeholder={t('profile.password.enterCurrent')}
             error={errors.current}
             password
             maxLength={PASSWORD_MAX}
@@ -150,13 +154,13 @@ export default function ChangePasswordScreen({ navigation }: any) {
         {/* New Password Field */}
         <FadeUp delay={220} duration={600}>
           <Input
-            label="New Password"
+            label={t('profile.password.new')}
             value={newPassword}
             onChangeText={text => {
               setNewPassword(text);
               if (errors.newPass) setErrors({ ...errors, newPass: '' });
             }}
-            placeholder="Enter new password"
+            placeholder={t('profile.password.enterNew')}
             error={errors.newPass}
             password
             maxLength={PASSWORD_MAX}
@@ -168,13 +172,13 @@ export default function ChangePasswordScreen({ navigation }: any) {
         {/* Confirm New Password Field */}
         <FadeUp delay={280} duration={600}>
           <Input
-            label="Confirm New Password"
+            label={t('profile.password.confirmNew')}
             value={confirmPassword}
             onChangeText={text => {
               setConfirmPassword(text);
               if (errors.confirm) setErrors({ ...errors, confirm: '' });
             }}
-            placeholder="Confirm new password"
+            placeholder={t('profile.password.confirmNewPlaceholder')}
             error={errors.confirm}
             password
             maxLength={PASSWORD_MAX}
@@ -185,7 +189,7 @@ export default function ChangePasswordScreen({ navigation }: any) {
         {/* Submit Button */}
         <FadeUp delay={340} duration={600}>
           <Button
-            title={loading ? 'Updating Password...' : 'Update Password'}
+            title={loading ? t('profile.password.updating') : t('profile.password.update')}
             size="lg"
             loading={loading}
             disabled={loading}
@@ -205,7 +209,7 @@ export default function ChangePasswordScreen({ navigation }: any) {
         onButtonPress={modal.onPrimary}
         onClose={() => setModal(m => ({ ...m, visible: false }))}
       />
-    </KeyboardAvoidingView>
+    </KeyboardSafeView>
   );
 }
 
@@ -226,6 +230,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   headerTitle: {
+    flexShrink: 1,
     fontFamily: fonts.bold,
     fontSize: 18,
   },

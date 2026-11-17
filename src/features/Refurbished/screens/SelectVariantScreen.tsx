@@ -18,13 +18,16 @@ import { FadeUp } from '@/animations';
 import {
   checkCircleBold,
   chevronLeftBold,
-  chevronRightBold,
   searchBold,
 } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import LoadErrorBox from '../components/LoadErrorBox';
+import { normalizeApiError } from '@/services/apiError';
 import RefurbishedHeader from '../components/RefurbishedHeader';
 import { getSellDeviceConfig } from '../services/refurbishedApi';
+import { Trans, useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 interface DeviceVariant {
   key: string;
@@ -32,13 +35,14 @@ interface DeviceVariant {
 }
 
 export default function SelectVariantScreen({ navigation, route }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
-  const brand = route?.params?.brand || 'Device';
+  const brand = route?.params?.brand || t('customerMsg.device');
   const brandSlug = route?.params?.brandSlug || brand.toLowerCase();
   const brandId = route?.params?.brandId;
-  const model = route?.params?.model || 'Device Model';
+  const model = route?.params?.model || t('customer.deviceModel');
   const modelSlug =
     route?.params?.modelSlug || model.toLowerCase().replace(/\s+/g, '-');
   const modelId = route?.params?.modelId;
@@ -64,9 +68,13 @@ export default function SelectVariantScreen({ navigation, route }: any) {
     message: '',
   });
 
+  const [loadError, setLoadError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
+
   useEffect(() => {
     if (brandSlug && modelSlug) {
       setLoading(true);
+      setLoadError('');
       getSellDeviceConfig(brandSlug, modelSlug)
         .then(config => {
           if (config) {
@@ -74,7 +82,8 @@ export default function SelectVariantScreen({ navigation, route }: any) {
           }
         })
         .catch(err => {
-          if (__DEV__) console.warn('getSellDeviceConfig error:', err);
+          // an error with a retry, not a silent "no options"
+          setLoadError(normalizeApiError(err).message);
         })
         .finally(() => {
           setLoading(false);
@@ -82,7 +91,7 @@ export default function SelectVariantScreen({ navigation, route }: any) {
     } else {
       setLoading(false);
     }
-  }, [brandSlug, modelSlug]);
+  }, [brandSlug, modelSlug, reloadKey]);
 
   // Extract variants from config (attributes configured in backend for this model)
   const variants: DeviceVariant[] = Array.isArray(deviceConfig?.variants)
@@ -104,8 +113,8 @@ export default function SelectVariantScreen({ navigation, route }: any) {
       setModal({
         visible: true,
         type: 'warning',
-        title: 'Selection Required',
-        message: `Please select an option for ${currentVariant.key} before proceeding.`,
+        title: i18n.t('customer.selectionRequired'),
+        message: i18n.t('customerMsg.pleaseSelectOption', { name: currentVariant.key }),
       });
       return;
     }
@@ -172,14 +181,20 @@ export default function SelectVariantScreen({ navigation, route }: any) {
         <TouchableOpacity onPress={handleBack} style={styles.backLink}>
           <Icon source={chevronLeftBold} size={14} color={colors.primary} />
           <Text style={[styles.backLinkText, { color: colors.primary }]}>
-            {currentVariantIndex > 0 ? 'Back To Previous Option' : 'Back To Model Selection'}
+            {currentVariantIndex > 0 ? t('customer.backToPreviousOption') : t('customer.backToModelSelection')}
           </Text>
         </TouchableOpacity>
 
         {loading ? (
           <View style={{ paddingVertical: 60, alignItems: 'center' }}>
-            <CtiLoader size="md" text="Loading device specifications..." />
+            <CtiLoader size="md" text={t('customer.loadingDeviceSpecifications')} />
           </View>
+        ) : loadError ? (
+          <LoadErrorBox
+            title={t('customer.couldNotLoadTheOptions')}
+            message={loadError}
+            onRetry={() => setReloadKey(k => k + 1)}
+          />
         ) : !hasVariants ? (
           /* State when no variants configured for this model (e.g. Haier AC, Camera, etc. matching Next.js) */
           <FadeUp
@@ -202,13 +217,13 @@ export default function SelectVariantScreen({ navigation, route }: any) {
               <Icon source={checkCircleBold} size={38} color={colors.primary} />
             </View>
             <Text style={[styles.emptyHeading, { color: colors.text }]}>
-              No Variant Selection Required
+              {t('customer.noVariantSelectionRequired')}
             </Text>
             <Text style={[styles.emptySubheading, { color: colors.textMuted }]}>
-              This <Text style={{ fontFamily: fonts.bold, color: colors.primary }}>{model}</Text> does not require any variant selection. You can proceed directly to condition assessment.
+              <Trans i18nKey="customerMsg.noVariantBody" values={{ model }} components={{ hl: <Text style={{ color: colors.primary, fontFamily: fonts.bold }} /> }} />
             </Text>
             <Button
-              title="Continue to Condition Assessment"
+              title={t('customer.continueToConditionAssessment')}
               onPress={handleContinueNoVariants}
               style={{ marginTop: 24, width: '100%' }}
             />
@@ -227,7 +242,7 @@ export default function SelectVariantScreen({ navigation, route }: any) {
                 <TextInput
                   value={searchQuery}
                   onChangeText={setSearchQuery}
-                  placeholder={`Search ${currentVariant?.key || 'options'}...`}
+                  placeholder={t('customerMsg.searchOptions', { name: currentVariant?.key || t('customerMsg.options') })}
                   placeholderTextColor={colors.textMuted + '88'}
                   style={[styles.searchInput, { color: colors.text }]}
                 />
@@ -239,16 +254,15 @@ export default function SelectVariantScreen({ navigation, route }: any) {
               {variants.length > 1 && (
                 <View style={[styles.stepPill, { backgroundColor: colors.primary + '18' }]}>
                   <Text style={[styles.stepPillText, { color: colors.primary }]}>
-                    Specification {currentVariantIndex + 1} of {variants.length}
+                    {t('customerMsg.specOf', { current: currentVariantIndex + 1, total: variants.length })}
                   </Text>
                 </View>
               )}
               <Text style={[styles.heading, { color: colors.text }]}>
-                Select {currentVariant?.key || 'Specification'}
+                {t('customerMsg.selectSpec', { name: currentVariant?.key || t('customerMsg.specification') })}
               </Text>
               <Text style={[styles.subheading, { color: colors.textMuted }]}>
-                Select the {currentVariant?.key} variant for your{' '}
-                <Text style={{ color: colors.primary, fontFamily: fonts.bold }}>{model}</Text>
+                <Trans i18nKey="customerMsg.selectVariantFor" values={{ name: currentVariant?.key, model }} components={{ hl: <Text style={{ color: colors.primary, fontFamily: fonts.bold }} /> }} />
               </Text>
             </View>
 
@@ -303,8 +317,8 @@ export default function SelectVariantScreen({ navigation, route }: any) {
                 <Button
                   title={
                     currentVariantIndex < variants.length - 1
-                      ? 'Next Specification'
-                      : 'Proceed to Condition Assessment'
+                      ? t('customer.nextSpecification')
+                      : t('customer.proceedToConditionAssessment')
                   }
                   disabled={!currentSelectedValue}
                   onPress={handleProceed}
@@ -312,7 +326,7 @@ export default function SelectVariantScreen({ navigation, route }: any) {
                 />
                 {!currentSelectedValue && (
                   <Text style={[styles.validationHint, { color: colors.textMuted }]}>
-                    * Please select an option above to proceed
+                    {t('customer.pleaseSelectAnOptionAbove')}
                   </Text>
                 )}
               </View>

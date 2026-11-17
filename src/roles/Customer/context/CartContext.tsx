@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import AlertModal from '@/components/AlertModal';
 import {
   addToCartApi,
   getCartApi,
@@ -7,11 +8,13 @@ import {
   updateCartItemApi,
 } from '../features/Product/services/ecomApi';
 import {
-  getRefurbishedCart,
+  getRefurbishedCartData,
   updateRefurbishedCartItem,
   removeRefurbishedCartItem,
 } from '@/features/Refurbished/services/refurbishedApi';
+import { normalizeApiError } from '@/services/apiError';
 import { demoProductPhoto } from '@/assets/images';
+import { useTranslation } from 'react-i18next';
 
 function mapRefurbishedCartItems(refurbItems: any[]): MobileCartItem[] {
   if (!Array.isArray(refurbItems)) return [];
@@ -31,7 +34,7 @@ function mapRefurbishedCartItems(refurbItems: any[]): MobileCartItem[] {
       productId: pId,
       variantId: vId,
       variantLabel: v.title || (Array.isArray(v.attributes) ? v.attributes.map((a: any) => `${a.name}: ${a.value}`).join(' / ') : undefined),
-      title: p.title || p.name || 'Refurbished Device',
+      title: p.title || p.name || '',
       price,
       quantity: Number(it.quantity || 1),
       image: imageSource,
@@ -46,7 +49,11 @@ interface CartContextType {
   cartCount: number;
   subtotal: number;
   loading: boolean;
-  refreshCart: (opts?: { silent?: boolean }) => Promise<void>;
+  // The server cart ids: the order request for a cart checkout needs them (like the web)
+  standardCartId?: string;
+  refurbishedCartId?: string;
+  // true when the cart was loaded; false when the request failed (the old items are kept)
+  refreshCart: (opts?: { silent?: boolean }) => Promise<boolean>;
   addToCart: (productId: string, variantId?: string, quantity?: number) => Promise<boolean>;
   updateQuantity: (item: MobileCartItem, delta: number) => Promise<boolean>;
   removeItem: (item: MobileCartItem) => Promise<boolean>;
@@ -55,8 +62,17 @@ interface CartContextType {
 const CartContext = createContext<CartContextType | null>(null);
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
-  const [cartItems, setCartItems] = useState<MobileCartItem[]>([]);
+  const { t } = useTranslation();
+  const [standardItems, setStandardItems] = useState<MobileCartItem[]>([]);
+  const [refurbItems, setRefurbItems] = useState<MobileCartItem[]>([]);
+  const [standardCartId, setStandardCartId] = useState<string | undefined>(undefined);
+  const [refurbishedCartId, setRefurbishedCartId] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const cartItems = useMemo(() => [...standardItems, ...refurbItems], [standardItems, refurbItems]);
+  const itemsRef = useRef<MobileCartItem[]>([]);
+  itemsRef.current = cartItems;
 
   // Derived subtotal: always pure and updated synchronously with cartItems in 0ms
   const subtotal = useMemo(() => {
@@ -83,32 +99,34 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   // Count of distinct products/items in the cart (sum of standard + refurbished, matching Next.js)
   const cartCount = cartItems.length;
 
-  const refreshCart = useCallback(async (opts?: { silent?: boolean }) => {
-    try {
-      if (!opts?.silent) {
-        setLoading(true);
-      }
-      const [res, refurbRaw] = await Promise.all([
-        getCartApi().catch(() => null),
-        getRefurbishedCart().catch(() => []),
-      ]);
+  const setItemsFor = useCallback(
+    (item: MobileCartItem, fn: (list: MobileCartItem[]) => MobileCartItem[]) => {
+      if (item.isRefurbished) setRefurbItems(fn);
+      else setStandardItems(fn);
+    },
+    [],
+  );
 
-      const standardItems = res && Array.isArray(res.items) ? res.items : [];
-      const refurbItems = mapRefurbishedCartItems(refurbRaw);
-      const allItems = [...standardItems, ...refurbItems];
+  const refreshCart = useCallback(async (opts?: { silent?: boolean }): Promise<boolean> => {
+    if (!opts?.silent) setLoading(true);
+    // Each store is replaced only when its own request worked: a failed request never empties the cart
+    const [standard, refurbished] = await Promise.allSettled([getCartApi(), getRefurbishedCartData()]);
+    const hasPending = Object.keys(pendingUpdatesRef.current).length > 0;
 
-      // Prevent slow network response from clobbering active optimistic clicks
-      const hasPending = Object.keys(pendingUpdatesRef.current).length > 0;
-      if (!hasPending) {
-        setCartItems(allItems);
-      }
-    } catch {
-      // Fallback
-    } finally {
-      if (!opts?.silent) {
-        setLoading(false);
-      }
+    if (standard.status === 'fulfilled') {
+      setStandardCartId(standard.value.cartId);
+      // Prevent a slow response from clobbering active optimistic clicks
+      if (!hasPending) setStandardItems(standard.value.items);
     }
+    if (refurbished.status === 'fulfilled') {
+      setRefurbishedCartId(refurbished.value.cartId);
+      if (!hasPending) setRefurbItems(mapRefurbishedCartItems(refurbished.value.items));
+    }
+
+    if (!opts?.silent) setLoading(false);
+    const ok = standard.status === 'fulfilled' && refurbished.status === 'fulfilled';
+    if (!ok && __DEV__) console.warn('[CartContext] cart refresh failed');
+    return ok;
   }, []);
 
   useEffect(() => {
@@ -125,14 +143,9 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   const addToCart = useCallback(
     async (productId: string, variantId?: string, quantity = 1): Promise<boolean> => {
-      try {
-        await addToCartApi(productId, variantId, quantity);
-        await refreshCart({ silent: true });
-        return true;
-      } catch (err) {
-        if (__DEV__) console.warn('[CartContext] addToCart failed:', err);
-        throw err;
-      }
+      await addToCartApi(productId, variantId, quantity);
+      await refreshCart({ silent: true });
+      return true;
     },
     [refreshCart]
   );
@@ -146,8 +159,8 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
       if (targetQty < 1) return false;
 
-      // 1. Immediately update cartItems in local state - pure function, 0ms latency
-      setCartItems(current =>
+      // 1. Immediately update the item in local state - pure function, 0ms latency
+      setItemsFor(item, current =>
         current.map(it => (it.id === item.id ? { ...it, quantity: targetQty } : it))
       );
 
@@ -184,20 +197,20 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
             }
             // Update confirmed by backend. Local state is already 100% accurate!
           } catch (err) {
-            // Revert local state on network error
-            setCartItems(current =>
+            // Revert local state and tell the customer why (for example "Only 3 items left")
+            setItemsFor(item, current =>
               current.map(it =>
                 it.id === item.id ? { ...it, quantity: updateInfo.initialQty } : it
               )
             );
-            console.warn('[CartContext] Failed to update quantity on server:', err);
+            setNotice(normalizeApiError(err).message);
           }
         }, 400),
       };
 
       return true;
     },
-    []
+    [setItemsFor]
   );
 
   const removeItem = useCallback(
@@ -208,8 +221,8 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         delete pendingUpdatesRef.current[item.id];
       }
 
-      const previousItems = [...cartItems];
-      setCartItems(current => current.filter(it => it.id !== item.id));
+      const previous = itemsRef.current.find(it => it.id === item.id);
+      setItemsFor(item, current => current.filter(it => it.id !== item.id));
 
       try {
         if (item.isRefurbished) {
@@ -219,11 +232,12 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         }
         return true;
       } catch (err) {
-        setCartItems(previousItems);
+        // Put back only this item (other quick changes stay as they are)
+        if (previous) setItemsFor(item, current => (current.some(it => it.id === item.id) ? current : [...current, previous]));
         throw err;
       }
     },
-    [cartItems]
+    [setItemsFor]
   );
 
   return (
@@ -233,26 +247,39 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         cartCount,
         subtotal,
         loading,
+        standardCartId,
+        refurbishedCartId,
         refreshCart,
         addToCart,
         updateQuantity,
         removeItem,
       }}>
       {children}
+      <AlertModal
+        visible={Boolean(notice)}
+        type="error"
+        title={t('glossary.cart')}
+        message={notice || ''}
+        onClose={() => setNotice(null)}
+      />
     </CartContext.Provider>
   );
 }
 
-export function useCart() {
+export function useCart(): CartContextType {
   const value = useContext(CartContext);
   if (!value) {
+    // Every role that shows the shop must wrap it in a CartProvider; say so while developing
+    if (__DEV__) console.warn('[useCart] used outside a CartProvider: the cart will not work');
     return {
       cartItems: [],
       cartCount: 0,
       subtotal: 0,
       loading: false,
-      refreshCart: async () => {},
-      addToCart: async () => false,
+      refreshCart: async () => false,
+      addToCart: async () => {
+        throw new Error('The cart is not available here.');
+      },
       updateQuantity: async () => false,
       removeItem: async () => false,
     };

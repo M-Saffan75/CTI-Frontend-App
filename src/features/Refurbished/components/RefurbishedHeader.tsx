@@ -3,10 +3,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 
 import Icon from '@/components/Icon';
-import Squeeze from '@/components/Squeeze';
 import { ctiLogo } from '@/assets/images';
 import {
-  arrowLeftBold,
   filterBold,
   heartExtra,
   menuBold,
@@ -16,6 +14,7 @@ import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { useWishlist } from '@/roles/Customer/context/WishlistContext';
 import { useCart } from '@/roles/Customer/context/CartContext';
+import { useTranslation } from 'react-i18next';
 
 interface RefurbishedHeaderProps {
   showBack?: boolean;
@@ -34,6 +33,7 @@ export default function RefurbishedHeader({
   onCartPress,
   onMenuPress,
 }: RefurbishedHeaderProps) {
+  useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();

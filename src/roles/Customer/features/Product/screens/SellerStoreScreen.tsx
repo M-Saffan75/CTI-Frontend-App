@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { formatMoney } from '@/utils/money';
 import {
   ActivityIndicator,
   FlatList,
@@ -29,6 +30,8 @@ import {
 import { ctiLogo, demoProductPhoto } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import Button from '@/components/Button';
+import { normalizeApiError } from '@/services/apiError';
 import { useWishlist } from '../../../context/WishlistContext';
 import { useCart } from '../../../context/CartContext';
 import {
@@ -36,8 +39,12 @@ import {
   MobileEcomProduct,
   resolveImageSource,
 } from '../services/ecomApi';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
+import { upper } from '@/i18n/locale';
 
 export default function SellerStoreScreen({ navigation, route }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { isSaved, toggle: toggleWishlist, ids: wishlistIds } = useWishlist();
@@ -45,13 +52,17 @@ export default function SellerStoreScreen({ navigation, route }: any) {
 
   const sellerParam = route.params?.seller || {};
   const sellerId = route.params?.sellerId || sellerParam?.id || sellerParam?._id;
-  const initialName = route.params?.sellerName || sellerParam?.name || sellerParam?.storeName || 'Seller Store';
+  const initialName = route.params?.sellerName || sellerParam?.name || sellerParam?.storeName || t('customer.sellerStore');
 
   const [seller, setSeller] = useState<any>(sellerParam);
   const [products, setProducts] = useState<MobileEcomProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
+  const [loadError, setLoadError] = useState('');
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const loadStore = useCallback(async () => {
     if (!sellerId) {
@@ -59,13 +70,17 @@ export default function SellerStoreScreen({ navigation, route }: any) {
       return;
     }
     try {
-      const res = await getSellerStoreApi(sellerId);
+      setLoadError('');
+      const res = await getSellerStoreApi(sellerId, 1);
       if (res) {
         if (res.seller) setSeller(res.seller);
         if (Array.isArray(res.products)) setProducts(res.products);
+        setPage(1);
+        setPages(res.pages);
       }
-    } catch {
-      // Graceful fallback
+    } catch (err) {
+      // a failed request is shown as an error with a retry, not as an empty store
+      setLoadError(normalizeApiError(err).message);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -81,9 +96,31 @@ export default function SellerStoreScreen({ navigation, route }: any) {
     loadStore();
   };
 
+  const loadMore = async () => {
+    if (loadingMore || loading || loadError || page >= pages || !sellerId) return;
+    setLoadingMore(true);
+    try {
+      const res = await getSellerStoreApi(sellerId, page + 1);
+      if (res) {
+        setProducts(prev => {
+          const seen = new Set(prev.map(p => p.id));
+          return [...prev, ...res.products.filter(p => !seen.has(p.id))];
+        });
+        setPage(page + 1);
+        setPages(res.pages);
+      }
+    } catch {
+      // the next scroll tries again
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
   const storeName = seller?.storeName || seller?.businessName || seller?.name || initialName;
-  const storeLocation = seller?.address || seller?.city || seller?.location || 'Verified Seller';
-  const storeBio = seller?.description || seller?.bio || 'Discover high-quality electronics, components, and gadgets from our verified storefront.';
+  const storeLocation = seller?.storeAddress || seller?.address || seller?.city || seller?.location || '';
+  const storeBio = seller?.storeDescription || seller?.description || seller?.bio || '';
+  const productTotal = Number(seller?.productCount ?? products.length);
+  const avgRating = Number(seller?.avgRating) > 0 ? Number(seller.avgRating) : 0;
   const storeAvatar = seller?.logo || seller?.avatar || seller?.profilePictureOrLogo;
 
   const filteredProducts = products.filter(p =>
@@ -104,7 +141,7 @@ export default function SellerStoreScreen({ navigation, route }: any) {
           }
         }}
         style={[styles.productCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <View style={styles.imageWrap}>
+        <View style={[styles.imageWrap, { backgroundColor: colors.surfaceAlt }]}>
           <Image
             source={resolveImageSource(item.image, demoProductPhoto)}
             resizeMode="cover"
@@ -129,7 +166,7 @@ export default function SellerStoreScreen({ navigation, route }: any) {
 
         <View style={styles.productBody}>
           <Text style={[styles.productBrand, { color: colors.textMuted }]} numberOfLines={1}>
-            {item.brand}
+            {upper(String(item.brand || ''))}
           </Text>
           <Text style={[styles.productTitle, { color: colors.text }]} numberOfLines={2}>
             {item.title}
@@ -137,11 +174,11 @@ export default function SellerStoreScreen({ navigation, route }: any) {
 
           <View style={styles.priceRow}>
             <Text style={[styles.productPrice, { color: colors.primary }]}>
-              ${item.price.toFixed(2)}
+              {formatMoney(item.price)}
             </Text>
             {item.originalPrice > item.price && (
               <Text style={[styles.originalPrice, { color: colors.textMuted }]}>
-                ${item.originalPrice.toFixed(2)}
+                {formatMoney(item.originalPrice)}
               </Text>
             )}
           </View>
@@ -184,30 +221,36 @@ export default function SellerStoreScreen({ navigation, route }: any) {
                 <Icon source={checkCircleIcon} size={16} color={colors.primary} />
               </View>
 
-              <View style={styles.storeMetaRow}>
-                <Icon source={mapPinBold} size={13} color={colors.textMuted} />
-                <Text style={[styles.storeLocation, { color: colors.textMuted }]} numberOfLines={1}>
-                  {storeLocation}
-                </Text>
-              </View>
+              {storeLocation ? (
+                <View style={styles.storeMetaRow}>
+                  <Icon source={mapPinBold} size={13} color={colors.textMuted} />
+                  <Text style={[styles.storeLocation, { color: colors.textMuted }]} numberOfLines={1}>
+                    {storeLocation}
+                  </Text>
+                </View>
+              ) : null}
 
               <View style={styles.storeStatsRow}>
                 <View style={[styles.statChip, { backgroundColor: colors.surfaceAlt }]}>
-                  <Text style={[styles.statNumber, { color: colors.primary }]}>{products.length}</Text>
-                  <Text style={[styles.statLabel, { color: colors.textMuted }]}>Products</Text>
+                  <Text style={[styles.statNumber, { color: colors.primary }]}>{productTotal}</Text>
+                  <Text style={[styles.statLabel, { color: colors.textMuted }]}>{i18n.t('customer.products')}</Text>
                 </View>
-                <View style={[styles.statChip, { backgroundColor: colors.surfaceAlt }]}>
-                  <Icon source={starBold} size={11} color="#F59E0B" />
-                  <Text style={[styles.statNumber, { color: colors.text }]}>4.9</Text>
-                  <Text style={[styles.statLabel, { color: colors.textMuted }]}>Rating</Text>
-                </View>
+                {avgRating > 0 ? (
+                  <View style={[styles.statChip, { backgroundColor: colors.surfaceAlt }]}>
+                    <Icon source={starBold} size={11} color="#F59E0B" />
+                    <Text style={[styles.statNumber, { color: colors.text }]}>{avgRating.toFixed(1)}</Text>
+                    <Text style={[styles.statLabel, { color: colors.textMuted }]}>{i18n.t('customer.rating')}</Text>
+                  </View>
+                ) : null}
               </View>
             </View>
           </View>
 
-          <Text style={[styles.storeBio, { color: colors.textMuted }]} numberOfLines={3}>
-            {storeBio}
-          </Text>
+          {storeBio ? (
+            <Text style={[styles.storeBio, { color: colors.textMuted }]} numberOfLines={3}>
+              {storeBio}
+            </Text>
+          ) : null}
         </View>
       </FadeUp>
 
@@ -218,16 +261,16 @@ export default function SellerStoreScreen({ navigation, route }: any) {
           <TextInput
             value={search}
             onChangeText={setSearch}
-            placeholder={`Search ${storeName}...`}
+            placeholder={t('customerMsg.searchStore', { name: storeName })}
             placeholderTextColor={colors.textMuted}
             style={[styles.searchInput, { color: colors.text }]}
           />
         </View>
 
         <View style={styles.sectionTitleRow}>
-          <Text style={[styles.catalogTitle, { color: colors.text }]}>All Store Products</Text>
+          <Text style={[styles.catalogTitle, { color: colors.text }]}>{i18n.t('customer.allStoreProducts')}</Text>
           <Text style={[styles.catalogCount, { color: colors.textMuted }]}>
-            ({filteredProducts.length} items)
+            ({search.trim() ? filteredProducts.length : productTotal} {(search.trim() ? filteredProducts.length : productTotal) === 1 ? 'item' : 'items'})
           </Text>
         </View>
       </View>
@@ -274,7 +317,7 @@ export default function SellerStoreScreen({ navigation, route }: any) {
       {loading ? (
         <View style={styles.loaderCenter}>
           <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={[styles.loaderText, { color: colors.textMuted }]}>Loading Store...</Text>
+          <Text style={[styles.loaderText, { color: colors.textMuted }]}>{t('customer.loadingStore')}</Text>
         </View>
       ) : (
         <FlatList
@@ -287,13 +330,19 @@ export default function SellerStoreScreen({ navigation, route }: any) {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />}
           ListHeaderComponent={renderHeader}
           renderItem={renderProductItem}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.4}
+          ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.primary} style={{ paddingVertical: 16 }} /> : null}
           ListEmptyComponent={
             <View style={[styles.emptyBox, { borderColor: colors.border }]}>
               <Icon source={storeBold} size={40} color={colors.textMuted} />
-              <Text style={[styles.emptyTitle, { color: colors.text }]}>No products found</Text>
-              <Text style={[styles.emptySub, { color: colors.textMuted }]}>
-                {search ? 'Try adjusting your search terms' : 'This seller has not listed any items yet.'}
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                {loadError ? t('customer.couldNotLoadTheStore') : t('customer.noProductsFound2')}
               </Text>
+              <Text style={[styles.emptySub, { color: colors.textMuted }]}>
+                {loadError || (search ? t('customer.tryAdjustingYourSearchTerms') : t('customer.thisSellerHasNotListed'))}
+              </Text>
+              {loadError ? <Button title={t('customer.tryAgain')} size="sm" onPress={() => { setLoading(true); loadStore(); }} style={{ marginTop: 12 }} /> : null}
             </View>
           }
         />
@@ -376,7 +425,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   statNumber: { fontFamily: fonts.bold, fontSize: 12 },
-  statLabel: { fontFamily: fonts.regular, fontSize: 11 },
+  statLabel: { flexShrink: 1, fontFamily: fonts.regular, fontSize: 11 },
   storeBio: {
     fontFamily: fonts.regular,
     fontSize: 12,
@@ -402,7 +451,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 6,
   },
-  catalogTitle: { fontFamily: fonts.bold, fontSize: 16 },
+  catalogTitle: { flexShrink: 1, fontFamily: fonts.bold, fontSize: 16 },
   catalogCount: { fontFamily: fonts.regular, fontSize: 12 },
 
   columnWrapper: { justifyContent: 'space-between', marginBottom: 14 },
@@ -444,7 +493,7 @@ const styles = StyleSheet.create({
   },
 
   productBody: { padding: 10 },
-  productBrand: { fontFamily: fonts.medium, fontSize: 11, textTransform: 'uppercase' },
+  productBrand: { fontFamily: fonts.medium, fontSize: 11 },
   productTitle: { fontFamily: fonts.bold, fontSize: 13, marginTop: 2, minHeight: 34 },
   priceRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
   productPrice: { fontFamily: fonts.bold, fontSize: 14 },

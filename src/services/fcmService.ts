@@ -16,6 +16,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import notificationApi from './notificationApi';
 import AuthService from './authService';
+import i18n from '@/i18n';
 
 const FCM_TOKEN_STORAGE_KEY = '@cti_fcm_token';
 
@@ -39,10 +40,10 @@ class FCMService {
           const granted = await PermissionsAndroid.request(
             PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
             {
-              title: 'Notification Permission',
-              message: 'CTI needs permission to send you updates regarding your bookings, orders, and services.',
-              buttonPositive: 'Allow',
-              buttonNegative: 'Deny',
+              title: i18n.t('appMsg.notifPermission.title'),
+              message: i18n.t('appMsg.notifPermission.message'),
+              buttonPositive: i18n.t('appMsg.notifPermission.allow'),
+              buttonNegative: i18n.t('appMsg.notifPermission.deny'),
             }
           );
           return granted === PermissionsAndroid.RESULTS.GRANTED;

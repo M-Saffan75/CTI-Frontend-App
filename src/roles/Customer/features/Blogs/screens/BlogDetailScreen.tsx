@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ImageBackground, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -10,8 +10,11 @@ import { arrowLeftBold, calendarBold, clockBold, packageBold, shoppingCartExtra 
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import blogApi, { MobileBlog } from '@/services/blogApi';
+import { upper } from '@/i18n/locale';
+import { useTranslation } from 'react-i18next';
 
 export default function BlogDetailScreen({ navigation, route }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const initialPost: MobileBlog | undefined = route?.params?.post;
@@ -20,8 +23,12 @@ export default function BlogDetailScreen({ navigation, route }: any) {
   const [post, setPost] = useState<MobileBlog | null>(initialPost || null);
   const [loading, setLoading] = useState<boolean>(!initialPost && !!slug);
 
+  const initialPostRef = useRef(initialPost);
+  initialPostRef.current = initialPost;
+
   useEffect(() => {
-    if (slug && (!initialPost || !initialPost.content)) {
+    const initial = initialPostRef.current;
+    if (slug && (!initial || !initial.content)) {
       setLoading(true);
       blogApi.getBlogBySlug(slug)
         .then(live => {
@@ -55,19 +62,19 @@ export default function BlogDetailScreen({ navigation, route }: any) {
 
       {loading ? (
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <CtiLoader size="md" text="Loading article..." />
+          <CtiLoader size="md" text={t('customer.loadingArticle')} />
         </View>
       ) : !post ? (
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
           <Icon source={packageBold} size={48} color={colors.textMuted} />
           <Text style={{ fontFamily: fonts.bold, fontSize: 18, color: colors.text, marginTop: 14 }}>
-            Article Not Found
+            {t('customer.articleNotFound')}
           </Text>
           <Text style={{ fontFamily: fonts.regular, fontSize: 13, color: colors.textMuted, marginTop: 6, textAlign: 'center' }}>
-            This blog post is not available or has been removed.
+            {t('customer.thisBlogPostIsNot')}
           </Text>
           <Squeeze onPress={() => navigation.goBack()} style={{ marginTop: 20, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: colors.primary, borderRadius: 10 }}>
-            <Text style={{ color: '#fff', fontFamily: fonts.bold }}>Go Back</Text>
+            <Text style={{ color: '#fff', fontFamily: fonts.bold }}>{t('customer.goBack')}</Text>
           </Squeeze>
         </View>
       ) : (
@@ -75,13 +82,13 @@ export default function BlogDetailScreen({ navigation, route }: any) {
           contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
           showsVerticalScrollIndicator={false}>
           <ImageBackground
-            source={{ uri: post.image || 'https://picsum.photos/seed/blog/800/500' }}
-            style={styles.hero}
+            source={post.image ? { uri: post.image } : undefined}
+            style={[styles.hero, !post.image && { backgroundColor: colors.surfaceAlt, borderRadius: 14 }]}
             imageStyle={styles.heroImage}>
             <View style={[styles.chip, { backgroundColor: colors.background, borderColor: colors.primary }]}>
               <View style={[styles.chipDot, { backgroundColor: colors.primary }]} />
               <Text style={[styles.chipText, { color: colors.text }]}>
-                {post.tags?.[0] ? post.tags[0].toUpperCase() : 'CTI INSIGHTS'}
+                {post.tags?.[0] ? upper(post.tags[0]) : t('customer.ctiInsights')}
               </Text>
             </View>
           </ImageBackground>
@@ -90,10 +97,12 @@ export default function BlogDetailScreen({ navigation, route }: any) {
             <Text style={[styles.title, { color: colors.text }]}>{post.title}</Text>
 
             <View style={styles.meta}>
-              <View style={styles.metaItem}>
-                <Icon source={calendarBold} size={14} color={colors.textMuted} />
-                <Text style={[styles.metaText, { color: colors.textMuted }]}>{post.date}</Text>
-              </View>
+              {post.date ? (
+                <View style={styles.metaItem}>
+                  <Icon source={calendarBold} size={14} color={colors.textMuted} />
+                  <Text style={[styles.metaText, { color: colors.textMuted }]}>{post.date}</Text>
+                </View>
+              ) : null}
               {post.readTime ? (
                 <View style={styles.metaItem}>
                   <Icon source={clockBold} size={14} color={colors.textMuted} />

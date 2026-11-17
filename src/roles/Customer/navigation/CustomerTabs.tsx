@@ -11,27 +11,29 @@ import ProfileScreen from '../features/Profile/screens/ProfileScreen';
 import { homeBold, packageBold, toolExtra, userBold } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import { useTranslation } from 'react-i18next';
 
 const Tab = createBottomTabNavigator();
 
 const TABS = [
-  { name: 'HomeTab', label: 'Home', icon: homeBold, component: HomeScreen },
-  { name: 'RepairTab', label: 'Repair', icon: toolExtra, component: JobsScreen },
-  { name: 'ProductTab', label: 'Product', icon: packageBold, component: ProductScreen },
-  { name: 'ProfileTab', label: 'Profile', icon: userBold, component: ProfileScreen },
+  { name: 'HomeTab', label: 'tabs.home', icon: homeBold, component: HomeScreen },
+  { name: 'RepairTab', label: 'tabs.repair', icon: toolExtra, component: JobsScreen },
+  { name: 'ProductTab', label: 'tabs.product', icon: packageBold, component: ProductScreen },
+  { name: 'ProfileTab', label: 'tabs.profile', icon: userBold, component: ProfileScreen },
 ];
 
 // A plain View, not React Navigation's default bar — that's the only way to get
 // the floating rounded-card look with a gap on every side, like the design.
 function FloatingTabBar({ state, navigation }) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
 
   return (
     <View style={[styles.wrap, { backgroundColor: colors.background, paddingBottom: insets.bottom + 12 }]}>
       <View style={[styles.bar, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         {state.routes.map((route, index) => {
-          const tab = TABS.find(t => t.name === route.name);
+          const tab = TABS.find(item => item.name === route.name);
           const focused = state.index === index;
 
           return (
@@ -47,12 +49,14 @@ function FloatingTabBar({ state, navigation }) {
               <View style={styles.tab}>
                 <Icon source={tab.icon} size={22} color={focused ? colors.primary : colors.textMuted} />
                 <Text
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
                   style={[
                     styles.label,
                     { color: focused ? colors.primary : colors.textMuted },
                     focused && { fontFamily: fonts.bold },
                   ]}>
-                  {tab.label}
+                  {t(tab.label)}
                 </Text>
               </View>
             </Squeeze>
@@ -67,6 +71,7 @@ function FloatingTabBar({ state, navigation }) {
 // The 4 tabs at the bottom of every Customer screen. Settings, Blogs, etc. are
 // pushed on top of this from CustomerNavigator, which hides the tab bar for them.
 export default function CustomerTabs() {
+  useTranslation();
   return (
     <Tab.Navigator
       id="CustomerTabs"
@@ -94,10 +99,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   tab: {
+    width: '100%',
     alignItems: 'center',
     gap: 4,
   },
   label: {
+    width: '100%',
+    textAlign: 'center',
     fontFamily: fonts.medium,
     fontSize: 11,
   },

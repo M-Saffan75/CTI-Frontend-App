@@ -2,12 +2,15 @@ import { Image, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
+import NotificationBell from '@/components/NotificationBell';
 import Squeeze from '@/components/Squeeze';
-import { bellBold, commentDotsBold, menuBold, shoppingCartExtra } from '@/assets/icons';
+import { commentDotsBold, menuBold } from '@/assets/icons';
 import { ctiLogo } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
+import { useTranslation } from 'react-i18next';
 
 export default function SellerHeader({ navigation }) {
+  useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -15,14 +18,9 @@ export default function SellerHeader({ navigation }) {
     <View style={[styles.header, { paddingTop: insets.top + 8, backgroundColor: colors.background }]}>
       <Image source={ctiLogo} resizeMode="contain" style={styles.logo} />
       <View style={styles.icons}>
-        <Squeeze onPress={() => navigation?.navigate('Notifications')} scale={0.85}>
-          <Icon source={bellBold} size={22} color={colors.text} />
-        </Squeeze>
+        <NotificationBell navigation={navigation} />
         <Squeeze onPress={() => navigation?.navigate('ChatList')} scale={0.85}>
           <Icon source={commentDotsBold} size={22} color={colors.text} />
-        </Squeeze>
-        <Squeeze onPress={() => navigation?.navigate('Cart')} scale={0.85}>
-          <Icon source={shoppingCartExtra} size={22} color={colors.text} />
         </Squeeze>
         <Squeeze onPress={() => navigation?.navigate('Settings')} scale={0.85}>
           <Icon source={menuBold} size={22} color={colors.text} />

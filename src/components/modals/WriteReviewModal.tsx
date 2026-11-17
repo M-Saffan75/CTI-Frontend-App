@@ -1,9 +1,7 @@
 import { useState } from 'react';
 import {
   Image,
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -17,6 +15,9 @@ import Button from '@/components/Button';
 import { closeIcon, starBold, starFilled } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import KeyboardSafeView from '@/components/KeyboardSafeView';
+import { useTranslation } from 'react-i18next';
+import { upper } from '@/i18n/locale';
 
 export interface ReviewTargetJob {
   bookingId: string;
@@ -41,7 +42,7 @@ export interface WriteReviewModalProps {
   isSubmitting?: boolean;
 }
 
-const RATING_LABELS = ['', 'Terrible', 'Bad', 'Okay', 'Good', 'Excellent'];
+const RATING_LABELS = ['', 'reviewModal.terrible', 'reviewModal.bad', 'reviewModal.okay', 'reviewModal.good', 'reviewModal.excellent'];
 
 export default function WriteReviewModal({
   visible,
@@ -51,6 +52,7 @@ export default function WriteReviewModal({
   isSubmitting = false,
 }: WriteReviewModalProps) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const [rating, setRating] = useState<number>(5);
   const [reviewText, setReviewText] = useState<string>('');
 
@@ -91,9 +93,8 @@ export default function WriteReviewModal({
       transparent
       animationType="fade"
       onRequestClose={handleClose}>
-      <KeyboardAvoidingView
-        style={styles.avoiding}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardSafeView
+        style={styles.avoiding}>
         <View style={[styles.backdrop, { backgroundColor: colors.backdrop }]}>
           <View
             style={[
@@ -103,7 +104,7 @@ export default function WriteReviewModal({
             {/* Header */}
             <View style={styles.head}>
               <Text style={[styles.title, { color: colors.text }]}>
-                Write a Review
+                {t('reviewModal.title')}
               </Text>
               <Pressable onPress={handleClose} hitSlop={8} disabled={isSubmitting}>
                 <Icon source={closeIcon} size={16} color={colors.textMuted} />
@@ -145,7 +146,7 @@ export default function WriteReviewModal({
                       ]}>
                       <Text
                         style={[styles.avatarInitial, { color: colors.primary }]}>
-                        {(job.repairmanName || 'T')[0]?.toUpperCase()}
+                        {upper((job.repairmanName || 'T')[0] || '')}
                       </Text>
                     </View>
                   )}
@@ -153,7 +154,7 @@ export default function WriteReviewModal({
                     <Text
                       numberOfLines={1}
                       style={[styles.techName, { color: colors.text }]}>
-                      {job.repairmanName || 'Technician'}
+                      {job.repairmanName || t('chat.technician')}
                     </Text>
                     {Boolean(job.deviceTitle) && (
                       <Text
@@ -168,7 +169,7 @@ export default function WriteReviewModal({
 
               {/* Star Rating */}
               <Text style={[styles.label, { color: colors.text }]}>
-                Overall Rating *
+                {t('reviewModal.overall')}
               </Text>
               <View style={styles.starsRow}>
                 {[1, 2, 3, 4, 5].map(star => {
@@ -189,18 +190,18 @@ export default function WriteReviewModal({
                   );
                 })}
                 <Text style={[styles.ratingLabel, { color: colors.textMuted }]}>
-                  {RATING_LABELS[rating] || ''}
+                  {RATING_LABELS[rating] ? t(RATING_LABELS[rating]) : ''}
                 </Text>
               </View>
 
               {/* Review Text */}
               <Text style={[styles.label, { color: colors.text }]}>
-                Your Review (max 500 chars) *
+                {t('reviewModal.yourReview')}
               </Text>
               <TextInput
                 value={reviewText}
                 onChangeText={setReviewText}
-                placeholder="Share your experience with this technician and repair service..."
+                placeholder={t('reviewModal.placeholder')}
                 placeholderTextColor={colors.textMuted}
                 multiline
                 maxLength={500}
@@ -222,7 +223,7 @@ export default function WriteReviewModal({
             {/* Actions */}
             <View style={styles.actions}>
               <Button
-                title={isSubmitting ? 'Submitting...' : 'Submit Review'}
+                title={isSubmitting ? t('reviewModal.submitting') : t('reviewModal.submit')}
                 size="md"
                 disabled={!canSubmit}
                 loading={isSubmitting}
@@ -232,7 +233,7 @@ export default function WriteReviewModal({
                 textStyle={{ fontSize: 14 }}
               />
               <Button
-                title="Cancel"
+                title={t('common.cancel')}
                 variant="soft"
                 size="md"
                 disabled={isSubmitting}
@@ -244,7 +245,7 @@ export default function WriteReviewModal({
             </View>
           </View>
         </View>
-      </KeyboardAvoidingView>
+      </KeyboardSafeView>
     </Modal>
   );
 }
@@ -254,7 +255,7 @@ const styles = StyleSheet.create({
   backdrop: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 20 },
   card: { width: '100%', maxHeight: '88%', borderRadius: 16, borderWidth: 1, padding: 20 },
   head: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  title: { fontFamily: fonts.bold, fontSize: 17 },
+  title: { flexShrink: 1, fontFamily: fonts.bold, fontSize: 17 },
   divider: { height: 1, marginTop: 14, marginBottom: 16 },
 
   techCard: {

@@ -1,3 +1,4 @@
+import i18n from '@/i18n';
 export interface NormalizedApiErrorData {
   message: string;
   status?: number;
@@ -104,30 +105,30 @@ export function normalizeApiError(error: any): ApiError {
 
   // Handle specific status codes
   if (status === 401) {
-    statusMessage = 'Session expired. Please log in again.';
+    statusMessage = i18n.t('apiErrors.sessionExpired');
   } else if (status === 403) {
-    statusMessage = 'You do not have permission to perform this action.';
+    statusMessage = i18n.t('apiErrors.noPermission');
   } else if (status === 410) {
     // 410: Incomplete KYC - Provider onboarding required on website
     statusMessage =
       (typeof resData === 'object' && (resData?.message || resData?.error)) ||
-      'Please complete your identity verification on the website.';
+      i18n.t('apiErrors.kycRequired');
   } else if (status === 422) {
-    statusMessage = 'Please review and correct the errors below.';
+    statusMessage = i18n.t('apiErrors.fixErrors');
   } else if (status === 502 || status === 503) {
     statusMessage =
-      'The server is currently waking up or busy. Please wait a moment and try again.';
+      i18n.t('apiErrors.serverBusy');
     canRetry = true;
   } else if (status && status >= 500) {
-    statusMessage = 'A server error occurred. Please try again.';
+    statusMessage = i18n.t('apiErrors.serverError');
     canRetry = true;
   } else if (isTimeout) {
     statusMessage =
-      'The request timed out while waiting for the server. It may be waking up, please try again.';
+      i18n.t('apiErrors.timeout');
     canRetry = true;
   } else if (isNetwork) {
     statusMessage =
-      'Unable to connect to the server. Please check your internet connection and try again.';
+      i18n.t('apiErrors.network');
     canRetry = true;
   }
 
@@ -153,7 +154,7 @@ export function normalizeApiError(error: any): ApiError {
     statusMessage ||
     backendMessage ||
     rawMsg ||
-    'An unexpected error occurred. Please try again.';
+    i18n.t('apiErrors.unexpected');
 
   const fieldErrors = extractFieldErrors(resData);
 

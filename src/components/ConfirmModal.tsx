@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   Easing,
@@ -11,6 +11,7 @@ import Animated, {
 import Button from '@/components/Button';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import { useTranslation } from 'react-i18next';
 
 const OPEN_MS = 220;
 const CLOSE_MS = 160;
@@ -25,8 +26,8 @@ export default function ConfirmModal({
   visible,
   title,
   message,
-  confirmText = 'Confirm',
-  cancelText = 'Cancel',
+  confirmText: confirmProp,
+  cancelText: cancelProp,
   danger = false,
   direction = 'auto',
   onConfirm,
@@ -43,19 +44,25 @@ export default function ConfirmModal({
   onCancel: () => void;
 }) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
+  const confirmText = confirmProp ?? t('common.confirm');
+  const cancelText = cancelProp ?? t('common.cancel');
   const [mounted, setMounted] = useState(false);
+  // The open/close effect only reacts to `visible`; it reads the latest mounted flag from a ref
+  const mountedRef = useRef(false);
+  mountedRef.current = mounted;
   const progress = useSharedValue(0);
 
   useEffect(() => {
     if (visible) {
       setMounted(true);
       progress.value = withTiming(1, { duration: OPEN_MS, easing: EASING });
-    } else if (mounted) {
+    } else if (mountedRef.current) {
       progress.value = withTiming(0, { duration: CLOSE_MS, easing: EASING }, finished => {
         if (finished) runOnJS(setMounted)(false);
       });
     }
-  }, [visible]);
+  }, [visible, progress]);
 
   const backdrop = useAnimatedStyle(() => ({ opacity: progress.value }));
 

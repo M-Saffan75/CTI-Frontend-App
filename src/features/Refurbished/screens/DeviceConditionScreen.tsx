@@ -18,13 +18,16 @@ import {
   checkCircleBold,
   chevronLeftBold,
   chevronRightBold,
-  shieldBold,
 } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import RefurbishedHeader from '../components/RefurbishedHeader';
-import { CONDITION_QUESTIONS } from '../data/refurbishedData';
+import CtiVerifiedSellCard from '../components/CtiVerifiedSellCard';
+import LoadErrorBox from '../components/LoadErrorBox';
+import { normalizeApiError } from '@/services/apiError';
 import { getSellDeviceConfig } from '../services/refurbishedApi';
+import { Trans, useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 interface ConditionOption {
   id: string | number;
@@ -39,13 +42,14 @@ interface ConditionItem {
 }
 
 export default function DeviceConditionScreen({ navigation, route }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
-  const brand = route?.params?.brand || 'Device';
+  const brand = route?.params?.brand || t('customerMsg.device');
   const brandSlug = route?.params?.brandSlug || brand.toLowerCase();
   const brandId = route?.params?.brandId;
-  const model = route?.params?.model || 'Device Model';
+  const model = route?.params?.model || t('customer.deviceModel');
   const modelSlug =
     route?.params?.modelSlug || model.toLowerCase().replace(/\s+/g, '-');
   const modelId = route?.params?.modelId;
@@ -59,6 +63,8 @@ export default function DeviceConditionScreen({ navigation, route }: any) {
   const [loading, setLoading] = useState<boolean>(!initialConfig);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [questionsList, setQuestionsList] = useState<ConditionItem[]>([]);
+  const [loadError, setLoadError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
 
   // AlertModal State for validation
@@ -74,18 +80,10 @@ export default function DeviceConditionScreen({ navigation, route }: any) {
     message: '',
   });
 
-  const isPhone = Boolean(
-    categorySlug?.toLowerCase()?.includes('phone') ||
-    brandSlug?.toLowerCase()?.includes('apple') ||
-    brand?.toLowerCase()?.includes('iphone') ||
-    model?.toLowerCase()?.includes('iphone') ||
-    modelSlug?.toLowerCase()?.includes('iphone')
-  );
-
   const mapQuestions = (fetched: any[]) => {
     return fetched.map((q: any, idx: number) => ({
       id: q._id || idx + 1,
-      question: q.question || q.title || 'Condition question',
+      question: q.question || q.title || i18n.t('customer.conditionQuestion'),
       options: Array.isArray(q.options)
         ? q.options.map((opt: any, oIdx: number) => ({
             id: opt._id || oIdx + 1,
@@ -96,50 +94,38 @@ export default function DeviceConditionScreen({ navigation, route }: any) {
     }));
   };
 
+  // The questions always come from the backend. If they cannot be loaded the customer gets an error and a
+  // retry; a quote is never built on questions that the backend did not send.
   useEffect(() => {
     if (initialConfig?.categoryQuestions?.length > 0) {
       setQuestionsList(mapQuestions(initialConfig.categoryQuestions));
       setLoading(false);
     } else if (brandSlug && modelSlug) {
       setLoading(true);
+      setLoadError('');
       getSellDeviceConfig(brandSlug, modelSlug)
         .then(config => {
           if (config) {
             setDeviceConfig(config);
-            if (Array.isArray(config?.categoryQuestions) && config.categoryQuestions.length > 0) {
-              setQuestionsList(mapQuestions(config.categoryQuestions));
-            } else if (isPhone) {
-              // Fallback to default phone questions ONLY if confirmed phone category
-              setQuestionsList(CONDITION_QUESTIONS as any);
-            } else {
-              // Non-phone device (e.g. Haier AC, Camera, Speaker) with no custom questions configured
-              setQuestionsList([]);
-            }
-          } else if (isPhone) {
-            setQuestionsList(CONDITION_QUESTIONS as any);
+            setQuestionsList(
+              Array.isArray(config?.categoryQuestions) ? mapQuestions(config.categoryQuestions) : [],
+            );
           } else {
             setQuestionsList([]);
           }
         })
-        .catch(() => {
-          if (isPhone) {
-            setQuestionsList(CONDITION_QUESTIONS as any);
-          } else {
-            setQuestionsList([]);
-          }
+        .catch(err => {
+          setQuestionsList([]);
+          setLoadError(normalizeApiError(err).message);
         })
         .finally(() => {
           setLoading(false);
         });
     } else {
-      if (isPhone) {
-        setQuestionsList(CONDITION_QUESTIONS as any);
-      } else {
-        setQuestionsList([]);
-      }
+      setQuestionsList([]);
       setLoading(false);
     }
-  }, [brandSlug, modelSlug, initialConfig, isPhone]);
+  }, [brandSlug, modelSlug, initialConfig, reloadKey]);
 
   const hasQuestions = questionsList.length > 0;
   const currentQ = hasQuestions ? questionsList[currentStepIndex] : null;
@@ -154,8 +140,8 @@ export default function DeviceConditionScreen({ navigation, route }: any) {
       setModal({
         visible: true,
         type: 'warning',
-        title: 'Selection Required',
-        message: 'Please select an option before proceeding to the next step.',
+        title: i18n.t('customer.selectionRequired'),
+        message: i18n.t('customer.pleaseSelectAnOptionBefore'),
       });
       return;
     }
@@ -221,8 +207,14 @@ export default function DeviceConditionScreen({ navigation, route }: any) {
         
         {loading ? (
           <View style={{ paddingVertical: 60, alignItems: 'center' }}>
-            <CtiLoader size="md" text="Loading condition criteria..." />
+            <CtiLoader size="md" text={t('customer.loadingConditionCriteria')} />
           </View>
+        ) : loadError ? (
+          <LoadErrorBox
+            title={t('customer.couldNotLoadTheCondition')}
+            message={loadError}
+            onRetry={() => setReloadKey(k => k + 1)}
+          />
         ) : !hasQuestions ? (
           /* Next.js matching state: When model does not require condition assessment */
           <FadeUp
@@ -246,13 +238,13 @@ export default function DeviceConditionScreen({ navigation, route }: any) {
               <Icon source={checkCircleBold} size={36} color={colors.primary} />
             </View>
             <Text style={[styles.emptyHeading, { color: colors.text }]}>
-              No Condition Assessment Required
+              {t('customer.noConditionAssessmentRequired')}
             </Text>
             <Text style={[styles.emptySubheading, { color: colors.textMuted }]}>
-              This <Text style={{ fontFamily: fonts.bold, color: colors.primary }}>{model}</Text> does not require any specific condition assessment. You can proceed directly to upload device media.
+              <Trans i18nKey="customerMsg.noConditionBody" values={{ model }} components={{ hl: <Text style={{ color: colors.primary, fontFamily: fonts.bold }} /> }} />
             </Text>
             <Button
-              title="Continue to Upload Media"
+              title={t('customer.continueToUploadMedia')}
               onPress={handleContinueNoQuestions}
               style={{ marginTop: 24, width: '100%' }}
             />
@@ -265,7 +257,7 @@ export default function DeviceConditionScreen({ navigation, route }: any) {
               { backgroundColor: colors.surface, borderColor: colors.border + '44' },
             ]}>
             <Text style={[styles.stepCaption, { color: colors.primary }]}>
-              QUESTION {currentStepIndex + 1} OF {questionsList.length}
+              {t('customerMsg.questionOf', { current: currentStepIndex + 1, total: questionsList.length })}
             </Text>
 
             <Text style={[styles.questionTitle, { color: colors.text }]}>
@@ -332,7 +324,7 @@ export default function DeviceConditionScreen({ navigation, route }: any) {
                   { borderColor: colors.border + '66', backgroundColor: colors.surfaceAlt },
                 ]}>
                 <Icon source={chevronLeftBold} size={14} color={colors.text} />
-                <Text style={[styles.navBtnOutlineText, { color: colors.text }]}>Previous</Text>
+                <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.navBtnOutlineText, { color: colors.text }]}>{t('customer.previous')}</Text>
               </TouchableOpacity>
 
               <Squeeze
@@ -346,22 +338,17 @@ export default function DeviceConditionScreen({ navigation, route }: any) {
                 ]}>
                 <View style={styles.btnRow}>
                   <Text style={styles.navBtnFilledText}>
-                    {isLastQuestion ? 'Proceed' : 'Next Question'}
+                    {isLastQuestion ? t('customer.proceed') : t('customer.nextQuestion')}
                   </Text>
-                  <Icon source={chevronRightBold} size={14} color="#FFFFFF" style={{ marginLeft: 6 }} />
+                  <Icon source={chevronRightBold} size={14} color={colors.onPrimary} style={{ marginLeft: 6 }} />
                 </View>
               </Squeeze>
             </View>
           </View>
         )}
 
-        {/* Security / Trust Banner */}
-        <View style={styles.trustBanner}>
-          <Icon source={shieldBold} size={18} color={colors.primary} />
-          <Text style={[styles.trustText, { color: colors.textMuted }]}>
-            Accurate answers guarantee the highest quote and instant pickup approval.
-          </Text>
-        </View>
+        {/* Same card as the web's condition step */}
+        <CtiVerifiedSellCard />
       </ScrollView>
 
       {/* Alert Modal for strict validation */}
@@ -449,6 +436,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   navBtnOutlineText: {
+    flexShrink: 1,
     fontSize: 14,
     fontFamily: fonts.medium,
   },

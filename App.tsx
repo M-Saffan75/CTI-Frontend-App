@@ -6,6 +6,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import RootNavigator from '@/navigation/RootNavigator';
 import { ThemeProvider } from '@/theme/ThemeContext';
+import { LanguageProvider } from '@/i18n/LanguageContext';
 import { queryClient } from '@/services/queryClient';
 
 export default function App() {
@@ -14,9 +15,11 @@ export default function App() {
       <SafeAreaProvider>
         <QueryClientProvider client={queryClient}>
           <ThemeProvider>
-            <ErrorBoundary>
-              <RootNavigator />
-            </ErrorBoundary>
+            <LanguageProvider>
+              <ErrorBoundary>
+                <RootNavigator />
+              </ErrorBoundary>
+            </LanguageProvider>
           </ThemeProvider>
         </QueryClientProvider>
       </SafeAreaProvider>

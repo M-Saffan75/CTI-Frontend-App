@@ -8,14 +8,21 @@ import ResetPasswordScreen from '../features/Auth/screens/ResetPasswordScreen';
 import ResetSuccessScreen from '../features/Auth/screens/ResetSuccessScreen';
 import KycHandoffScreen from '@/features/Kyc/screens/KycHandoffScreen';
 import KycStatusScreen from '@/features/Kyc/screens/KycStatusScreen';
+import { useTranslation } from 'react-i18next';
 
 const Stack = createNativeStackNavigator();
 
 export default function RepairmanAuthStack({ onLoggedIn }) {
+  useTranslation();
   return (
     <Stack.Navigator
       id="RepairmanAuth"
-      screenOptions={{ headerShown: false, animation: 'simple_push', animationDuration: 380 }}>
+      screenOptions={{
+        headerShown: false,
+        animation: 'simple_push',
+        animationDuration: 380,
+      }}
+    >
       <Stack.Screen name="Login">
         {props => <LoginScreen {...props} onLoggedIn={onLoggedIn} />}
       </Stack.Screen>

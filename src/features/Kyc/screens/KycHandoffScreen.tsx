@@ -19,7 +19,9 @@ import {
 } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
-import { WEB_LOGIN_URL } from '@/constants/config';
+import { getWebLoginUrl } from '@/constants/config';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 export interface KycHandoffScreenProps {
   navigation: any;
@@ -27,21 +29,22 @@ export interface KycHandoffScreenProps {
 }
 
 export default function KycHandoffScreen({ navigation, route }: KycHandoffScreenProps) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [opening, setOpening] = useState(false);
   const [linkError, setLinkError] = useState(false);
 
   const role = route?.params?.role || 'provider';
-  const roleDisplay = role === 'seller' ? 'Seller' : 'Repair Technician';
+  const roleDisplay = role === 'seller' ? i18n.t('glossary.seller') : i18n.t('repairmanMsg.repairTechnician');
 
   const handleOpenWebsite = async () => {
     setOpening(true);
     setLinkError(false);
     try {
-      const supported = await Linking.canOpenURL(WEB_LOGIN_URL);
+      const supported = await Linking.canOpenURL(getWebLoginUrl());
       if (supported) {
-        await Linking.openURL(WEB_LOGIN_URL);
+        await Linking.openURL(getWebLoginUrl());
       } else {
         setLinkError(true);
       }
@@ -76,7 +79,7 @@ export default function KycHandoffScreen({ navigation, route }: KycHandoffScreen
             <Icon source={arrowLeftBold} size={18} color={colors.text} />
           </View>
         </Squeeze>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Verification</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>{t('repairman.verification')}</Text>
         <View style={styles.headerSpacer} />
       </View>
 
@@ -92,15 +95,15 @@ export default function KycHandoffScreen({ navigation, route }: KycHandoffScreen
             </View>
 
             <Text style={[styles.title, { color: colors.text }]}>
-              Complete Your Verification
+              {t('repairman.completeYourVerification')}
             </Text>
 
             <Text style={[styles.roleSubtitle, { color: colors.primary }]}>
-              {roleDisplay} Account
+              {i18n.t('repairmanMsg.roleAccount', { role: roleDisplay })}
             </Text>
 
             <Text style={[styles.description, { color: colors.textMuted }]}>
-              Your email has been verified successfully. To maintain marketplace safety and process payouts, identity and business documents must be submitted on our website.
+              {t('repairman.yourEmailHasBeenVerified')}
             </Text>
 
             <View
@@ -110,28 +113,28 @@ export default function KycHandoffScreen({ navigation, route }: KycHandoffScreen
               ]}>
               <View style={styles.stepRow}>
                 <View style={[styles.stepNumber, { backgroundColor: colors.primary }]}>
-                  <Text style={styles.stepNumberText}>1</Text>
+                  <Text style={[styles.stepNumberText, { color: colors.onPrimary }]}>1</Text>
                 </View>
                 <Text style={[styles.stepText, { color: colors.text }]}>
-                  Log in to the CTI web portal using the credentials you just created.
+                  {t('repairman.logInToTheCti')}
                 </Text>
               </View>
 
               <View style={styles.stepRow}>
                 <View style={[styles.stepNumber, { backgroundColor: colors.primary }]}>
-                  <Text style={styles.stepNumberText}>2</Text>
+                  <Text style={[styles.stepNumberText, { color: colors.onPrimary }]}>2</Text>
                 </View>
                 <Text style={[styles.stepText, { color: colors.text }]}>
-                  Upload your national ID/tax certificate and business details.
+                  {t('repairman.uploadYourNationalIdTax')}
                 </Text>
               </View>
 
               <View style={styles.stepRow}>
                 <View style={[styles.stepNumber, { backgroundColor: colors.primary }]}>
-                  <Text style={styles.stepNumberText}>3</Text>
+                  <Text style={[styles.stepNumberText, { color: colors.onPrimary }]}>3</Text>
                 </View>
                 <Text style={[styles.stepText, { color: colors.text }]}>
-                  Return to this mobile app anytime to check your approval status.
+                  {t('repairman.returnToThisMobileApp')}
                 </Text>
               </View>
             </View>
@@ -143,10 +146,10 @@ export default function KycHandoffScreen({ navigation, route }: KycHandoffScreen
           <FadeUp delay={150} duration={300}>
             <View style={[styles.fallbackBox, { borderColor: colors.primary }]}>
               <Text style={[styles.fallbackTitle, { color: colors.text }]}>
-                Please open this address in your browser:
+                {t('repairman.pleaseOpenThisAddressIn')}
               </Text>
               <Text style={[styles.fallbackUrl, { color: colors.primary }]} selectable>
-                {WEB_LOGIN_URL}
+                {getWebLoginUrl()}
               </Text>
             </View>
           </FadeUp>
@@ -155,11 +158,12 @@ export default function KycHandoffScreen({ navigation, route }: KycHandoffScreen
         {/* Action Buttons */}
         <FadeUp delay={200} duration={500} style={styles.actions}>
           <Button
-            title="Complete on Website"
+            title={t('customer.completeOnWebsite')}
             size="lg"
             loading={opening}
             onPress={handleOpenWebsite}
-            icon={<Icon source={globeBold} size={18} color={colors.onPrimary} />}
+            icon={globeBold}
+            iconPosition="left"
           />
 
           <TouchableOpacity
@@ -167,7 +171,7 @@ export default function KycHandoffScreen({ navigation, route }: KycHandoffScreen
             activeOpacity={0.7}
             style={styles.secondaryBtn}>
             <Text style={[styles.secondaryBtnText, { color: colors.textMuted }]}>
-              Return to Login
+              {t('repairman.returnToLogin')}
             </Text>
           </TouchableOpacity>
         </FadeUp>
@@ -194,6 +198,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   headerTitle: {
+    flexShrink: 1,
     fontSize: 17,
     fontFamily: fonts.bold,
   },

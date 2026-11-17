@@ -53,10 +53,10 @@ export function mapBackendToCourse(raw: any): AcademicCourseItem {
     : cleanDesc;
 
   const categoryName = typeof raw.category === 'object' && raw.category !== null
-    ? raw.category.title || raw.category.name || 'General'
+    ? raw.category.title || raw.category.name || ''
     : typeof raw.category === 'string'
     ? raw.category
-    : 'General';
+    : '';
 
   const categoryId = typeof raw.category === 'object' && raw.category !== null
     ? raw.category._id || raw.category.id
@@ -70,9 +70,9 @@ export function mapBackendToCourse(raw: any): AcademicCourseItem {
   const subCatTitle = raw.subCategory?.title || (typeof raw.subCategory === 'string' ? raw.subCategory : undefined);
 
   return {
-    id: String(raw._id || raw.id || raw.slug || Math.random().toString()),
+    id: String(raw._id || raw.id || raw.slug || ''),
     slug: raw.slug || '',
-    title: raw.title || 'Course',
+    title: raw.title || '',
     category: categoryName,
     categoryId: categoryId ? String(categoryId) : undefined,
     subCategory: subCatTitle,
@@ -85,8 +85,8 @@ export function mapBackendToCourse(raw: any): AcademicCourseItem {
     views: Number(raw.views || 0),
     averageRating: Number(raw.averageRating || raw.rating || 0),
     reviewCount: Number(raw.reviewCount || 0),
-    duration: raw.duration || '25 mins',
-    lessons: raw.lessons || 6,
+    duration: raw.duration || '',
+    lessons: Number(raw.lessons || 0),
   };
 }
 
@@ -96,29 +96,22 @@ export const academyApi = {
    * Endpoint: GET /academic/category
    */
   async getCategories(): Promise<AcademicCategoryItem[]> {
-    try {
-      const res = await apiClient.get('/academic/category', {
-        params: { page: 1, limit: 50 },
-      });
-      const list = res.data?.data;
-      if (Array.isArray(list)) {
-        return list.map((cat: any) => ({
-          id: String(cat._id || cat.id || cat.slug),
-          title: cat.title || cat.name || 'Category',
-          slug: cat.slug || '',
-          icon: cat.icon,
-          image: cat.image,
-        }));
-      }
-      return [];
-    } catch (error) {
-      if (__DEV__) console.warn('[academyApi] getCategories error:', error);
-      return [];
-    }
+    const res = await apiClient.get('/academic/category', {
+      params: { page: 1, limit: 50 },
+    });
+    const list = res.data?.data;
+    if (!Array.isArray(list)) return [];
+    return list.map((cat: any) => ({
+      id: String(cat._id || cat.id || cat.slug),
+      title: cat.title || cat.name || '',
+      slug: cat.slug || '',
+      icon: cat.icon,
+      image: cat.image,
+    }));
   },
 
   /**
-   * Fetch courses / academic content
+   * Fetch courses / academic content (all pages, up to 10)
    * Endpoint: GET /academic/content/:id
    */
   async getCourses(params?: {
@@ -128,29 +121,29 @@ export const academyApi = {
     limit?: number;
     sort?: string;
   }): Promise<AcademicCourseItem[]> {
-    try {
-      const categoryIdParam = params?.categoryId && params.categoryId !== 'all'
-        ? params.categoryId
-        : 'all';
-
+    const categoryIdParam = params?.categoryId && params.categoryId !== 'all' ? params.categoryId : 'all';
+    const limit = params?.limit || 20;
+    const fetchPage = async (page: number) => {
       const res = await apiClient.get(`/academic/content/${categoryIdParam}`, {
         params: {
-          page: params?.page || 1,
-          limit: params?.limit || 20,
+          page,
+          limit,
           search: params?.search?.trim() || undefined,
           sort: params?.sort,
         },
       });
-
       const list = res.data?.data;
-      if (Array.isArray(list)) {
-        return list.map(mapBackendToCourse);
-      }
-      return [];
-    } catch (error) {
-      if (__DEV__) console.warn('[academyApi] getCourses error:', error);
-      return [];
+      return Array.isArray(list) ? list.map(mapBackendToCourse) : [];
+    };
+    // a failed request throws so the screen shows an error, not "no courses"
+    if (params?.page) return fetchPage(params.page);
+    const all: AcademicCourseItem[] = [];
+    for (let page = 1; page <= 10; page++) {
+      const items = await fetchPage(page);
+      all.push(...items);
+      if (items.length < limit) break;
     }
+    return all;
   },
 
   /**
@@ -161,12 +154,9 @@ export const academyApi = {
     try {
       const res = await apiClient.get(`/academic/${slug}`);
       const data = res.data?.data;
-      if (data) {
-        return mapBackendToCourse(data);
-      }
-      return null;
-    } catch (error) {
-      if (__DEV__) console.warn(`[academyApi] getCourseBySlug(${slug}) error:`, error);
+      return data ? mapBackendToCourse(data) : null;
+    } catch (err: any) {
+      if (err?.isNetworkError || err?.isTimeout || (err?.status && err.status >= 500)) throw err;
       return null;
     }
   },
@@ -178,7 +168,7 @@ export const academyApi = {
   async patchCourseViews(slug: string): Promise<void> {
     try {
       await apiClient.patch(`/academic/${slug}/views`);
-    } catch (e) {
+    } catch {
       // Ignore views tracking error
     }
   },

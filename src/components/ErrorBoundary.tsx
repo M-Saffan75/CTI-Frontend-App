@@ -12,6 +12,7 @@ import { exclamationCircleBold } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { themes } from '@/theme/colors';
 import { fonts } from '@/theme/fonts';
+import { useTranslation } from 'react-i18next';
 
 interface Props {
   children: ReactNode;
@@ -20,15 +21,19 @@ interface Props {
 interface State {
   hasError: boolean;
   error: Error | null;
+  componentStack: string;
 }
 
 function ErrorFallback({
   onRestart,
   error,
+  componentStack,
 }: {
   onRestart: () => void;
   error: Error | null;
+  componentStack: string;
 }) {
+  const { t } = useTranslation();
   const systemScheme = useColorScheme();
   let colors = systemScheme === 'dark' ? themes.black : themes.white;
 
@@ -60,9 +65,9 @@ function ErrorFallback({
           <Icon source={exclamationCircleBold} size={36} color={colors.error} />
         </View>
 
-        <Text style={[styles.title, { color: colors.text }]}>Something went wrong</Text>
+        <Text style={[styles.title, { color: colors.text }]}>{t('common.somethingWentWrong')}</Text>
         <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-          An unexpected error occurred. Please try reloading this screen.
+          {t('common.errorBoundaryBody')}
         </Text>
 
         {__DEV__ && error?.message ? (
@@ -74,6 +79,16 @@ function ErrorFallback({
             <Text style={[styles.devText, { color: colors.textMuted }]} numberOfLines={3}>
               {error.message}
             </Text>
+            {componentStack ? (
+              <Text style={[styles.devText, { color: colors.textMuted }]} numberOfLines={30}>
+                {componentStack
+                  .split('\n')
+                  .map(line => line.replace(/\(.*$/, '').trim())
+                  .filter(line => line && !/RCT|View_withRef|AnimatedComponent|Pressable|Squeeze/.test(line))
+                  .slice(0, 30)
+                  .join('\n')}
+              </Text>
+            ) : null}
           </View>
         ) : null}
 
@@ -81,7 +96,7 @@ function ErrorFallback({
           style={[styles.button, { backgroundColor: colors.primary }]}
           onPress={onRestart}
           activeOpacity={0.85}>
-          <Text style={[styles.buttonText, { color: colors.onPrimary }]}>Try Again</Text>
+          <Text style={[styles.buttonText, { color: colors.onPrimary }]}>{t('common.tryAgain')}</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -91,19 +106,20 @@ function ErrorFallback({
 export default class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, componentStack: '' };
   }
 
   static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+    return { hasError: true, error, componentStack: '' };
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('ErrorBoundary caught an unhandled error:', error, errorInfo);
+    if (__DEV__) console.error('ErrorBoundary caught an unhandled error:', error, errorInfo?.componentStack);
+    if (__DEV__) this.setState({ componentStack: errorInfo?.componentStack || '' });
   }
 
   handleRestart = () => {
-    this.setState({ hasError: false, error: null });
+    this.setState({ hasError: false, error: null, componentStack: '' });
   };
 
   render() {
@@ -112,6 +128,7 @@ export default class ErrorBoundary extends Component<Props, State> {
         <ErrorFallback
           onRestart={this.handleRestart}
           error={this.state.error}
+          componentStack={this.state.componentStack}
         />
       );
     }

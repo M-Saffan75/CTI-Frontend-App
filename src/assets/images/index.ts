@@ -14,8 +14,6 @@ export const splashByTheme = {
   white: require('./splash/white.png'),
   black: require('./splash/black.png'),
   sand: require('./splash/sand.png'),
-  ocean: require('./splash/ocean.png'),
-  forest: require('./splash/forest.png'),
 };
 
 // Reusable Lottie spinner/loader matching the Next.js webapp
@@ -31,3 +29,9 @@ export const aboutImages = {
   energy: require('./about/6.png'),
 };
 
+
+// Academy screen images, the same files the web academy page uses (frontend/public/assets/academy)
+export const academyImages = {
+  hero: require('./academy/hero.png'),
+  learn: require('./academy/learn.jpg'),
+};

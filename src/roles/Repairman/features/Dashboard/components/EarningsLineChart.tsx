@@ -4,26 +4,38 @@ import Svg, { Circle, Line, Polyline } from 'react-native-svg';
 
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import { useTranslation } from 'react-i18next';
 
 const HEIGHT = 160;
 const PADDING = 16;
+const LABEL_WIDTH = 44;
+const MAX_LABELS = 6;
+
+interface Props {
+  data: { label: string; value: number }[];
+  maxLabel?: string;
+}
 
 /** A small line chart — no library, just a polyline over a few grid lines. */
-export default function EarningsLineChart({ data }) {
+export default function EarningsLineChart({ data, maxLabel }: Props) {
+  useTranslation();
   const { colors } = useTheme();
   const [width, setWidth] = useState(0);
 
   const max = Math.max(1, ...data.map(point => point.value));
   const step = data.length > 1 ? (width - PADDING * 2) / (data.length - 1) : 0;
 
-  const toY = value => HEIGHT - PADDING - (value / max) * (HEIGHT - PADDING * 2);
+  const toY = (value: number) =>
+    HEIGHT - PADDING - (value / max) * (HEIGHT - PADDING * 2);
   const points = data.map((point, index) => ({
-    x: PADDING + index * step,
+    x: data.length > 1 ? PADDING + index * step : width / 2,
     y: toY(point.value),
     ...point,
   }));
 
   const gridLines = [0, 0.25, 0.5, 0.75, 1];
+  // A month has about 30 points: show only a few labels so they never overlap
+  const labelEvery = Math.ceil(data.length / MAX_LABELS);
 
   return (
     <View onLayout={event => setWidth(event.nativeEvent.layout.width)}>
@@ -51,24 +63,58 @@ export default function EarningsLineChart({ data }) {
             strokeWidth={2}
           />
 
-          {points.map((point, index) => (
-            <Circle key={index} cx={point.x} cy={point.y} r={4} fill={colors.primary} />
+          {points.map(point => (
+            <Circle
+              key={point.label}
+              cx={point.x}
+              cy={point.y}
+              r={data.length > 14 ? 2 : 4}
+              fill={colors.primary}
+            />
           ))}
         </Svg>
       )}
 
+      {maxLabel ? (
+        <Text style={[styles.max, { color: colors.textMuted }]}>
+          {maxLabel}
+        </Text>
+      ) : null}
+
       <View style={styles.labels}>
-        {data.map(point => (
-          <Text key={point.label} style={[styles.label, { color: colors.textMuted }]}>
-            {point.label}
-          </Text>
-        ))}
+        {points.map((point, index) =>
+          index % labelEvery === 0 ? (
+            <Text
+              key={point.label}
+              numberOfLines={1}
+              style={[
+                styles.label,
+                { color: colors.textMuted, left: point.x - LABEL_WIDTH / 2 },
+              ]}
+            >
+              {point.label}
+            </Text>
+          ) : null,
+        )}
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  labels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
-  label: { fontFamily: fonts.regular, fontSize: 10 },
+  max: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    fontFamily: fonts.regular,
+    fontSize: 10,
+  },
+  labels: { height: 16, marginTop: 6 },
+  label: {
+    position: 'absolute',
+    width: LABEL_WIDTH,
+    textAlign: 'center',
+    fontFamily: fonts.regular,
+    fontSize: 10,
+  },
 });

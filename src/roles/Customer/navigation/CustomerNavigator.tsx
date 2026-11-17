@@ -5,6 +5,8 @@ import RepairDetailScreen from '../features/Jobs/screens/RepairDetailScreen';
 import DisputeDetailScreen from '../features/Jobs/screens/DisputeDetailScreen';
 import OrdersScreen from '../features/Orders/screens/OrdersScreen';
 import OrderDetailScreen from '../features/Orders/screens/OrderDetailScreen';
+import { useOrderStatusLiveListener } from '../features/Orders/utils/orderLive';
+import { useJobLiveListener } from '../features/Jobs/utils/jobLive';
 import ExpertRepairmenScreen from '../features/Repairmen/screens/ExpertRepairmenScreen';
 import BlogsScreen from '../features/Blogs/screens/BlogsScreen';
 import BlogDetailScreen from '../features/Blogs/screens/BlogDetailScreen';
@@ -45,6 +47,9 @@ const Stack = createNativeStackNavigator();
 
 // Every Customer screen gets registered here. Seller and Repairman never see them.
 export default function CustomerNavigator({ onLogout }) {
+  useOrderStatusLiveListener();
+  useJobLiveListener();
+
   return (
     <WishlistProvider>
       <CartProvider>

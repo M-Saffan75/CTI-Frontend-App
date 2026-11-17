@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
@@ -12,13 +11,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import CtiLoader from '@/components/CtiLoader';
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
 import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import {
   chevronLeftBold,
-  shieldBold,
 } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
@@ -29,15 +26,20 @@ import {
   submitSellDeviceApplication,
 } from '../services/refurbishedApi';
 import AuthService from '@/services/authService';
+import KeyboardSafeView from '@/components/KeyboardSafeView';
+import CtiVerifiedSellCard from '../components/CtiVerifiedSellCard';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 export default function QuoteApplicationScreen({ navigation, route }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
   const brand = route?.params?.brand || 'Apple';
   const brandSlug = route?.params?.brandSlug || brand.toLowerCase();
   const brandId = route?.params?.brandId;
-  const model = route?.params?.model || '12 pro max';
+  const model = route?.params?.model || t('customer.n12ProMax');
   const modelSlug =
     route?.params?.modelSlug || model.toLowerCase().replace(/\s+/g, '-');
   const modelId = route?.params?.modelId;
@@ -114,8 +116,8 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
       setModal({
         visible: true,
         type: 'warning',
-        title: 'Name Required',
-        message: 'Please enter your full name.',
+        title: i18n.t('customer.nameRequired'),
+        message: i18n.t('customer.pleaseEnterYourFullName'),
       });
       return;
     }
@@ -124,8 +126,8 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
       setModal({
         visible: true,
         type: 'warning',
-        title: 'Valid Email Required',
-        message: 'Please enter a valid email address.',
+        title: i18n.t('customer.validEmailRequired'),
+        message: i18n.t('customer.pleaseEnterAValidEmail'),
       });
       return;
     }
@@ -135,8 +137,8 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
       setModal({
         visible: true,
         type: 'warning',
-        title: 'Telephone Required',
-        message: 'Please enter your telephone number.',
+        title: i18n.t('customer.telephoneRequired'),
+        message: i18n.t('customer.pleaseEnterYourTelephoneNumber'),
       });
       return;
     }
@@ -145,8 +147,8 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
       setModal({
         visible: true,
         type: 'warning',
-        title: 'Valid Telephone Required',
-        message: 'Telephone number must be 10 or 11 digits (e.g. 05XX XXX XX XX).',
+        title: i18n.t('customer.validTelephoneRequired'),
+        message: i18n.t('customer.telephoneNumberMustBe10'),
       });
       return;
     }
@@ -156,8 +158,8 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
       setModal({
         visible: true,
         type: 'warning',
-        title: 'TR ID Required',
-        message: 'TR ID number must be exactly 11 digits.',
+        title: i18n.t('customer.trIdRequired'),
+        message: i18n.t('customer.trIdNumberMustBe'),
       });
       return;
     }
@@ -166,8 +168,8 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
       setModal({
         visible: true,
         type: 'warning',
-        title: 'Address Required',
-        message: 'Please enter your pickup / residential address.',
+        title: i18n.t('customer.addressRequired'),
+        message: i18n.t('customer.pleaseEnterYourPickupResidential'),
       });
       return;
     }
@@ -177,8 +179,8 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
       setModal({
         visible: true,
         type: 'warning',
-        title: 'Valid IBAN Required',
-        message: 'IBAN must start with TR and contain exactly 26 alphanumeric characters.',
+        title: i18n.t('customer.validIbanRequired'),
+        message: i18n.t('customer.ibanMustStartWithTr'),
       });
       return;
     }
@@ -202,7 +204,7 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
             finalModelId = finalModelId || config.model?._id;
           }
         } catch (e) {
-          console.warn('Failed to resolve config IDs:', e);
+          if (__DEV__) console.warn('Failed to resolve config IDs:', e);
         }
       }
 
@@ -223,7 +225,7 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
               (typeof found.brandId === 'object' ? found.brandId?._id : found.brandId);
           }
         } catch (e) {
-          console.warn('Failed to resolve model from allModels:', e);
+          if (__DEV__) console.warn('Failed to resolve model from allModels:', e);
         }
       }
 
@@ -232,8 +234,8 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
         setModal({
           visible: true,
           type: 'warning',
-          title: 'Device Info Missing',
-          message: 'Could not identify device configuration. Please go back and re-select your device.',
+          title: i18n.t('customer.deviceInfoMissing'),
+          message: i18n.t('customer.couldNotIdentifyDeviceConfiguration'),
         });
         return;
       }
@@ -316,7 +318,7 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
         const refId =
           res?.data?.referenceNumber ||
           res?.data?._id?.slice(-8)?.toUpperCase() ||
-          `REF-${Math.floor(100000 + Math.random() * 900000)}`;
+          '';
 
         navigation.replace('ApplicationSubmitted', {
           referenceId: refId,
@@ -332,16 +334,16 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
         setModal({
           visible: true,
           type: 'error',
-          title: 'Submission Failed',
-          message: res.message || 'Could not submit your quote application. Please try again.',
+          title: i18n.t('customer.submissionFailed'),
+          message: res.message || i18n.t('customer.couldNotSubmitYourQuote'),
         });
       }
     } catch (err: any) {
       setModal({
         visible: true,
         type: 'error',
-        title: 'Submission Error',
-        message: err?.message || 'A network error occurred while submitting. Please try again.',
+        title: i18n.t('customer.submissionError'),
+        message: err?.message || i18n.t('customer.aNetworkErrorOccurredWhile'),
       });
     } finally {
       setIsSubmitting(false);
@@ -352,9 +354,8 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <RefurbishedHeader showActions={false} />
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardSafeView
+        style={{ flex: 1 }}>
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 40 }]}>
@@ -363,7 +364,7 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
             onPress={() => navigation.goBack()}
             style={styles.backLink}>
             <Icon source={chevronLeftBold} size={14} color={colors.primary} />
-            <Text style={[styles.backLinkText, { color: colors.primary }]}>Back</Text>
+            <Text style={[styles.backLinkText, { color: colors.primary }]}>{t('common.back')}</Text>
           </TouchableOpacity>
 
           {/* Form Card matching Figma */}
@@ -373,20 +374,19 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
               { backgroundColor: colors.surface, borderColor: colors.border + '44' },
             ]}>
             <Text style={[styles.formTitle, { color: colors.text }]}>
-              Complete Your Application
+              {t('customer.completeYourApplication')}
             </Text>
             <Text style={[styles.formSub, { color: colors.textMuted }]}>
-              Please provide your details below. Our technicians will inspect your device details
-              and get back to you with our customized quote.
+              {t('customer.pleaseProvideYourDetailsBelow')}
             </Text>
 
             {/* Name Surname */}
             <View style={styles.inputGroup}>
-              <Text style={[styles.inputLabel, { color: colors.text }]}>Name Surname</Text>
+              <Text style={[styles.inputLabel, { color: colors.text }]}>{t('customer.nameSurname')}</Text>
               <TextInput
                 value={fullName}
                 onChangeText={setFullName}
-                placeholder="John Doe"
+                placeholder={t('customer.johnDoe')}
                 placeholderTextColor={colors.textMuted + '88'}
                 style={[
                   styles.input,
@@ -401,11 +401,11 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
 
             {/* E-mail */}
             <View style={styles.inputGroup}>
-              <Text style={[styles.inputLabel, { color: colors.text }]}>E-mail</Text>
+              <Text style={[styles.inputLabel, { color: colors.text }]}>{t('customer.eMail')}</Text>
               <TextInput
                 value={email}
                 onChangeText={setEmail}
-                placeholder="example@mail.com"
+                placeholder={t('customer.exampleMailCom')}
                 keyboardType="email-address"
                 placeholderTextColor={colors.textMuted + '88'}
                 style={[
@@ -422,15 +422,15 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
             {/* Telephone */}
             <View style={styles.inputGroup}>
               <View style={styles.inputLabelRow}>
-                <Text style={[styles.inputLabel, { color: colors.text }]}>Telephone</Text>
+                <Text style={[styles.inputLabel, { color: colors.text }]}>{t('customer.telephone')}</Text>
                 <Text style={[styles.charCountText, { color: colors.textMuted }]}>
-                  {phone.length}/11 digits
+                  {t('customerMsg.digitsCount', { count: phone.length })}
                 </Text>
               </View>
               <TextInput
                 value={phone}
                 onChangeText={handlePhoneChange}
-                placeholder="05XX XXX XX XX"
+                placeholder={t('customer.n05xxXxxXxXx')}
                 keyboardType="phone-pad"
                 maxLength={11}
                 placeholderTextColor={colors.textMuted + '88'}
@@ -447,11 +447,11 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
 
             {/* Address */}
             <View style={styles.inputGroup}>
-              <Text style={[styles.inputLabel, { color: colors.text }]}>Address</Text>
+              <Text style={[styles.inputLabel, { color: colors.text }]}>{t('customer.address')}</Text>
               <TextInput
                 value={address}
                 onChangeText={setAddress}
-                placeholder="Enter your address information"
+                placeholder={t('customer.enterYourAddressInformation')}
                 placeholderTextColor={colors.textMuted + '88'}
                 style={[
                   styles.input,
@@ -466,7 +466,7 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
 
             {/* IBAN */}
             <View style={styles.inputGroup}>
-              <Text style={[styles.inputLabel, { color: colors.text }]}>IBAN (For payment)</Text>
+              <Text style={[styles.inputLabel, { color: colors.text }]}>{t('customer.ibanForPayment')}</Text>
               <TextInput
                 value={iban}
                 onChangeText={handleIbanChange}
@@ -486,11 +486,11 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
 
             {/* TR ID Number */}
             <View style={styles.inputGroup}>
-              <Text style={[styles.inputLabel, { color: colors.text }]}>TR ID Number</Text>
+              <Text style={[styles.inputLabel, { color: colors.text }]}>{t('customer.trIdNumber')}</Text>
               <TextInput
                 value={idNumber}
                 onChangeText={handleIdChange}
-                placeholder="Your 11-digit TR ID number"
+                placeholder={t('customer.your11DigitTrId')}
                 keyboardType="numeric"
                 maxLength={11}
                 placeholderTextColor={colors.textMuted + '88'}
@@ -515,11 +515,11 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
               ]}>
               {isSubmitting ? (
                 <View style={styles.submittingRow}>
-                  <ActivityIndicator size="small" color="#FFFFFF" style={{ marginRight: 8 }} />
-                  <Text style={styles.submitBtnText}>Uploading & Submitting...</Text>
+                  <ActivityIndicator size="small" color={colors.onPrimary} style={{ marginRight: 8 }} />
+                  <Text style={styles.submitBtnText}>{t('customer.uploadingAndSubmitting')}</Text>
                 </View>
               ) : (
-                <Text style={styles.submitBtnText}>Complete application</Text>
+                <Text style={styles.submitBtnText}>{t('customer.completeApplication')}</Text>
               )}
             </Squeeze>
           </View>
@@ -530,17 +530,17 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
               styles.detailsCard,
               { backgroundColor: colors.surface, borderColor: colors.border + '44' },
             ]}>
-            <Text style={[styles.detailsHeading, { color: colors.text }]}>Device Details</Text>
+            <Text style={[styles.detailsHeading, { color: colors.text }]}>{t('customer.deviceDetails')}</Text>
             <View style={[styles.divider, { backgroundColor: colors.border + '33' }]} />
 
             <View style={styles.detailRow}>
               <View>
-                <Text style={[styles.metaLabel, { color: colors.textMuted }]}>Brand</Text>
+                <Text style={[styles.metaLabel, { color: colors.textMuted }]}>{t('customer.brand2')}</Text>
                 <Text style={[styles.metaValue, { color: colors.text }]}>{brand}</Text>
               </View>
 
               <View style={{ alignItems: 'flex-end' }}>
-                <Text style={[styles.metaLabel, { color: colors.textMuted }]}>Model</Text>
+                <Text style={[styles.metaLabel, { color: colors.textMuted }]}>{t('customer.model')}</Text>
                 <Text style={[styles.metaValue, { color: colors.text }]}>
                   {model}
                 </Text>
@@ -552,7 +552,7 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
               <View style={{ marginTop: 10 }}>
                 {selectedVariants.map((v: any, idx: number) => (
                   <View key={idx} style={[styles.detailRow, { marginTop: 6 }]}>
-                    <Text style={[styles.metaLabel, { color: colors.textMuted }]}>{v.key || 'Specification'}</Text>
+                    <Text style={[styles.metaLabel, { color: colors.textMuted }]}>{v.key || t('customerMsg.specification')}</Text>
                     <Text style={[styles.metaValue, { color: colors.text }]}>{v.value}</Text>
                   </View>
                 ))}
@@ -563,7 +563,7 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
             {Object.entries(conditionAnswers).length > 0 && (
               <View style={{ marginTop: 14 }}>
                 <Text style={[styles.conditionHeader, { color: colors.textMuted }]}>
-                  DEVICE CONDITION
+                  {t('customer.deviceCondition')}
                 </Text>
 
                 {Object.entries(conditionAnswers).map(([q, a], idx) => (
@@ -581,31 +581,17 @@ export default function QuoteApplicationScreen({ navigation, route }: any) {
 
             <View style={[styles.detailRow, { marginTop: 14 }]}>
               <View>
-                <Text style={[styles.metaLabel, { color: colors.textMuted }]}>Media Uploaded</Text>
+                <Text style={[styles.metaLabel, { color: colors.textMuted }]}>{t('customer.mediaUploaded')}</Text>
                 <Text style={[styles.metaValue, { color: colors.primary }]}>
-                  {images.length} Pics, {videos.length} Vids
+                  {t('customerMsg.picsVids', { pics: images.length, vids: videos.length })}
                 </Text>
               </View>
             </View>
           </View>
 
-          {/* Security & Guarantee Trust Card */}
-          <View
-            style={[
-              styles.trustCard,
-              { backgroundColor: colors.surface, borderColor: colors.border + '44' },
-            ]}>
-            <View style={styles.trustHeader}>
-              <Icon source={shieldBold} size={20} color={colors.primary} />
-              <Text style={[styles.trustTitle, { color: colors.text }]}>Device Detail</Text>
-            </View>
-            <Text style={[styles.trustDesc, { color: colors.textMuted }]}>
-              Get paid instantly at your doorstep. We guarantee 100% data security and professional
-              device assessment through the CTI platform.
-            </Text>
-          </View>
+          <CtiVerifiedSellCard />
         </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardSafeView>
 
       <AlertModal
         visible={modal.visible}
@@ -632,6 +618,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   backLinkText: {
+    flexShrink: 1,
     fontSize: 14,
     fontFamily: fonts.medium,
   },
@@ -662,6 +649,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   charCountText: {
+    flexShrink: 1,
     fontSize: 11,
     fontFamily: fonts.medium,
   },
@@ -671,6 +659,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   inputLabel: {
+    flexShrink: 1,
     fontSize: 13,
     fontFamily: fonts.medium,
     marginBottom: 6,
@@ -691,6 +680,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   submitBtnText: {
+    flexShrink: 1,
     color: '#FFFFFF',
     fontSize: 15,
     fontFamily: fonts.bold,

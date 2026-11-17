@@ -1,214 +1,491 @@
-import { useCallback, useEffect, useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { monthShortName } from '@/utils/dateFormat';
+import { statusLabel } from '@/utils/labels';
+import { Fragment, useEffect, useMemo, useState } from 'react';
+import {
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import AlertModal from '@/components/AlertModal';
 import Button from '@/components/Button';
 import { FadeUp } from '@/animations';
+import repairmanApi, {
+  EarningsFilter,
+} from '@/roles/Repairman/api/repairmanApi';
+import useApiData from '@/roles/Repairman/utils/useApiData';
+import { useOffersChangedChecker } from '@/roles/Repairman/utils/offerEvents';
+import useRefreshOnActive from '@/utils/useRefreshOnActive';
+import { formatMoney } from '@/utils/money';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import BookingCard from '../components/BookingCard';
 import EarningsLineChart from '../components/EarningsLineChart';
+import FilterChips from '../components/FilterChips';
 import JobDonutChart from '../components/JobDonutChart';
-import { BOOKINGS, EARNINGS_CHART, JOB_DISTRIBUTION, JOB_DISTRIBUTION_TOTAL, STATS } from '../data/dashboard';
-import repairmanApi from '@/roles/Repairman/api/repairmanApi';
+import JobsCalendar from '../components/JobsCalendar';
+import OffersChart, { OffersPoint } from '../components/OffersChart';
+import SectionCard from '../components/SectionCard';
+import { distributionColor } from '../utils/bookingStatus';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
-const STATUS_COLORS = {
-  Confirmed: 'success',
-  Pending: 'primary',
-};
+const EARNINGS_FILTERS: { label: string; value: EarningsFilter }[] = [
+  { get label() { return i18n.t('repairman.thisWeek'); }, value: 'this_week' },
+  { get label() { return i18n.t('repairman.lastWeek'); }, value: 'last_week' },
+  { get label() { return i18n.t('repairman.thisMonth'); }, value: 'this_month' },
+  { get label() { return i18n.t('repairman.lastMonth'); }, value: 'last_month' },
+];
 
-function StatCard({ label, value }) {
+const DISTRIBUTION_FILTERS = [
+  { get label() { return i18n.t('repairman.today'); }, value: 'today' },
+  ...EARNINGS_FILTERS,
+];
+
+type OffersView = 'monthly' | 'quarterly' | 'last_year';
+const OFFERS_FILTERS: { label: string; value: OffersView }[] = [
+  { get label() { return i18n.t('repairman.monthly'); }, value: 'monthly' },
+  { get label() { return i18n.t('repairman.quarterly'); }, value: 'quarterly' },
+  { get label() { return i18n.t('repairman.lastYear'); }, value: 'last_year' },
+];
+
+const QUARTERS = [
+  { label: 'Q1', months: ['Jan', 'Feb', 'Mar'] },
+  { label: 'Q2', months: ['Apr', 'May', 'Jun'] },
+  { label: 'Q3', months: ['Jul', 'Aug', 'Sep'] },
+  { label: 'Q4', months: ['Oct', 'Nov', 'Dec'] },
+];
+
+const STALE_REFRESH_MS = 60000;
+
+function StatCard({ label, value }: { label: string; value: string | number }) {
   const { colors } = useTheme();
 
   return (
-    <View style={[styles.statCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-      <Text style={[styles.statLabel, { color: colors.textMuted }]}>{label}</Text>
-      <View style={styles.statRow}>
-        <Text style={[styles.statValue, { color: colors.primary }]}>{value}</Text>
-        <View style={[styles.statBadge, { backgroundColor: colors.surfaceAlt }]}>
-          <Text style={[styles.statBadgeText, { color: colors.primary }]}>$</Text>
-        </View>
-      </View>
+    <View
+      style={[
+        styles.statCard,
+        { backgroundColor: colors.surface, borderColor: colors.border },
+      ]}
+    >
+      <Text style={[styles.statLabel, { color: colors.textMuted }]}>
+        {label}
+      </Text>
+      <Text
+        style={[styles.statValue, { color: colors.primary }]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+      >
+        {value}
+      </Text>
     </View>
   );
 }
 
-function BookingCard({ booking }) {
+function Fact({ label, value }: { label: string; value: string | number }) {
   const { colors } = useTheme();
-  const statusColor = colors[STATUS_COLORS[booking.status] ?? 'textMuted'];
 
   return (
-    <View style={[styles.bookingCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-      <View style={styles.bookingHead}>
-        <Text style={[styles.bookingId, { color: colors.textMuted }]}>{booking.id}</Text>
-        <View style={[styles.statusPill, { backgroundColor: statusColor + '22' }]}>
-          <Text style={[styles.statusText, { color: statusColor }]}>{booking.status}</Text>
-        </View>
-      </View>
-
-      <Text style={[styles.bookingLabel, { color: colors.text }]}>Customer</Text>
-      <Text style={[styles.bookingText, { color: colors.textMuted }]}>{booking.phone}</Text>
-
-      <View style={styles.bookingMeta}>
-        <View>
-          <Text style={[styles.bookingLabel, { color: colors.text }]}>Device</Text>
-          <Text style={[styles.bookingText, { color: colors.textMuted }]}>{booking.device}</Text>
-        </View>
-        <View>
-          <Text style={[styles.bookingLabel, { color: colors.text }]}>Schedule</Text>
-          <Text style={[styles.bookingText, { color: colors.textMuted }]}>{booking.schedule}</Text>
-        </View>
-      </View>
-
-      <Button title="View" variant="soft" size="sm" style={styles.viewButton} />
+    <View style={styles.fact}>
+      <Text
+        style={[styles.factValue, { color: colors.text }]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+      >
+        {value}
+      </Text>
+      <Text style={[styles.factLabel, { color: colors.textMuted }]}>
+        {label}
+      </Text>
     </View>
   );
 }
 
-// The Dashboard content — rendered inside DashboardTabScreen below the shared
-// header, not a screen of its own.
-export default function DashboardContent() {
+// The Dashboard content, shown inside DashboardTabScreen below the shared header.
+// Same sections as the web dashboard: summary, earnings, job distribution, latest bookings, calendar, offers.
+export default function DashboardContent({ navigation }: { navigation?: any }) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const focused = useIsFocused();
   const [refreshing, setRefreshing] = useState(false);
-  const [stats, setStats] = useState(STATS);
-  const [earningsChart, setEarningsChart] = useState(EARNINGS_CHART);
-  const [jobDistribution, setJobDistribution] = useState(JOB_DISTRIBUTION);
-  const [jobTotal, setJobTotal] = useState(JOB_DISTRIBUTION_TOTAL);
+  const [refreshError, setRefreshError] = useState('');
 
-  const loadData = useCallback(async () => {
-    try {
-      const [earningsRes, distRes] = await Promise.all([
-        repairmanApi.getEarningsAnalytics(),
-        repairmanApi.getJobDistribution(),
-      ]);
+  const now = new Date();
+  const [earningsFilter, setEarningsFilter] =
+    useState<EarningsFilter>('this_week');
+  const [distributionFilter, setDistributionFilter] = useState('last_month');
+  const [offersView, setOffersView] = useState<OffersView>('monthly');
+  const [calendar, setCalendar] = useState({
+    month: now.getMonth(),
+    year: now.getFullYear(),
+  });
 
-      if (earningsRes?.points && earningsRes.points.length > 0) {
-        setEarningsChart(earningsRes.points);
-      }
-      if (distRes?.distribution && distRes.distribution.length > 0) {
-        const formatted = distRes.distribution.map((d: any) => ({
-          label: d.label,
-          value: Number(d.value ?? d.count ?? 0),
-          color: d.color || '#3B82F6',
-        }));
-        setJobDistribution(formatted);
-        setJobTotal(distRes.total || formatted.reduce((acc: number, cur: any) => acc + (cur.value || 0), 0));
-        setStats(prev => ({
-          ...prev,
-          totalJobs: Number(distRes.total || prev.totalJobs),
-        }));
-      }
-    } catch (err) {
-      // Fallback preserved
-    }
-  }, []);
+  const offersYear =
+    offersView === 'last_year' ? now.getFullYear() - 1 : now.getFullYear();
 
+  const home = useApiData(() => repairmanApi.getHome(), []);
+  const earnings = useApiData(
+    () => repairmanApi.getEarningsAnalytics(earningsFilter),
+    [earningsFilter],
+  );
+  const distribution = useApiData(
+    () => repairmanApi.getJobDistribution(distributionFilter),
+    [distributionFilter],
+  );
+  const offers = useApiData(
+    () => repairmanApi.getOffersAnalytics(offersYear),
+    [offersYear],
+  );
+  const jobsCalendar = useApiData(
+    () => repairmanApi.getCalendarJobs(calendar.month, calendar.year),
+    [calendar.month, calendar.year],
+  );
+
+  const reloadAll = () =>
+    Promise.all([
+      home.reload(true),
+      earnings.reload(true),
+      distribution.reload(true),
+      offers.reload(true),
+      jobsCalendar.reload(true),
+    ]);
+
+  // Coming back to the tab (or back from the background) reloads quietly when the numbers are old
+  const offersChanged = useOffersChangedChecker();
+  const markLoaded = useRefreshOnActive(
+    focused,
+    () => {
+      reloadAll().then(markLoaded);
+    },
+    offersChanged,
+    STALE_REFRESH_MS,
+  );
+  const everythingLoaded =
+    !home.loading &&
+    !earnings.loading &&
+    !distribution.loading &&
+    !offers.loading &&
+    !jobsCalendar.loading;
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (everythingLoaded) markLoaded();
+  }, [everythingLoaded, markLoaded]);
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadData();
+    const failed = (await reloadAll()).find(Boolean);
     setRefreshing(false);
+    if (failed) setRefreshError(failed.message);
   };
 
+  const summary = home.data?.summary;
+  const bookings = home.data?.latestBookings || [];
+
+  const earningsPoints = useMemo(
+    () =>
+      (earnings.data?.chartData || []).map(p => ({
+        label: p.label,
+        value: p.earnings,
+      })),
+    [earnings.data],
+  );
+  const earningsMax = Math.max(0, ...earningsPoints.map(p => p.value));
+
+  const slices = useMemo(
+    () =>
+      (distribution.data?.distribution || []).map(item => ({
+        label: statusLabel(item.name),
+        value: item.count,
+        color: distributionColor(item.name),
+      })),
+    [distribution.data],
+  );
+
+  const offersPoints = useMemo<OffersPoint[]>(() => {
+    const months = offers.data?.chartData || [];
+    if (offersView !== 'quarterly') {
+      return months.map(m => ({
+        label: monthShortName(m.month),
+        pending: m.pending,
+        confirmed: m.confirmed,
+      }));
+    }
+    return QUARTERS.map(q => {
+      const rows = months.filter(m => q.months.includes(m.month));
+      return {
+        label: q.label,
+        pending: rows.reduce((sum, m) => sum + m.pending, 0),
+        confirmed: rows.reduce((sum, m) => sum + m.confirmed, 0),
+      };
+    });
+  }, [offers.data, offersView]);
+
   return (
-    <ScrollView
-      contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
-      showsVerticalScrollIndicator={false}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />}>
-      <FadeUp delay={60} duration={500}>
-        <View style={styles.statsRow}>
-          <StatCard label="Total Jobs" value={stats.totalJobs} />
-          <StatCard label="Active Jobs" value={stats.activeJobs} />
-        </View>
-      </FadeUp>
-
-      <FadeUp delay={110} duration={500}>
-        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <View style={styles.cardHead}>
-            <Text style={[styles.cardTitle, { color: colors.text }]}>Earnings Analytics</Text>
-            <View style={[styles.pill, { backgroundColor: colors.surfaceAlt }]}>
-              <Text style={[styles.pillText, { color: colors.textMuted }]}>7 Days</Text>
+    <Fragment>
+      <ScrollView
+        contentContainerStyle={[
+          styles.body,
+          { paddingBottom: insets.bottom + 30 },
+        ]}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
+      >
+        <FadeUp delay={40} duration={400}>
+          <SectionCard
+            title={t('repairman.overview')}
+            loading={home.loading}
+            error={home.error}
+            onRetry={() => home.reload()}
+          >
+            <View style={styles.statsGrid}>
+              <StatCard label={t('customer.totalJobs')} value={summary?.totalJobs ?? 0} />
+              <StatCard
+                label={t('repairman.deliveredJobs')}
+                value={summary?.completedJobs ?? 0}
+              />
+              <StatCard label={t('repairman.activeJobs')} value={summary?.activeJobs ?? 0} />
+              <StatCard
+                label={t('customer.totalAmount')}
+                value={formatMoney(summary?.totalEarnings ?? 0)}
+              />
             </View>
+          </SectionCard>
+        </FadeUp>
+
+        <SectionCard
+          title={t('repairman.earningsAnalytics')}
+          subtitle={t('repairman.completedAndDeliveredJobs')}
+          loading={earnings.loading}
+          error={earnings.error}
+          onRetry={() => earnings.reload()}
+          filter={
+            <FilterChips
+              options={EARNINGS_FILTERS}
+              value={earningsFilter}
+              onChange={value => setEarningsFilter(value as EarningsFilter)}
+            />
+          }
+        >
+          <EarningsLineChart
+            data={earningsPoints}
+            maxLabel={formatMoney(earningsMax)}
+          />
+          <View style={styles.facts}>
+            <Fact
+              label={t('repairman.earned')}
+              value={formatMoney(earnings.data?.summary.totalEarnings ?? 0)}
+            />
+            <Fact label={t('repairman.jobs')} value={earnings.data?.summary.totalJobs ?? 0} />
+            <Fact
+              label={t('repairman.average')}
+              value={formatMoney(earnings.data?.summary.avgEarning ?? 0)}
+            />
+            <Fact
+              label={t('repairman.bestDay')}
+              value={earnings.data?.summary.bestDay || '-'}
+            />
           </View>
-          <EarningsLineChart data={earningsChart} />
-        </View>
-      </FadeUp>
+          {(earnings.data?.summary.totalJobs ?? 0) === 0 && (
+            <Text style={[styles.empty, { color: colors.textMuted }]}>
+              {t('repairman.noCompletedJobsInThis')}
+            </Text>
+          )}
+        </SectionCard>
 
-      <FadeUp delay={160} duration={500}>
-        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <View style={styles.cardHead}>
-            <Text style={[styles.cardTitle, { color: colors.text }]}>Job Distribution</Text>
-            <View style={[styles.pill, { backgroundColor: colors.surfaceAlt }]}>
-              <Text style={[styles.pillText, { color: colors.textMuted }]}>Last Month</Text>
-            </View>
-          </View>
-
-          <JobDonutChart data={jobDistribution} total={jobTotal} label="Total Jobs" />
-
-          <View style={styles.legend}>
-            {jobDistribution.map(slice => (
-              <View key={slice.label} style={styles.legendRow}>
-                <View style={[styles.legendDot, { backgroundColor: slice.color }]} />
-                <Text style={[styles.legendText, { color: colors.textMuted }]}>{slice.label}</Text>
+        <SectionCard
+          title={t('repairman.jobDistribution')}
+          subtitle={t('repairman.bookingsByStatus')}
+          loading={distribution.loading}
+          error={distribution.error}
+          onRetry={() => distribution.reload()}
+          filter={
+            <FilterChips
+              options={DISTRIBUTION_FILTERS}
+              value={distributionFilter}
+              onChange={setDistributionFilter}
+            />
+          }
+        >
+          {slices.length === 0 ? (
+            <Text style={[styles.empty, { color: colors.textMuted }]}>
+              {t('repairman.noJobsInThisPeriod')}
+            </Text>
+          ) : (
+            <>
+              <JobDonutChart
+                data={slices}
+                total={distribution.data?.totalBookings ?? 0}
+                label={t('customer.totalJobs')}
+              />
+              <View style={styles.legend}>
+                {slices.map(slice => (
+                  <View key={slice.label} style={styles.legendRow}>
+                    <View
+                      style={[
+                        styles.legendDot,
+                        { backgroundColor: slice.color },
+                      ]}
+                    />
+                    <Text
+                      style={[styles.legendText, { color: colors.textMuted }]}
+                    >
+                      {slice.label} ({slice.value})
+                    </Text>
+                  </View>
+                ))}
               </View>
-            ))}
-          </View>
-        </View>
-      </FadeUp>
+            </>
+          )}
+        </SectionCard>
 
-      <FadeUp delay={210} duration={500}>
-        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <View style={styles.cardHead}>
-            <Text style={[styles.cardTitle, { color: colors.text }]}>Bookings</Text>
-            <View style={[styles.pill, { backgroundColor: colors.surfaceAlt }]}>
-              <Text style={[styles.pillText, { color: colors.textMuted }]}>{BOOKINGS.length} Total</Text>
+        <SectionCard
+          title={t('repairman.activeBookings')}
+          subtitle={t('repairman.yourLatestJobsInProgress')}
+          loading={home.loading}
+          error={home.error}
+          onRetry={() => home.reload()}
+        >
+          {bookings.length === 0 ? (
+            <Text style={[styles.empty, { color: colors.textMuted }]}>
+              {t('repairman.noActiveBookingsRightNow')}
+            </Text>
+          ) : (
+            <View style={styles.list}>
+              {bookings.map(booking => (
+                <BookingCard
+                  key={booking._id}
+                  booking={booking}
+                  onOpen={() =>
+                    navigation?.navigate('MyJobDetail', {
+                      bookingId: booking._id,
+                    })
+                  }
+                />
+              ))}
             </View>
-          </View>
+          )}
+          <Button
+            title={t('repairman.viewAllJobs')}
+            variant="soft"
+            size="sm"
+            style={styles.viewAll}
+            onPress={() =>
+              navigation?.navigate('JobsTab', { tab: 'MyJobs', at: Date.now() })
+            }
+          />
+        </SectionCard>
 
-          <View style={styles.bookingsList}>
-            {BOOKINGS.map(booking => (
-              <BookingCard key={booking.id} booking={booking} />
-            ))}
+        <SectionCard
+          title={t('repairman.jobCalendar')}
+          subtitle={t('repairman.scheduledAndActiveJobs')}
+          loading={false}
+          error={jobsCalendar.error}
+          onRetry={() => jobsCalendar.reload()}
+        >
+          {!jobsCalendar.error && (
+            <View style={jobsCalendar.loading && styles.dimmed}>
+              <JobsCalendar
+                month={calendar.month}
+                year={calendar.year}
+                data={jobsCalendar.data}
+                onChangeMonth={(month, year) => setCalendar({ month, year })}
+                onOpenJob={bookingId =>
+                  navigation?.navigate('MyJobDetail', { bookingId })
+                }
+              />
+            </View>
+          )}
+        </SectionCard>
+
+        <SectionCard
+          title={t('repairman.offersPerformance')}
+          subtitle={t('repairman.pendingVsConfirmedOffers')}
+          loading={offers.loading}
+          error={offers.error}
+          onRetry={() => offers.reload()}
+          filter={
+            <FilterChips
+              options={OFFERS_FILTERS}
+              value={offersView}
+              onChange={value => setOffersView(value as OffersView)}
+            />
+          }
+        >
+          <OffersChart data={offersPoints} />
+          <View style={styles.facts}>
+            <Fact
+              label={t('repairman.pending')}
+              value={offers.data?.summary.totalPending ?? 0}
+            />
+            <Fact
+              label={t('repairman.confirmed')}
+              value={offers.data?.summary.totalConfirmed ?? 0}
+            />
+            <Fact label={t('customer.total')} value={offers.data?.summary.totalOffers ?? 0} />
+            <Fact
+              label={t('repairman.conversion')}
+              value={`${offers.data?.summary.conversionRate ?? 0}%`}
+            />
           </View>
-        </View>
-      </FadeUp>
-    </ScrollView>
+        </SectionCard>
+      </ScrollView>
+
+      <AlertModal
+        visible={Boolean(refreshError)}
+        type="error"
+        title={t('customer.couldNotRefresh')}
+        message={refreshError}
+        onClose={() => setRefreshError('')}
+      />
+    </Fragment>
   );
 }
 
 const styles = StyleSheet.create({
-  body: { paddingHorizontal: 20, paddingTop: 16 },
-
-  statsRow: { flexDirection: 'row', gap: 12 },
-  statCard: { flex: 1, borderRadius: 14, borderWidth: 1, padding: 14, gap: 10 },
+  body: { paddingHorizontal: 20, paddingTop: 4 },
+  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  statCard: {
+    width: '47.5%',
+    flexGrow: 1,
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 14,
+    gap: 8,
+  },
   statLabel: { fontFamily: fonts.regular, fontSize: 13 },
-  statRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  statValue: { fontFamily: fonts.bold, fontSize: 24 },
-  statBadge: { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  statBadgeText: { fontFamily: fonts.bold, fontSize: 15 },
-
-  card: { borderRadius: 16, borderWidth: 1, padding: 16, marginTop: 16 },
-  cardHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
-  cardTitle: { fontFamily: fonts.bold, fontSize: 16 },
-  pill: { borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 },
-  pillText: { fontFamily: fonts.medium, fontSize: 11 },
-
-  legend: { flexDirection: 'row', flexWrap: 'wrap', gap: 14, marginTop: 16, justifyContent: 'center' },
+  statValue: { fontFamily: fonts.bold, fontSize: 22 },
+  facts: { flexDirection: 'row', gap: 8, marginTop: 14 },
+  fact: { flex: 1, alignItems: 'center', gap: 2 },
+  factValue: { fontFamily: fonts.bold, fontSize: 14 },
+  factLabel: { fontFamily: fonts.regular, fontSize: 11 },
+  empty: {
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 12,
+  },
+  legend: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 14,
+    marginTop: 16,
+    justifyContent: 'center',
+  },
   legendRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   legendDot: { width: 10, height: 10, borderRadius: 5 },
   legendText: { fontFamily: fonts.regular, fontSize: 12 },
-
-  bookingsList: { gap: 12 },
-  bookingCard: { borderRadius: 12, borderWidth: 1, padding: 14, gap: 4 },
-  bookingHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  bookingId: { fontFamily: fonts.regular, fontSize: 12 },
-  statusPill: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
-  statusText: { fontFamily: fonts.bold, fontSize: 11 },
-  bookingLabel: { fontFamily: fonts.bold, fontSize: 13, marginTop: 6 },
-  bookingText: { fontFamily: fonts.regular, fontSize: 12 },
-  bookingMeta: { flexDirection: 'row', gap: 30, marginTop: 4 },
-  viewButton: { marginTop: 12 },
+  list: { gap: 12 },
+  viewAll: { marginTop: 14 },
+  dimmed: { opacity: 0.5 },
 });

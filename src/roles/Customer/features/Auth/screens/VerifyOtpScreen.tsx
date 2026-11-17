@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text } from 'react-native';
 
 import AuthLayout from '@/components/AuthLayout';
@@ -10,8 +10,11 @@ import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { validateOtp } from '@/utils/validators';
 import { resendOtp, verifyOtp } from '../api/authApi';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 export default function VerifyOtpScreen({ navigation, route, onLoggedIn }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const next = route?.params?.next;
   const email = route?.params?.email || '';
@@ -30,7 +33,7 @@ export default function VerifyOtpScreen({ navigation, route, onLoggedIn }: any) 
 
   useEffect(() => {
     if (timer <= 0) return;
-    const interval = setInterval(() => setTimer(t => t - 1), 1000);
+    const interval = setInterval(() => setTimer(seconds => seconds - 1), 1000);
     return () => clearInterval(interval);
   }, [timer]);
 
@@ -42,8 +45,8 @@ export default function VerifyOtpScreen({ navigation, route, onLoggedIn }: any) 
       setModal({
         visible: true,
         type: 'success',
-        title: 'OTP Resent',
-        message: `A new verification code was sent to ${email || 'your email'}.`,
+        title: i18n.t('customer.otpResent'),
+        message: i18n.t('customerMsg.otpSentMsg', { email: email || i18n.t('customer.yourEmail') }),
       });
       setTimer(60);
       setOtp('');
@@ -52,8 +55,8 @@ export default function VerifyOtpScreen({ navigation, route, onLoggedIn }: any) 
       setModal({
         visible: true,
         type: 'error',
-        title: 'Resend Failed',
-        message: err.message || 'Could not resend OTP',
+        title: i18n.t('customer.resendFailed'),
+        message: err.message || i18n.t('customer.couldNotResendOtp'),
       });
     } finally {
       setResending(false);
@@ -74,12 +77,12 @@ export default function VerifyOtpScreen({ navigation, route, onLoggedIn }: any) 
         onLoggedIn?.();
       }
     } catch (err: any) {
-      const msg = err.message || 'Invalid or expired OTP';
+      const msg = err.message || i18n.t('customer.invalidOrExpiredOtp');
       setError(msg);
       setModal({
         visible: true,
         type: 'error',
-        title: 'Verification Failed',
+        title: i18n.t('customer.verificationFailed'),
         message: msg,
       });
     } finally {
@@ -87,17 +90,22 @@ export default function VerifyOtpScreen({ navigation, route, onLoggedIn }: any) 
     }
   };
 
-  // Auto-submit once all 6 digits are entered
+  // Auto-submit once all 6 digits are entered. Only a changed code triggers it; the latest
+  // onSubmit and loading flag are read from refs so this never loops.
+  const submitRef = useRef(onSubmit);
+  submitRef.current = onSubmit;
+  const loadingRef = useRef(loading);
+  loadingRef.current = loading;
   useEffect(() => {
-    if (otp.length === 6 && !loading) {
-      onSubmit();
+    if (otp.length === 6 && !loadingRef.current) {
+      submitRef.current();
     }
   }, [otp]);
 
   return (
     <AuthLayout
-      title="Verify OTP"
-      subtitle={`Enter the 6-digit code sent to ${email ? email : 'your email'}`}>
+      title={t('customer.verifyOtp')}
+      subtitle={t('customerMsg.otpSubtitle', { email: email ? email : t('customer.yourEmail') })}>
       <FadeUp delay={150} duration={700}>
         <OtpInput
           length={6}
@@ -112,7 +120,7 @@ export default function VerifyOtpScreen({ navigation, route, onLoggedIn }: any) 
 
       <FadeUp delay={250} duration={700}>
         <Button
-          title="Submit"
+          title={t('customer.submit')}
           size="lg"
           loading={loading}
           onPress={onSubmit}
@@ -129,7 +137,7 @@ export default function VerifyOtpScreen({ navigation, route, onLoggedIn }: any) 
               styles.resendText,
               { color: timer > 0 ? colors.textMuted : colors.primary },
             ]}>
-            {timer > 0 ? `Resend OTP in ${timer}s` : 'Resend OTP'}
+            {timer > 0 ? t('customerMsg.resendIn', { seconds: timer }) : t('customer.resendOtp')}
           </Text>
         </Pressable>
       </FadeUp>

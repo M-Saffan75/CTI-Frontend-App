@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { formatMoney } from '@/utils/money';
 import {
   Image,
   Pressable,
@@ -11,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useIsFocused } from '@react-navigation/native';
 
 import CtiLoader from '@/components/CtiLoader';
 import Icon from '@/components/Icon';
@@ -28,66 +30,33 @@ import {
   tagBold,
   uploadBold,
 } from '@/assets/icons';
-import { ctiLogo, demoProductPhoto } from '@/assets/images';
+import { ctiLogo } from '@/assets/images';
+import ProductThumb from '@/components/ProductThumb';
 import { useTheme } from '@/theme/ThemeContext';
 import { badges } from '@/theme/colors';
 import { fonts } from '@/theme/fonts';
 import {
-  getAllCustomerOrders,
-  getCustomerOrders,
+  getAllCustomerOrdersPage,
+  getCustomerOrdersPage,
   getCustomerReturnsApi,
   cancelCustomerOrder,
   MobileOrder,
 } from '../services/orderApi';
+import { normalizeApiError } from '@/services/apiError';
+import { formatDate } from '@/utils/dateFormat';
+import { subscribeOrderStatus, useOrderStatusChecker } from '../utils/orderLive';
+import useRefreshOnActive from '@/utils/useRefreshOnActive';
+import { upper } from '@/i18n/locale';
+import { useTranslation } from 'react-i18next';
+import { statusLabel } from '@/utils/labels';
+import i18n from '@/i18n';
 
-const money = (n: number) => `$${Number(n || 0).toFixed(2)}`;
+const money = (n: number) => formatMoney(n);
 
 function StatusPill({ label, badge }: { label: string; badge: { bg: string; text: string } }) {
   return (
     <View style={[styles.pill, { backgroundColor: badge.bg }]}>
-      <Text style={[styles.pillText, { color: badge.text }]}>{label}</Text>
-    </View>
-  );
-}
-
-function OrderItemImage({ uri, style }: { uri?: string; style?: any }) {
-  const [loadError, setLoadError] = useState(false);
-  const { colors } = useTheme();
-
-  const hasValidUri = Boolean(
-    !loadError &&
-    uri &&
-    typeof uri === 'string' &&
-    uri.trim().length > 0 &&
-    (uri.startsWith('http://') || uri.startsWith('https://')) &&
-    !uri.includes('via.placeholder.com')
-  );
-
-  return (
-    <View
-      style={[
-        style,
-        {
-          backgroundColor: colors.surfaceAlt,
-          overflow: 'hidden',
-          alignItems: 'center',
-          justifyContent: 'center',
-        },
-      ]}>
-      {hasValidUri ? (
-        <Image
-          source={{ uri }}
-          style={{ width: '100%', height: '100%' }}
-          resizeMode="cover"
-          onError={() => setLoadError(true)}
-        />
-      ) : (
-        <Image
-          source={demoProductPhoto}
-          style={{ width: '100%', height: '100%' }}
-          resizeMode="cover"
-        />
-      )}
+      <Text style={[styles.pillText, { color: badge.text }]}>{upper(statusLabel(label))}</Text>
     </View>
   );
 }
@@ -96,18 +65,21 @@ function OrderCard({
   order,
   index,
   onViewAll,
+  onCancel,
 }: {
   order: MobileOrder;
   index: number;
   onViewAll: () => void;
+  onCancel?: () => void;
 }) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   // The design shows the first card open and the rest collapsed.
   const [open, setOpen] = useState(index === 0);
 
   const getStatusBadge = (status: string) => {
     const s = (status || '').toLowerCase();
-    if (s.includes('deliver') || s.includes('paid') || s.includes('success')) return badges.accepted;
+    if (s.includes('deliver') || s === 'paid' || s.includes('success')) return badges.accepted;
     if (s.includes('cancel') || s.includes('fail')) return badges.dispute;
     if (s.includes('shipp')) return badges.booked;
     return badges.inProgress;
@@ -140,12 +112,12 @@ function OrderCard({
 
       <View style={styles.row}>
         <View style={styles.rowCol}>
-          <Text style={[styles.rowLabel, { color: colors.textMuted }]}>Date</Text>
+          <Text style={[styles.rowLabel, { color: colors.textMuted }]}>{t('customer.date')}</Text>
           <Text style={[styles.rowValue, { color: colors.text }]}>{order.date}</Text>
           <Text style={[styles.rowSub, { color: colors.textMuted }]}>{order.time}</Text>
         </View>
         <View style={[styles.rowCol, styles.rowColEnd]}>
-          <Text style={[styles.rowLabel, { color: colors.textMuted }]}>Item</Text>
+          <Text style={[styles.rowLabel, { color: colors.textMuted }]}>{t('customer.item')}</Text>
           <Text style={[styles.rowValue, { color: colors.text }]}>
             {order.itemCount} {order.itemCount === 1 ? 'item' : 'items'}
           </Text>
@@ -154,47 +126,49 @@ function OrderCard({
 
       <View style={styles.row}>
         <View style={styles.rowCol}>
-          <Text style={[styles.rowLabel, { color: colors.textMuted }]}>Total</Text>
+          <Text style={[styles.rowLabel, { color: colors.textMuted }]}>{t('customer.total')}</Text>
           <Text style={[styles.rowValue, { color: colors.primary, fontFamily: fonts.bold }]}>
             {money(order.total)}
           </Text>
         </View>
         <View style={[styles.rowCol, styles.rowColEnd]}>
-          <Text style={[styles.rowLabel, { color: colors.textMuted }]}>Payment</Text>
+          <Text style={[styles.rowLabel, { color: colors.textMuted }]}>{t('customer.payment')}</Text>
           <Text style={[styles.rowValue, { color: colors.text }]}>{order.paymentStatus}</Text>
         </View>
       </View>
 
       {open && (
         <>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Order Items</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('customer.orderItems')}</Text>
           {(order.items || []).map((item, idx) => {
             const variantStr =
               typeof item.variant === 'string'
                 ? item.variant
                 : typeof item.variant === 'object' && item.variant !== null
-                ? Object.values(item.variant).filter(v => typeof v === 'string' || typeof v === 'number').join(' / ') || 'Standard'
-                : 'Standard';
+                ? Object.values(item.variant).filter(v => typeof v === 'string' || typeof v === 'number').join(' / ')
+                : '';
 
             return (
               <View key={item.id || String(idx)} style={styles.item}>
-                <OrderItemImage uri={item.image} style={styles.itemImage} />
+                <ProductThumb uri={item.image} size={44} radius={8} />
                 <View style={styles.itemText}>
                   <Text style={[styles.itemName, { color: colors.text }]}>
-                    {String(item.name || 'Purchased Item')}
+                    {String(item.name || '')}
                   </Text>
-                  <Text style={[styles.itemVariant, { color: colors.textMuted }]}>
-                    {variantStr}
-                  </Text>
+                  {variantStr ? (
+                    <Text style={[styles.itemVariant, { color: colors.textMuted }]}>
+                      {variantStr}
+                    </Text>
+                  ) : null}
                   <Text style={[styles.itemQty, { color: colors.textMuted }]}>
-                    Qty: {item.qty || 1} · {money(item.price)} each
+                    {t('customerMsg.qtyEach', { qty: item.qty || 1, price: money(item.price) })}
                   </Text>
                 </View>
                 <View style={styles.itemPriceCol}>
                   <Text style={[styles.itemPrice, { color: colors.text }]}>
                     {money((item.price || 0) * (item.qty || 1))}
                   </Text>
-                  <Text style={[styles.rowSub, { color: colors.textMuted }]}>Subtotal</Text>
+                  <Text style={[styles.rowSub, { color: colors.textMuted }]}>{i18n.t('customer.subtotal')}</Text>
                 </View>
               </View>
             );
@@ -203,40 +177,43 @@ function OrderCard({
       )}
 
       <Pressable onPress={onViewAll} hitSlop={6} style={{ marginTop: 8 }}>
-        <Text style={[styles.viewAll, { color: colors.primary }]}>View details & tracking →</Text>
+        <Text style={[styles.viewAll, { color: colors.primary }]}>{t('customer.viewDetailsAndTracking')}</Text>
       </Pressable>
+
+      {onCancel ? (
+        <Button title={t('customer.cancelOrder')} size="sm" variant="outline" onPress={onCancel} style={{ marginTop: 10 }} />
+      ) : null}
     </View>
   );
 }
 
-function ReturnCard({ item, onViewAll }: { item: any; onViewAll: () => void }) {
+function ReturnCard({ item }: { item: any }) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
 
   return (
     <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
       <View style={styles.cardHead}>
-        <Text style={[styles.orderId, { color: colors.text }]}>{String(item.returnId || 'RET-000000')}</Text>
-        <StatusPill label={String(item.status || 'REQUESTED')} badge={badges.inProgress} />
+        <Text style={[styles.orderId, { color: colors.text }]}>{String(item.returnId || '')}</Text>
+        {item.status ? <StatusPill label={String(item.status)} badge={badges.inProgress} /> : null}
       </View>
 
-      <Text style={[styles.itemName, { color: colors.text, marginTop: 6 }]}>
-        {String(item.device || 'Returned Device')}
-      </Text>
+      {item.device ? (
+        <Text style={[styles.itemName, { color: colors.text, marginTop: 6 }]}>{String(item.device)}</Text>
+      ) : null}
 
       <Text style={[styles.returnNote, { color: colors.textMuted }]}>
-        Order: {String(item.orderNo || '')} Amount: ${Number(item.amount || 0).toFixed(2)}
+        {t('customerMsg.returnNote', { orderNo: String(item.orderNo || ''), amount: money(item.amount) })}
         {'\n'}
         {String(item.date || '')} {String(item.note || '')}
       </Text>
 
-      <Pressable onPress={onViewAll} hitSlop={6}>
-        <Text style={[styles.viewAll, { color: colors.primary }]}>View all  →</Text>
-      </Pressable>
     </View>
   );
 }
 
 export default function OrdersScreen({ navigation }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<'orders' | 'returns'>('orders');
@@ -244,9 +221,15 @@ export default function OrdersScreen({ navigation }: any) {
   const [search, setSearch] = useState('');
   const [orders, setOrders] = useState<MobileOrder[]>([]);
   const [returnsList, setReturnsList] = useState<any[]>([]);
+  const [returnsFailed, setReturnsFailed] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [cancellingOrder, setCancellingOrder] = useState<MobileOrder | null>(null);
+  const cancelBusy = useRef(false);
   const [modal, setModal] = useState({
     visible: false,
     type: 'success' as 'success' | 'error',
@@ -254,70 +237,121 @@ export default function OrdersScreen({ navigation }: any) {
     message: '',
   });
 
-  const loadOrders = async (type = orderType) => {
-    try {
+  const requestId = useRef(0);
+
+  const fetchPage = (type: 'all' | 'marketplace' | 'refurbished', pageNo: number, text: string) =>
+    type === 'all'
+      ? getAllCustomerOrdersPage({ page: pageNo, search: text })
+      : getCustomerOrdersPage({ page: pageNo, search: text, isRefurbished: type === 'refurbished' });
+
+  const fetchReturns = async (type: 'all' | 'marketplace' | 'refurbished') => {
+    const lists = await Promise.all([
+      type !== 'refurbished' ? getCustomerReturnsApi(false) : Promise.resolve([]),
+      type !== 'marketplace' ? getCustomerReturnsApi(true) : Promise.resolve([]),
+    ]);
+    return lists.flat();
+  };
+
+  const mapReturn = (ret: any, idx: number) => ({
+    id: ret._id || 'ret-' + idx,
+    returnId: ret._id ? '#' + String(ret._id).slice(-6).toUpperCase() : '',
+    device: ret.items?.[0]?.productId?.title || ret.orderId?.items?.[0]?.productId?.title || '',
+    orderNo: ret.orderId?.orderNo || ret.orderId?.orderId || ret.orderNo || '',
+    amount: Number(ret.refundAmount || ret.amount || 0),
+    date: ret.createdAt ? formatDate(ret.createdAt) : '',
+    note: ret.reason || '',
+    status: ret.returnStatus ? String(ret.returnStatus) : '',
+  });
+
+  const loadOrders = async (type = orderType, silent = false, text = search) => {
+    const myRequest = ++requestId.current;
+    if (!silent) {
       setLoading(true);
-      let ordersData: MobileOrder[] = [];
-      let returnsData: any[] = [];
+      setLoadError('');
+    }
+    // Orders and returns load on their own: a failed returns request does not hide the orders
+    const [ordersResult, returnsResult] = await Promise.allSettled([fetchPage(type, 1, text), fetchReturns(type)]);
+    if (myRequest !== requestId.current) return;
 
-      if (type === 'all') {
-        const [allOrders, retEcom, retRefurb] = await Promise.all([
-          getAllCustomerOrders({ search }),
-          getCustomerReturnsApi(false).catch(() => []),
-          getCustomerReturnsApi(true).catch(() => []),
-        ]);
-        ordersData = allOrders;
-        returnsData = [
-          ...(Array.isArray(retEcom) ? retEcom : []),
-          ...(Array.isArray(retRefurb) ? retRefurb : []),
-        ];
-      } else if (type === 'refurbished') {
-        const [refurb, retRefurb] = await Promise.all([
-          getCustomerOrders({ search, isRefurbished: true }),
-          getCustomerReturnsApi(true).catch(() => []),
-        ]);
-        ordersData = refurb;
-        returnsData = Array.isArray(retRefurb) ? retRefurb : [];
-      } else {
-        const [ecom, retEcom] = await Promise.all([
-          getCustomerOrders({ search, isRefurbished: false }),
-          getCustomerReturnsApi(false).catch(() => []),
-        ]);
-        ordersData = ecom;
-        returnsData = Array.isArray(retEcom) ? retEcom : [];
-      }
+    if (ordersResult.status === 'fulfilled') {
+      setOrders(ordersResult.value.orders);
+      setPage(1);
+      setHasMore(ordersResult.value.pages > 1);
+      setLoadError('');
+    } else if (!silent) {
+      // never show "no orders" when the request failed
+      setOrders([]);
+      setLoadError(normalizeApiError(ordersResult.reason).message);
+    }
 
-      setOrders(ordersData);
+    if (returnsResult.status === 'fulfilled') {
+      setReturnsList(returnsResult.value.map(mapReturn));
+      setReturnsFailed(false);
+    } else if (!silent) {
+      setReturnsFailed(true);
+    }
 
-      if (Array.isArray(returnsData) && returnsData.length > 0) {
-        const mapped = returnsData.map((ret: any, idx: number) => ({
-          id: ret._id || `ret-${idx}`,
-          returnId: `RET-${(ret._id || '000000').slice(-6).toUpperCase()}`,
-          device:
-            ret.items?.[0]?.productId?.title ||
-            ret.orderId?.items?.[0]?.productId?.title ||
-            'Returned Device',
-          orderNo: ret.orderId?.orderNo || ret.orderId?.orderId || ret.orderNo || 'TRB-Order',
-          amount: Number(ret.refundAmount || ret.amount || 0),
-          date: ret.createdAt ? new Date(ret.createdAt).toLocaleDateString() : 'Recent',
-          note: ret.reason || 'Return request under processing',
-          status: (ret.returnStatus || 'Requested').toUpperCase(),
-        }));
-        setReturnsList(mapped);
-      } else {
-        setReturnsList([]);
-      }
-    } catch (err: any) {
-      console.warn('Failed to load customer orders:', err);
+    setLoading(false);
+    setRefreshing(false);
+    markLoaded();
+  };
+
+  const loadMore = async () => {
+    if (loadingMore || loading || !hasMore) return;
+    const myRequest = requestId.current;
+    setLoadingMore(true);
+    try {
+      const next = await fetchPage(orderType, page + 1, search);
+      if (myRequest !== requestId.current) return;
+      setOrders(prev => {
+        const seen = new Set(prev.map(o => o.id));
+        return [...prev, ...next.orders.filter(o => !seen.has(o.id))];
+      });
+      setPage(page + 1);
+      setHasMore(page + 1 < next.pages);
+    } catch (err) {
+      setModal({ visible: true, type: 'error', title: i18n.t('customer.couldNotLoadMoreOrders'), message: normalizeApiError(err).message });
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      setLoadingMore(false);
     }
   };
 
   useEffect(() => {
     loadOrders();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Search runs on the server (order number or order id); typing waits a moment
+  const firstSearch = useRef(true);
+  useEffect(() => {
+    if (firstSearch.current) {
+      firstSearch.current = false;
+      return;
+    }
+    const timer = setTimeout(() => loadOrders(orderType, false, search), 450);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
+
+  // A seller changed an order: reload quietly now if this screen is open, or when it comes back into view
+  const isFocused = useIsFocused();
+  const reloadQuietly = () => {
+    loadOrders(orderType, true);
+  };
+  const reloadRef = useRef(reloadQuietly);
+  const focusedRef = useRef(isFocused);
+  reloadRef.current = reloadQuietly;
+  focusedRef.current = isFocused;
+  const orderStatusChanged = useOrderStatusChecker();
+  const markLoaded = useRefreshOnActive(isFocused, reloadQuietly, orderStatusChanged);
+
+  useEffect(
+    () =>
+      subscribeOrderStatus(() => {
+        if (focusedRef.current && orderStatusChanged()) reloadRef.current();
+      }),
+    [orderStatusChanged],
+  );
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -336,35 +370,36 @@ export default function OrdersScreen({ navigation }: any) {
   });
 
   const goToDetail = (order: MobileOrder) => {
-    const isRefurbished =
-      order.orderNo?.startsWith('REF-') ||
-      order.orderId?.startsWith('REF-') ||
-      order.orderNo?.includes('REF-') ||
-      order.orderId?.includes('REF-');
-    navigation.navigate('OrderDetail', { orderId: order.id, isRefurbished, order });
+    navigation.navigate('OrderDetail', { orderId: order.id, isRefurbished: order.isRefurbished, order });
   };
 
+  // The backend only cancels orders that are still pending
+  const isPending = (order: MobileOrder) => String(order.statusTag).toLowerCase() === 'pending';
+
   const handleCancelOrder = async () => {
-    if (!cancellingOrder) return;
+    const target = cancellingOrder;
+    if (!target || cancelBusy.current) return;
+    cancelBusy.current = true;
+    setCancellingOrder(null);
     try {
-      const isRefurbished = cancellingOrder.orderNo?.startsWith('REF-');
-      await cancelCustomerOrder(cancellingOrder.id, isRefurbished);
-      setCancellingOrder(null);
+      const res = await cancelCustomerOrder(target.id, target.isRefurbished);
       setModal({
         visible: true,
         type: 'success',
-        title: 'Order Cancelled',
-        message: 'Your order cancellation request was processed successfully.',
+        title: i18n.t('customer.orderCancelled'),
+        message: res.message || i18n.t('customer.yourOrderWasCancelled'),
       });
-      loadOrders();
+      loadOrders(orderType, true);
     } catch (err: any) {
-      setCancellingOrder(null);
       setModal({
         visible: true,
         type: 'error',
-        title: 'Cancel Failed',
-        message: err.message || 'Could not cancel this order.',
+        title: i18n.t('customer.cancelFailed'),
+        message: normalizeApiError(err).message,
       });
+      loadOrders(orderType, true);
+    } finally {
+      cancelBusy.current = false;
     }
   };
 
@@ -389,25 +424,25 @@ export default function OrdersScreen({ navigation }: any) {
           </View>
         </Squeeze>
 
-        <Text style={[styles.title, { color: colors.text }]}>My Orders</Text>
+        <Text style={[styles.title, { color: colors.text }]}>{t('settings.menu.myOrders')}</Text>
         <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-          Track and manage all your purchases
+          {t('customer.trackAndManageAllYour')}
         </Text>
 
         {/* Purchase Type Filter (All / Marketplace / Refurbished Store matching Next.js) */}
         <View style={styles.orderTypeRow}>
           {[
-            { key: 'all', label: 'All Orders' },
-            { key: 'marketplace', label: 'Marketplace' },
-            { key: 'refurbished', label: 'Refurbished Store' },
-          ].map(t => {
-            const isActive = orderType === t.key;
+            { key: 'all', label: t('customer.allOrders') },
+            { key: 'marketplace', label: t('customer.marketplace') },
+            { key: 'refurbished', label: t('customer.refurbishedStore') },
+          ].map(option => {
+            const isActive = orderType === option.key;
             return (
               <TouchableOpacity
-                key={t.key}
+                key={option.key}
                 onPress={() => {
-                  setOrderType(t.key as any);
-                  loadOrders(t.key as any);
+                  setOrderType(option.key as any);
+                  loadOrders(option.key as any, false, search);
                 }}
                 style={[
                   styles.orderTypePill,
@@ -424,7 +459,7 @@ export default function OrdersScreen({ navigation }: any) {
                       fontFamily: isActive ? fonts.bold : fonts.medium,
                     },
                   ]}>
-                  {t.label}
+                  {option.label}
                 </Text>
               </TouchableOpacity>
             );
@@ -442,7 +477,7 @@ export default function OrdersScreen({ navigation }: any) {
                 },
               ]}>
               <Icon source={packageBold} size={16} color={colors.text} />
-              <Text style={[styles.segmentText, { color: colors.text }]}>My Orders</Text>
+              <Text style={[styles.segmentText, { color: colors.text }]}>{t('settings.menu.myOrders')}</Text>
             </View>
           </Squeeze>
 
@@ -456,7 +491,7 @@ export default function OrdersScreen({ navigation }: any) {
                 },
               ]}>
               <Icon source={uploadBold} size={16} color={colors.text} />
-              <Text style={[styles.segmentText, { color: colors.text }]}>My Returns</Text>
+              <Text style={[styles.segmentText, { color: colors.text }]}>{t('customer.myReturns')}</Text>
             </View>
           </Squeeze>
         </View>
@@ -466,7 +501,7 @@ export default function OrdersScreen({ navigation }: any) {
           <TextInput
             value={search}
             onChangeText={setSearch}
-            placeholder="Search order or product"
+            placeholder={t('customer.searchOrderOrProduct')}
             placeholderTextColor={colors.textMuted}
             style={[styles.searchInput, { color: colors.text }]}
           />
@@ -475,52 +510,81 @@ export default function OrdersScreen({ navigation }: any) {
         {loading ? (
           <CtiLoader
             size="md"
-            text="Loading your orders..."
+            text={t('customer.loadingYourOrders')}
             style={styles.loaderWrap}
           />
+        ) : tab === 'orders' && loadError ? (
+          <View style={styles.emptyWrap}>
+            <Icon source={packageBold} size={42} color={colors.textMuted} />
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>{t('customer.couldNotLoadYourOrders')}</Text>
+            <Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>{loadError}</Text>
+            <Button title={t('customer.tryAgain')} size="sm" onPress={() => loadOrders()} style={{ marginTop: 12 }} />
+          </View>
         ) : tab === 'orders' ? (
           filteredOrders.length === 0 ? (
             <View style={styles.emptyWrap}>
               <Icon source={packageBold} size={42} color={colors.textMuted} />
-              <Text style={[styles.emptyTitle, { color: colors.text }]}>No Orders Found</Text>
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>{t('customer.noOrdersFound')}</Text>
               <Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>
-                {search ? 'No orders match your search filter.' : 'You have not placed any orders yet.'}
+                {search ? t('customer.noOrdersMatchYourSearch') : t('customer.youHaveNotPlacedAny')}
               </Text>
             </View>
           ) : (
             filteredOrders.map((order, index) => (
               <FadeUp key={order.id} delay={60 + index * 50} duration={400} style={styles.cardWrap}>
-                <OrderCard order={order} index={index} onViewAll={() => goToDetail(order)} />
+                <OrderCard
+                  order={order}
+                  index={index}
+                  onViewAll={() => goToDetail(order)}
+                  onCancel={isPending(order) ? () => setCancellingOrder(order) : undefined}
+                />
               </FadeUp>
             ))
           )
+        ) : returnsFailed ? (
+          <View style={styles.emptyWrap}>
+            <Icon source={packageBold} size={42} color={colors.textMuted} />
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>{t('customer.couldNotLoadYourReturns')}</Text>
+            <Button title={t('customer.tryAgain')} size="sm" onPress={() => loadOrders()} style={{ marginTop: 12 }} />
+          </View>
         ) : returnsList.length === 0 ? (
           <View style={styles.emptyWrap}>
             <Icon source={packageBold} size={42} color={colors.textMuted} />
-            <Text style={[styles.emptyTitle, { color: colors.text }]}>No Return Requests</Text>
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>{t('customer.noReturnRequests')}</Text>
             <Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>
-              You have not submitted any return requests yet.
+              {t('customer.youHaveNotSubmittedAny')}
             </Text>
           </View>
         ) : (
           returnsList.map((item, index) => (
             <FadeUp key={item.id} delay={60 + index * 50} duration={400} style={styles.cardWrap}>
-              <ReturnCard item={item} onViewAll={() => {}} />
+              <ReturnCard item={item} />
             </FadeUp>
           ))
         )}
 
-        {tab === 'orders' && latestOrder && (
+        {tab === 'orders' && hasMore && !loadError && filteredOrders.length > 0 ? (
+          <Button
+            title={t('customer.loadMoreOrders')}
+            variant="soft"
+            size="sm"
+            loading={loadingMore}
+            onPress={loadMore}
+            style={{ marginTop: 14 }}
+          />
+        ) : null}
+
+        {tab === 'orders' && latestOrder && !loadError && (
           <FadeUp delay={100} duration={500} style={styles.cardWrap}>
             <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <View style={styles.summaryHead}>
                 <Icon source={mapPinBold} size={16} color={colors.text} />
                 <Text style={[styles.sectionTitle, { color: colors.text, marginTop: 0 }]}>
-                  Shipping Address
+                  {t('customer.shippingAddress')}
                 </Text>
               </View>
               <Text style={[styles.text, { color: colors.textMuted }]}>
-                {latestOrder.shippingAddress || 'No shipping address provided'}
+                {latestOrder.shippingAddress || '-'}
               </Text>
 
               <View style={[styles.divider, { backgroundColor: colors.border }]} />
@@ -528,18 +592,18 @@ export default function OrdersScreen({ navigation }: any) {
               <View style={styles.summaryHead}>
                 <Icon source={tagBold} size={16} color={colors.text} />
                 <Text style={[styles.sectionTitle, { color: colors.text, marginTop: 0 }]}>
-                  Recent Order Summary
+                  {t('customer.recentOrderSummary')}
                 </Text>
               </View>
               <View style={styles.row}>
-                <Text style={[styles.text, { color: colors.textMuted, marginTop: 0 }]}>Subtotal</Text>
+                <Text style={[styles.text, { color: colors.textMuted, marginTop: 0 }]}>{t('customer.subtotal')}</Text>
                 <Text style={[styles.text, { color: colors.text, marginTop: 0 }]}>
                   {money(latestOrder.subtotal || latestOrder.total)}
                 </Text>
               </View>
               <View style={[styles.divider, { backgroundColor: colors.border }]} />
               <View style={styles.row}>
-                <Text style={[styles.rowValue, { color: colors.text }]}>Total</Text>
+                <Text style={[styles.rowValue, { color: colors.text }]}>{t('customer.total')}</Text>
                 <Text style={[styles.rowValue, { color: colors.primary, fontFamily: fonts.bold }]}>
                   {money(latestOrder.total)}
                 </Text>
@@ -547,14 +611,7 @@ export default function OrdersScreen({ navigation }: any) {
 
               <View style={styles.summaryActions}>
                 <Button
-                  title="Cancel Order"
-                  size="sm"
-                  variant="outline"
-                  onPress={() => setCancellingOrder(latestOrder)}
-                  style={styles.summaryAction}
-                />
-                <Button
-                  title="Returns"
+                  title={t('customer.returns')}
                   variant="soft"
                   color={colors.error}
                   size="sm"
@@ -569,10 +626,10 @@ export default function OrdersScreen({ navigation }: any) {
 
       <ConfirmModal
         visible={Boolean(cancellingOrder)}
-        title="Cancel Order"
-        message={`Are you sure you want to cancel order ${cancellingOrder?.orderNo || ''}?`}
-        cancelText="Not now"
-        confirmText="Yes, Cancel Order"
+        title={t('customer.cancelOrder')}
+        message={t('customerMsg.cancelOrderConfirm', { orderNo: cancellingOrder?.orderNo || '' })}
+        cancelText={t('settings.notNow')}
+        confirmText={t('customer.yesCancelOrder')}
         danger
         onCancel={() => setCancellingOrder(null)}
         onConfirm={handleCancelOrder}
@@ -632,7 +689,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingVertical: 12,
   },
-  segmentText: { fontFamily: fonts.medium, fontSize: 13 },
+  segmentText: { flexShrink: 1, fontFamily: fonts.medium, fontSize: 13 },
 
   search: {
     flexDirection: 'row',
@@ -678,15 +735,14 @@ const styles = StyleSheet.create({
   rowCol: { gap: 3 },
   rowColEnd: { alignItems: 'flex-end' },
   rowLabel: { fontFamily: fonts.regular, fontSize: 11 },
-  rowValue: { fontFamily: fonts.bold, fontSize: 13 },
+  rowValue: { flexShrink: 1, fontFamily: fonts.bold, fontSize: 13 },
   rowSub: { fontFamily: fonts.regular, fontSize: 11 },
 
-  sectionTitle: { fontFamily: fonts.bold, fontSize: 14, marginTop: 16 },
+  sectionTitle: { flexShrink: 1, fontFamily: fonts.bold, fontSize: 14, marginTop: 16 },
   summaryHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
-  text: { fontFamily: fonts.regular, fontSize: 13, marginTop: 8 },
+  text: { flexShrink: 1, fontFamily: fonts.regular, fontSize: 13, marginTop: 8 },
 
   item: { flexDirection: 'row', gap: 10, marginTop: 12 },
-  itemImage: { width: 44, height: 44, borderRadius: 8 },
   itemText: { flex: 1, gap: 2 },
   itemName: { fontFamily: fonts.bold, fontSize: 13 },
   itemVariant: { fontFamily: fonts.regular, fontSize: 11, lineHeight: 15 },

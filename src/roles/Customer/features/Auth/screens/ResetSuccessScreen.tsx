@@ -8,8 +8,10 @@ import { checkCircleFilled } from '@/assets/icons';
 import { splashByTheme } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import { useTranslation } from 'react-i18next';
 
 export default function ResetSuccessScreen({ navigation }) {
+  const { t } = useTranslation();
   const { colors, themeName } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -35,15 +37,15 @@ export default function ResetSuccessScreen({ navigation }) {
 
         <FadeUp delay={200} duration={700}>
           <Text style={[styles.title, { color: colors.text }]}>
-            Password Updated Successfully
+            {t('customer.passwordUpdatedSuccessfully')}
           </Text>
           <Text style={[styles.text, { color: colors.textMuted }]}>
-            Your password has been changed successfully
+            {t('customer.yourPasswordHasBeenChanged')}
           </Text>
         </FadeUp>
 
         <FadeUp delay={320} duration={700} style={styles.buttonWrap}>
-          <Button title="Back to  home" size="lg" onPress={goHome} />
+          <Button title={t('customer.backToHome2')} size="lg" onPress={goHome} />
         </FadeUp>
       </View>
     </ImageBackground>

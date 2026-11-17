@@ -53,6 +53,8 @@ export async function triggerCleanLogout(): Promise<void> {
       AsyncStorage.removeItem('auth'),
       AsyncStorage.removeItem('token'),
       AsyncStorage.removeItem('refreshToken'),
+      // the saved wishlist belongs to the person who logged out
+      AsyncStorage.removeItem('customer_wishlist'),
     ]).catch(() => {});
 
     // 6. Notify app listeners (RootNavigator state update)

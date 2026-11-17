@@ -1,11 +1,14 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { formatMoney } from '@/utils/money';
 import { Image, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
 import Button from '@/components/Button';
+import AuthService from '@/services/authService';
 import Squeeze from '@/components/Squeeze';
 import CtiLoader from '@/components/CtiLoader';
+import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import { arrowLeftBold, heartExtra, heartFilled, menuBold, shoppingCartExtra } from '@/assets/icons';
 import { ctiLogo, demoProductPhoto } from '@/assets/images';
@@ -14,8 +17,12 @@ import { fonts } from '@/theme/fonts';
 import { useWishlist } from '../../../context/WishlistContext';
 import { useCart } from '../../../context/CartContext';
 import { resolveImageSource } from '../services/ecomApi';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
+import { upper } from '@/i18n/locale';
 
 function WishlistCard({ product, navigation, onRemove }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
 
   const productId = String(product.id || product._id || '');
@@ -59,20 +66,20 @@ function WishlistCard({ product, navigation, onRemove }: any) {
       <View style={styles.cardBody}>
         {product.isRefurbished && (
           <View style={{ backgroundColor: '#FEF3C7', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, alignSelf: 'flex-start', marginBottom: 4 }}>
-            <Text style={{ fontFamily: fonts.bold, fontSize: 9, color: '#92400E', textTransform: 'uppercase' }}>Refurbished</Text>
+            <Text style={{ fontFamily: fonts.bold, fontSize: 9, color: '#92400E' }}>{upper(t('glossary.refurbished'))}</Text>
           </View>
         )}
         <Text style={[styles.brand, { color: colors.textMuted }]} numberOfLines={1}>
-          {typeof product.brand === 'string' ? product.brand : (product.brand as any)?.title || (product.brand as any)?.name || 'CTI Store'}
+          {typeof product.brand === 'string' ? product.brand : (product.brand as any)?.title || (product.brand as any)?.name || t('customer.ctiStore')}
         </Text>
         <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={1}>
-          {typeof product.title === 'string' ? product.title : (product.title as any)?.title || (product.title as any)?.name || 'Product'}
+          {typeof product.title === 'string' ? product.title : (product.title as any)?.title || (product.title as any)?.name || t('tabs.product')}
         </Text>
         <Text style={[styles.description, { color: colors.textMuted }]} numberOfLines={2}>
           {typeof product.description === 'string' ? product.description : ''}
         </Text>
         <Text style={[styles.reviews, { color: colors.textMuted }]}>
-          {product.reviewCount ? `${product.reviewCount} Reviews` : 'No Reviews'}
+          {product.reviewCount ? t(product.reviewCount === 1 ? 'customerMsg.reviewsOne' : 'customerMsg.reviewsMany', { count: product.reviewCount }) : t('customer.noReviews')}
         </Text>
 
         <View style={styles.priceRow}>
@@ -81,10 +88,10 @@ function WishlistCard({ product, navigation, onRemove }: any) {
               <Text style={styles.discountText}>-{discountPercent}%</Text>
             </View>
           )}
-          <Text style={[styles.price, { color: colors.text }]}>${price.toFixed(2)}</Text>
+          <Text style={[styles.price, { color: colors.text }]}>{formatMoney(price)}</Text>
           {originalPrice > price && (
             <Text style={[styles.originalPrice, { color: colors.textMuted }]}>
-              ${originalPrice.toFixed(2)}
+              {formatMoney(originalPrice)}
             </Text>
           )}
         </View>
@@ -94,11 +101,26 @@ function WishlistCard({ product, navigation, onRemove }: any) {
 }
 
 export default function WishlistScreen({ navigation }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { ids, items: contextItems, loading: wishlistLoading, toggle, refreshWishlist } = useWishlist();
   const { cartCount } = useCart();
   const [refreshing, setRefreshing] = useState(false);
+  const [notice, setNotice] = useState<{ type: AlertModalType; message: string } | null>(null);
+
+  // Web: the wishlist page fetches the lists every time it opens
+  useEffect(() => {
+    refreshWishlist();
+  }, [refreshWishlist]);
+
+  const handleRemove = async (product: any) => {
+    try {
+      await toggle(product);
+    } catch {
+      setNotice({ type: 'error', message: i18n.t('customer.failedToRemoveItem') });
+    }
+  };
 
   // Live items only from backend context - strictly no mock PRODUCTS
   const items = (contextItems || []).filter((product: any) =>
@@ -160,35 +182,36 @@ export default function WishlistScreen({ navigation }: any) {
         <View style={styles.titleRow}>
           <Icon source={heartFilled} size={22} color={colors.error} />
           <Text style={[styles.title, { color: colors.text }]}>
-            My Wishlist <Text style={{ color: colors.textMuted }}>({items.length} items)</Text>
+            {t('customerMsg.myWishlist')}{' '}
+            <Text style={{ color: colors.textMuted }}>
+              {t(items.length === 1 ? 'customerMsg.itemsOne' : 'customerMsg.itemsMany', { count: items.length })}
+            </Text>
           </Text>
         </View>
         <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-          Items you love, saved for later
+          {t('customer.itemsYouLoveSavedFor')}
         </Text>
 
         {wishlistLoading && !refreshing && items.length === 0 ? (
           <CtiLoader
             size="md"
-            text="Loading your wishlist..."
+            text={t('customer.loadingYourWishlist')}
             style={{ paddingVertical: 50 }}
           />
         ) : items.length === 0 ? (
           <View style={{ alignItems: 'center', paddingVertical: 45, gap: 14 }}>
             <Icon source={heartExtra} size={48} color={colors.textMuted} />
             <Text style={[styles.empty, { color: colors.textMuted, marginTop: 0 }]}>
-              Nothing here yet — tap the heart on a product to save it.
+              {t('customer.nothingHereYetTapThe')}
             </Text>
             <Button
-              title="Explore Products"
+              title={t('customer.exploreProducts')}
               size="sm"
-              onPress={() => {
-                try {
-                  navigation.navigate('Home', { screen: 'ProductTab' });
-                } catch {
-                  navigation.navigate('ProductTab');
-                }
-              }}
+              onPress={() =>
+                AuthService.getCachedRole() === 'customer'
+                  ? navigation.navigate('Home', { screen: 'ProductTab' })
+                  : navigation.navigate('Products')
+              }
               style={{ marginTop: 6 }}
             />
           </View>
@@ -203,7 +226,7 @@ export default function WishlistScreen({ navigation }: any) {
                 <WishlistCard
                   product={product}
                   navigation={navigation}
-                  onRemove={() => toggle(product)}
+                  onRemove={() => handleRemove(product)}
                 />
               </FadeUp>
             ))}
@@ -211,7 +234,7 @@ export default function WishlistScreen({ navigation }: any) {
         )}
 
         <Button
-          title="Continue Shopping"
+          title={t('customer.continueShopping')}
           variant="soft"
           icon={arrowLeftBold}
           iconPosition="left"
@@ -219,6 +242,14 @@ export default function WishlistScreen({ navigation }: any) {
           style={styles.continueButton}
         />
       </ScrollView>
+
+      <AlertModal
+        visible={Boolean(notice)}
+        type={notice?.type}
+        title={t('glossary.wishlist')}
+        message={notice?.message}
+        onClose={() => setNotice(null)}
+      />
     </View>
   );
 }
@@ -252,7 +283,7 @@ const styles = StyleSheet.create({
   back: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
 
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 16 },
-  title: { fontFamily: fonts.bold, fontSize: 24 },
+  title: { flexShrink: 1, fontFamily: fonts.bold, fontSize: 24 },
   subtitle: { fontFamily: fonts.regular, fontSize: 13, marginTop: 4 },
   empty: { fontFamily: fonts.regular, fontSize: 14, marginTop: 40, textAlign: 'center' },
 

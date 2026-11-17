@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { formatMoney } from '@/utils/money';
 import {
   ActivityIndicator,
   Dimensions,
@@ -6,7 +7,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -17,33 +17,28 @@ import Squeeze from '@/components/Squeeze';
 import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import {
   arrowLeftBold,
-  cameraBold,
   checkCircleFilled,
-  commentDotsBold,
   filterBold,
   heartExtra,
   heartFilled,
   menuBold,
   packageBold,
-  returnOfInvestmentIcon,
-  shieldBold,
-  shieldIcon,
   shoppingBasketBold,
+  shieldIcon,
   shoppingCartExtra,
   starExtra,
   starFilled,
-  videoBold,
 } from '@/assets/icons';
 import { demoProductPhoto } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
-import AskPlatformModal from '../components/AskPlatformModal';
+import { normalizeApiError } from '@/services/apiError';
+import PlatformGuarantees from '@/components/PlatformGuarantees';
+import GradeExplained from '../components/GradeExplained';
+import { detectDeviceType } from '../data/gradeData';
 import RefurbishedFilterModal from '../components/RefurbishedFilterModal';
 import CtiLoader from '@/components/CtiLoader';
-import {
-  GRADE_EXPLANATIONS,
-  RefurbishedProduct,
-} from '../data/refurbishedData';
+import { RefurbishedProduct } from '../data/refurbishedData';
 import {
   getRefurbishedProductDetail,
   getRelatedRefurbishedProducts,
@@ -51,17 +46,13 @@ import {
 } from '../services/refurbishedApi';
 import { useWishlist } from '@/roles/Customer/context/WishlistContext';
 import { useCart } from '@/roles/Customer/context/CartContext';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-const GRADE_TABS: Array<'Superb' | 'Good' | 'Fair' | 'Best Value'> = [
-  'Superb',
-  'Good',
-  'Fair',
-  'Best Value',
-];
-
 export default function RefurbishedProductDetailScreen({ navigation, route }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -76,39 +67,44 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
   const [product, setProduct] = useState<RefurbishedProduct | null>(passedProduct || null);
   const [loading, setLoading] = useState<boolean>(!passedProduct && !!lookupKey);
   const [relatedProducts, setRelatedProducts] = useState<RefurbishedProduct[]>([]);
+  const [loadError, setLoadError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
 
   // Sync state whenever route params change
   useEffect(() => {
     if (passedProduct) {
       setProduct(passedProduct);
       setQuantity(1);
-      if (passedProduct.grade) {
-        setSelectedGrade(passedProduct.grade as any);
-      }
     }
   }, [passedProduct, lookupKey]);
 
+  // The live fetch runs once per product key; whether a product is already on screen is read from a ref
+  const hasProductRef = useRef(false);
+  hasProductRef.current = Boolean(passedProduct || product);
+
   useEffect(() => {
     if (lookupKey) {
-      if (!passedProduct && !product) setLoading(true);
+      if (!hasProductRef.current) setLoading(true);
+      setLoadError('');
       getRefurbishedProductDetail(lookupKey)
         .then(live => {
           if (live) {
             setProduct(live);
-          } else if (!passedProduct && !product) {
+          } else if (!hasProductRef.current) {
             setProduct(null);
           }
         })
-        .catch(() => {
-          if (!passedProduct && !product) {
+        .catch(err => {
+          if (!hasProductRef.current) {
             setProduct(null);
+            setLoadError(normalizeApiError(err).message);
           }
         })
         .finally(() => {
           setLoading(false);
         });
     }
-  }, [lookupKey]);
+  }, [lookupKey, reloadKey]);
 
   const productId = product?.id;
   useEffect(() => {
@@ -125,10 +121,6 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
 
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [quantity, setQuantity] = useState(1);
-  const [selectedGrade, setSelectedGrade] = useState<'Superb' | 'Good' | 'Fair' | 'Best Value'>(
-    product?.grade || 'Superb',
-  );
-  const [askModalVisible, setAskModalVisible] = useState(false);
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [isWished, setIsWished] = useState(false);
   const [wishlistLoading, setWishlistLoading] = useState(false);
@@ -170,34 +162,16 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
     selectedVariant?.sellingPrice ||
     selectedVariant?.price ||
     product?.originalPrice ||
-    Math.round(displayPrice * 1.25),
+    0,
   );
 
   const displayStock = Number(
     selectedVariant?.stock ??
     product?.inStockCount ??
-    5,
+    0,
   );
-
-  // Review Form states
-  const [userRating, setUserRating] = useState(5);
-  const [reviewText, setReviewText] = useState('');
-  const [reviewsList, setReviewsList] = useState([
-    {
-      id: 'r-1',
-      name: 'James Walker',
-      rating: 5,
-      comment:
-        'The whole process was smooth and easy. I found the right device quickly, and everything was exactly as described',
-    },
-    {
-      id: 'r-2',
-      name: 'Sophie Turner',
-      rating: 5,
-      comment:
-        'Great platform with clear product details and fair pricing. The buying experience felt simple and trustworthy.',
-    },
-  ]);
+  const reviewCount = Number(product?.reviewsCount || 0);
+  const averageRating = Number(product?.rating || 0);
 
   const [modal, setModal] = useState<{
     visible: boolean;
@@ -211,76 +185,50 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
     message: '',
   });
 
-  const handleAddReview = () => {
-    if (!reviewText.trim()) return;
-    const newRev = {
-      id: `r-${Date.now()}`,
-      name: 'You (Verified Buyer)',
-      rating: userRating,
-      comment: reviewText.trim(),
-    };
-    setReviewsList([newRev, ...reviewsList]);
-    setReviewText('');
-    setModal({
-      visible: true,
-      type: 'success',
-      title: 'Review Submitted',
-      message: 'Thank you for reviewing this refurbished product!',
-    });
-  };
-
   const handleAddToCart = async () => {
     if (!product) return;
     const pId = product.rawId || product.id;
     const vId = selectedVariant?._id ? String(selectedVariant._id) : (selectedVariantId || product.defaultVariantId);
     setAddingToCart(true);
     try {
-      const res = await addRefurbishedCartItem(pId, vId || undefined, quantity, product);
+      const res = await addRefurbishedCartItem(pId, vId || undefined, quantity);
       if (res.success) {
         await refreshCart();
         setModal({
           visible: true,
           type: 'success',
-          title: 'Added to Cart',
-          message: `${product.name} (Qty: ${quantity}) has been added to your cart.`,
+          title: i18n.t('customer.addedToCart'),
+          message: i18n.t('customerMsg.addedToCartMsg', { name: product.name, qty: quantity }),
         });
       } else {
         setModal({
           visible: true,
           type: 'error',
-          title: 'Error',
-          message: res.message || 'Could not add to cart.',
+          title: i18n.t('common.error'),
+          message: res.message || i18n.t('customer.couldNotAddToCart'),
         });
       }
     } catch (err: any) {
       setModal({
         visible: true,
         type: 'error',
-        title: 'Error',
-        message: err?.message || 'Could not add to cart.',
+        title: i18n.t('common.error'),
+        message: err?.message || i18n.t('customer.couldNotAddToCart'),
       });
     } finally {
       setAddingToCart(false);
     }
   };
 
+  // The heart flips at once and goes back if the request fails. The button is disabled while it runs.
   const handleToggleWishlist = async () => {
-    if (!product) return;
+    if (!product || wishlistLoading) return;
     setWishlistLoading(true);
+    const vId = selectedVariantId || product.defaultVariantId;
     try {
-      const vId = selectedVariantId || product.defaultVariantId;
-      const nextWished = await toggleWishlistContext(product, vId);
-      setIsWished(nextWished);
-      setModal({
-        visible: true,
-        type: 'success',
-        title: nextWished ? 'Added to Wishlist' : 'Removed from Wishlist',
-        message: nextWished
-          ? `${product.name} has been added to your wishlist!`
-          : `${product.name} has been removed from your wishlist.`,
-      });
+      await toggleWishlistContext(product, vId);
     } catch {
-      // Revert if error
+      // The context already put the heart back
     } finally {
       setWishlistLoading(false);
     }
@@ -299,7 +247,7 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
           id: pId || 'refurb-item',
           productId: pId,
           variantId: vId,
-          title: product?.name || 'Refurbished Device',
+          title: product?.name || '',
           price: displayPrice,
           quantity,
           image: product?.image,
@@ -313,11 +261,6 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
       handleAddToCart();
     }
   };
-
-  const gradeInfo =
-    GRADE_EXPLANATIONS?.[selectedGrade] ||
-    GRADE_EXPLANATIONS?.['Superb'] ||
-    ({} as (typeof GRADE_EXPLANATIONS)['Superb']);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -334,7 +277,7 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
         <Squeeze
           onPress={() => navigation.goBack()}
           style={[styles.backBtn, { backgroundColor: colors.primary }]}>
-          <Icon source={arrowLeftBold} size={18} color="#FFFFFF" />
+          <Icon source={arrowLeftBold} size={18} color={colors.onPrimary} />
         </Squeeze>
 
         <View style={{ flex: 1, paddingHorizontal: 12 }}>
@@ -345,7 +288,7 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
               color: colors.text,
             }}
             numberOfLines={1}>
-            {product?.name || 'Device Details'}
+            {product?.name || t('customer.deviceDetails')}
           </Text>
         </View>
 
@@ -409,19 +352,24 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
 
       {loading ? (
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <CtiLoader size="lg" text="Loading refurbished product..." />
+          <CtiLoader size="lg" text={t('customer.loadingRefurbishedProduct')} />
         </View>
       ) : !product ? (
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
           <Icon source={packageBold} size={54} color={colors.textMuted} />
           <Text style={{ fontFamily: fonts.bold, fontSize: 18, color: colors.text, marginTop: 16 }}>
-            Product Not Found
+            {loadError ? t('customer.couldNotLoadTheProduct') : t('customer.productNotFound')}
           </Text>
           <Text style={{ fontFamily: fonts.regular, fontSize: 14, color: colors.textMuted, marginTop: 8, textAlign: 'center' }}>
-            The requested refurbished device is not available.
+            {loadError || t('customer.theRequestedRefurbishedDeviceIs')}
           </Text>
+          {loadError ? (
+            <Squeeze onPress={() => setReloadKey(k => k + 1)} style={{ marginTop: 24, paddingHorizontal: 24, paddingVertical: 12, backgroundColor: colors.primary, borderRadius: 12 }}>
+              <Text style={{ color: colors.onPrimary, fontFamily: fonts.bold }}>{t('customer.tryAgain')}</Text>
+            </Squeeze>
+          ) : null}
           <Squeeze onPress={() => navigation.goBack()} style={{ marginTop: 24, paddingHorizontal: 24, paddingVertical: 12, backgroundColor: colors.primary, borderRadius: 12 }}>
-            <Text style={{ color: '#fff', fontFamily: fonts.bold }}>Go Back</Text>
+            <Text style={{ color: '#fff', fontFamily: fonts.bold }}>{t('customer.goBack')}</Text>
           </Squeeze>
         </View>
       ) : (
@@ -436,7 +384,7 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
           ]}>
           {/* Top right Refurbished badge */}
           <View style={[styles.refurbishedPill, { backgroundColor: colors.primary }]}>
-            <Text style={styles.refurbishedPillText}>Refurbished</Text>
+            <Text style={styles.refurbishedPillText}>{t('glossary.refurbished')}</Text>
           </View>
 
           {/* Bottom left red ribbon */}
@@ -525,7 +473,7 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
           {variants.length > 1 && (
             <View style={styles.variantsSection}>
               <Text style={[styles.variantSectionTitle, { color: colors.text }]}>
-                Select Variant:
+                {t('customer.selectVariant')}
               </Text>
               <ScrollView
                 horizontal
@@ -564,7 +512,7 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
                             styles.variantStockText,
                             { color: v.stock > 0 ? '#059669' : '#EF4444' },
                           ]}>
-                          {v.stock > 0 ? `${v.stock} in stock` : 'Out of stock'}
+                          {v.stock > 0 ? i18n.t('customerMsg.inStockCount', { count: v.stock }) : i18n.t('customer.outOfStock')}
                         </Text>
                       )}
                     </TouchableOpacity>
@@ -576,14 +524,20 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
 
           {/* Price & In-stock Row */}
           <View style={styles.priceRow}>
-            <Text style={[styles.priceValue, { color: colors.text }]}>${displayPrice}.00</Text>
-            <Text style={[styles.mrpValue, { color: colors.textMuted }]}>
-              MRP ${displayMrp}.00
-            </Text>
-            <View style={styles.inStockBadge}>
-              <Icon source={checkCircleFilled} size={14} color="#059669" />
-              <Text style={styles.inStockText}>In Stock ({displayStock} left)</Text>
-            </View>
+            <Text style={[styles.priceValue, { color: colors.text }]}>{formatMoney(displayPrice)}</Text>
+            {displayMrp > displayPrice && (
+              <Text style={[styles.mrpValue, { color: colors.textMuted }]}>
+                {t('customerMsg.mrp', { amount: formatMoney(displayMrp) })}
+              </Text>
+            )}
+            {displayStock > 0 ? (
+              <View style={styles.inStockBadge}>
+                <Icon source={checkCircleFilled} size={14} color="#059669" />
+                <Text style={styles.inStockText}>{t('customerMsg.inStockLeft', { count: displayStock })}</Text>
+              </View>
+            ) : (
+              <Text style={[styles.inStockText, { color: colors.error }]}>{t('customer.outOfStock')}</Text>
+            )}
           </View>
         </View>
 
@@ -591,15 +545,15 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
         <View style={styles.cartButtonsRow}>
           <Squeeze
             onPress={handleAddToCart}
-            disabled={addingToCart}
-            style={[styles.primaryActionBtn, { backgroundColor: colors.primary }]}>
+            disabled={addingToCart || displayStock <= 0}
+            style={[styles.primaryActionBtn, { backgroundColor: colors.primary, opacity: displayStock <= 0 ? 0.5 : 1 }]}>
             <View style={styles.actionBtnRow}>
               {addingToCart ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
+                <ActivityIndicator size="small" color={colors.onPrimary} />
               ) : (
                 <>
-                  <Icon source={shoppingBasketBold} size={18} color="#FFFFFF" />
-                  <Text style={styles.primaryActionText}>Add To Cart</Text>
+                  <Icon source={shoppingBasketBold} size={18} color={colors.onPrimary} />
+                  <Text style={styles.primaryActionText}>{t('customer.addToCart')}</Text>
                 </>
               )}
             </View>
@@ -607,493 +561,143 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
 
           <Squeeze
             onPress={handleBuyNow}
-            style={[styles.secondaryActionBtn, { backgroundColor: '#111827' }]}>
+            disabled={displayStock <= 0}
+            style={[styles.secondaryActionBtn, { backgroundColor: colors.text, opacity: displayStock <= 0 ? 0.5 : 1 }]}>
             <View style={styles.actionBtnRow}>
-              <Icon source={shoppingCartExtra} size={18} color="#FFFFFF" />
-              <Text style={styles.secondaryActionText}>Buy Now</Text>
+              <Icon source={shoppingCartExtra} size={18} color={colors.background} />
+              <Text style={[styles.secondaryActionText, { color: colors.background }]}>{t('customer.buyNow')}</Text>
             </View>
           </Squeeze>
         </View>
 
-        {/* CTI Platform Card with Ask Platform */}
-        <View
-          style={[
-            styles.ctiPlatformCard,
-            { backgroundColor: colors.surface, borderColor: colors.border + '44' },
-          ]}>
-          <View style={styles.platformHeader}>
-            <View style={[styles.shieldBadgeWrap, { backgroundColor: colors.primary + '18' }]}>
-              <Icon source={shieldIcon} size={28} color={colors.primary} />
-            </View>
-            <View style={styles.platformMeta}>
-              <View style={styles.platformNameRow}>
-                <Text style={[styles.platformName, { color: colors.text }]}>CTI Platform</Text>
-                <Icon
-                  source={checkCircleFilled}
-                  size={16}
-                  color={colors.primary}
-                  style={{ marginLeft: 6 }}
-                />
-              </View>
-              <Text style={[styles.platformSub, { color: colors.textMuted }]}>
-                Verified & Certified Refurbished
-              </Text>
-            </View>
-          </View>
-
-          <TouchableOpacity
-            onPress={() => setAskModalVisible(true)}
+        {/* Web shows this block only when the platform itself listed the product (addedByRole admin) */}
+        {product?.raw?.addedByRole === 'admin' && (
+          <View
             style={[
-              styles.askPlatformBtn,
-              { backgroundColor: colors.surfaceAlt, borderColor: colors.border + '33' },
+              styles.ctiPlatformCard,
+              { backgroundColor: colors.surface, borderColor: colors.border + '44' },
             ]}>
-            <Icon source={commentDotsBold} size={18} color={colors.primary} />
-            <Text style={[styles.askPlatformText, { color: colors.primary }]}>
-              Ask Platform
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Product Information Section */}
-        <View style={styles.sectionBlock}>
-          <Text style={[styles.sectionHeading, { color: colors.text }]}>Product Information</Text>
-          <View style={[styles.separator, { backgroundColor: colors.border + '33' }]} />
-
-          <View style={styles.specBullet}>
-            <View style={[styles.bulletDot, { backgroundColor: colors.primary }]} />
-            <Text style={[styles.specTitle, { color: colors.text }]}>Build & Materials:</Text>
+            <View style={styles.platformHeader}>
+              <View style={[styles.shieldBadgeWrap, { backgroundColor: colors.primary + '18' }]}>
+                <Icon source={shieldIcon} size={28} color={colors.primary} />
+              </View>
+              <View style={styles.platformMeta}>
+                <View style={styles.platformNameRow}>
+                  <Text style={[styles.platformName, { color: colors.text }]}>{t('customer.ctiPlatform')}</Text>
+                  <Icon source={checkCircleFilled} size={16} color={colors.primary} style={{ marginLeft: 6 }} />
+                </View>
+                <Text style={[styles.platformSub, { color: colors.textMuted }]}>
+                  {t('customer.verifiedAndCertifiedRefurbished')}
+                </Text>
+              </View>
+            </View>
           </View>
-          <Text style={[styles.specDesc, { color: colors.textMuted }]}>
-            {product?.specs?.buildAndMaterials || ''}
-          </Text>
+        )}
 
-          <View style={styles.specBullet}>
-            <View style={[styles.bulletDot, { backgroundColor: colors.primary }]} />
-            <Text style={[styles.specTitle, { color: colors.text }]}>Display & Visuals:</Text>
-          </View>
-          <Text style={[styles.specDesc, { color: colors.textMuted }]}>
-            {product?.specs?.displayAndVisuals || ''}
-          </Text>
+        {/* Product Information Section: only the fields the backend sends */}
+        {[
+          [t('customerMsg.specGroup.build'), product?.specs?.buildAndMaterials],
+          [t('customerMsg.specGroup.display'), product?.specs?.displayAndVisuals],
+          [t('customerMsg.specGroup.performance'), product?.specs?.performance],
+          [t('customerMsg.specGroup.camera'), product?.specs?.cameraSystem],
+          [t('customerMsg.specGroup.battery'), product?.specs?.batteryAndConnectivity],
+        ].some(([, value]) => Boolean(value)) || product?.description ? (
+          <View style={styles.sectionBlock}>
+            <Text style={[styles.sectionHeading, { color: colors.text }]}>{t('customer.productInformation')}</Text>
+            <View style={[styles.separator, { backgroundColor: colors.border + '33' }]} />
 
-          <View style={styles.specBullet}>
-            <View style={[styles.bulletDot, { backgroundColor: colors.primary }]} />
-            <Text style={[styles.specTitle, { color: colors.text }]}>
-              Performance & Processing:
-            </Text>
-          </View>
-          <Text style={[styles.specDesc, { color: colors.textMuted }]}>
-            {product?.specs?.performance || ''}
-          </Text>
+            {product?.description ? (
+              <Text style={[styles.specDesc, { color: colors.textMuted }]}>{product.description}</Text>
+            ) : null}
 
-          <View style={styles.specBullet}>
-            <View style={[styles.bulletDot, { backgroundColor: colors.primary }]} />
-            <Text style={[styles.specTitle, { color: colors.text }]}>Camera System:</Text>
+            {[
+              [t('customerMsg.specGroup.build'), product?.specs?.buildAndMaterials],
+              [t('customerMsg.specGroup.display'), product?.specs?.displayAndVisuals],
+              [t('customerMsg.specGroup.performance'), product?.specs?.performance],
+              [t('customerMsg.specGroup.camera'), product?.specs?.cameraSystem],
+              [t('customerMsg.specGroup.battery'), product?.specs?.batteryAndConnectivity],
+            ].map(([title, value]) =>
+              value ? (
+                <View key={title}>
+                  <View style={styles.specBullet}>
+                    <View style={[styles.bulletDot, { backgroundColor: colors.primary }]} />
+                    <Text style={[styles.specTitle, { color: colors.text }]}>{title}</Text>
+                  </View>
+                  <Text style={[styles.specDesc, { color: colors.textMuted }]}>{value}</Text>
+                </View>
+              ) : null,
+            )}
           </View>
-          <Text style={[styles.specDesc, { color: colors.textMuted }]}>
-            {product?.specs?.cameraSystem || ''}
-          </Text>
-
-          <View style={styles.specBullet}>
-            <View style={[styles.bulletDot, { backgroundColor: colors.primary }]} />
-            <Text style={[styles.specTitle, { color: colors.text }]}>
-              Battery & Connectivity:
-            </Text>
-          </View>
-          <Text style={[styles.specDesc, { color: colors.textMuted }]}>
-            {product?.specs?.batteryAndConnectivity || ''}
-          </Text>
-        </View>
+        ) : null}
 
         {/* Specifications Table */}
         <View style={styles.sectionBlock}>
-          <Text style={[styles.sectionHeading, { color: colors.text }]}>Specifications</Text>
+          <Text style={[styles.sectionHeading, { color: colors.text }]}>{t('customer.specifications')}</Text>
           <View
             style={[
               styles.specTableCard,
               { backgroundColor: colors.surface, borderColor: colors.border + '44' },
             ]}>
-            <View style={styles.tableRow}>
-              <Text style={[styles.tableLabel, { color: colors.textMuted }]}>Brand</Text>
-              <Text style={[styles.tableValue, { color: colors.text }]}>{product?.brand || ''}</Text>
-            </View>
-            <View style={styles.tableRow}>
-              <Text style={[styles.tableLabel, { color: colors.textMuted }]}>Category</Text>
-              <Text style={[styles.tableValue, { color: colors.text }]}>{product?.category || ''}</Text>
-            </View>
-            <View style={styles.tableRow}>
-              <Text style={[styles.tableLabel, { color: colors.textMuted }]}>SKU</Text>
-              <Text style={[styles.tableValue, { color: colors.text }]}>{product?.sku || ''}</Text>
-            </View>
-            <View style={styles.tableRow}>
-              <Text style={[styles.tableLabel, { color: colors.textMuted }]}>Total Variants</Text>
-              <Text style={[styles.tableValue, { color: colors.text }]}>
-                {product?.totalVariants ?? 1}
-              </Text>
-            </View>
-            <View style={[styles.tableRow, { borderBottomWidth: 0 }]}>
-              <Text style={[styles.tableLabel, { color: colors.textMuted }]}>Condition</Text>
-              <Text style={[styles.tableValue, { color: colors.text }]}>
-                {product?.condition || 'Refurbished'}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Grade Explained Section matching Figma */}
-        <View style={styles.sectionBlock}>
-          <Text style={[styles.sectionHeading, { color: colors.text }]}>Grade Explained</Text>
-
-          {/* Grade selection tabs */}
-          <View style={styles.gradeTabsRow}>
-            {GRADE_TABS.map(grade => {
-              const active = selectedGrade === grade;
-              return (
-                <TouchableOpacity
-                  key={grade}
-                  onPress={() => setSelectedGrade(grade)}
-                  style={[
-                    styles.gradeTabBtn,
-                    {
-                      borderColor: active ? colors.primary : colors.border + '55',
-                      backgroundColor: active ? colors.primary + '18' : colors.surfaceAlt,
-                    },
-                  ]}>
-                  <Text
-                    style={[
-                      styles.gradeTabText,
-                      { color: active ? colors.primary : colors.text },
-                    ]}>
-                    {grade}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          {/* Overall box */}
-          <View
-            style={[
-              styles.overallBanner,
-              {
-                borderColor: colors.primary,
-                backgroundColor: colors.primary + '14',
-              },
-            ]}>
-            <Text style={[styles.overallTitle, { color: colors.primary }]}>
-              Overall -{' '}
-              <Text style={{ fontFamily: fonts.regular, color: colors.text }}>
-                {gradeInfo?.overall || ''}
-              </Text>
-            </Text>
-          </View>
-
-          {/* Screen Glass explanation with micro-scratches visual callouts */}
-          <View style={styles.gradeDetailBlock}>
-            <View style={styles.gradeSubHeadingRow}>
-              <Icon source={checkCircleFilled} size={16} color={colors.primary} />
-              <Text style={[styles.gradeSubTitle, { color: colors.text }]}>
-                Screen Glass -{' '}
-                <Text style={{ fontFamily: fonts.regular, color: colors.textMuted }}>
-                  {gradeInfo?.screenGlass || ''}
-                </Text>
-              </Text>
-            </View>
-
-            <View style={styles.diagramCardsRow}>
-              {[1, 2, 3].map(i => (
+            {[
+              [t('customerMsg.specRow.brand'), product?.brand],
+              [t('customerMsg.specRow.category'), product?.category],
+              [t('customerMsg.specRow.sku'), product?.sku],
+              [t('customerMsg.specRow.totalVariants'), product?.totalVariants ? String(product.totalVariants) : ''],
+              [t('customerMsg.specRow.condition'), product?.condition],
+            ]
+              .filter(([, value]) => Boolean(value))
+              .map(([label, value], index, rows) => (
                 <View
-                  key={i}
+                  key={label}
                   style={[
-                    styles.diagramCard,
-                    { backgroundColor: colors.surfaceAlt, borderColor: colors.border + '33' },
+                    styles.tableRow,
+                    index === rows.length - 1 ? { borderBottomWidth: 0 } : { borderBottomColor: colors.border },
                   ]}>
-                  <Image
-                    source={demoProductPhoto}
-                    style={styles.diagramImg}
-                    resizeMode="contain"
-                  />
-                  <View style={styles.diagramBadge}>
-                    <Text style={styles.diagramBadgeText}>Micro-scratches</Text>
-                  </View>
+                  <Text style={[styles.tableLabel, { color: colors.textMuted }]}>{label}</Text>
+                  <Text style={[styles.tableValue, { color: colors.text }]}>{value}</Text>
                 </View>
               ))}
-            </View>
-          </View>
-
-          {/* Display panel explanation */}
-          <View style={styles.gradeDetailBlock}>
-            <View style={styles.gradeSubHeadingRow}>
-              <Icon source={checkCircleFilled} size={16} color={colors.primary} />
-              <Text style={[styles.gradeSubTitle, { color: colors.text }]}>
-                Display -{' '}
-                <Text style={{ fontFamily: fonts.regular, color: colors.textMuted }}>
-                  {gradeInfo?.display || ''}
-                </Text>
-              </Text>
-            </View>
-
-            <View style={styles.diagramCardsRow}>
-              {[1, 2].map(i => (
-                <View
-                  key={i}
-                  style={[
-                    styles.diagramCard,
-                    { backgroundColor: colors.surfaceAlt, borderColor: colors.border + '33' },
-                  ]}>
-                  <Image
-                    source={demoProductPhoto}
-                    style={styles.diagramImg}
-                    resizeMode="contain"
-                  />
-                  <View style={styles.diagramBadge}>
-                    <Text style={styles.diagramBadgeText}>OLED Verified</Text>
-                  </View>
-                </View>
-              ))}
-            </View>
-          </View>
-
-          {/* Body explanation */}
-          <View style={styles.gradeDetailBlock}>
-            <View style={styles.gradeSubHeadingRow}>
-              <Icon source={checkCircleFilled} size={16} color={colors.primary} />
-              <Text style={[styles.gradeSubTitle, { color: colors.text }]}>
-                Body -{' '}
-                <Text style={{ fontFamily: fonts.regular, color: colors.textMuted }}>
-                  {gradeInfo?.body || ''}
-                </Text>
-              </Text>
-            </View>
-
-            <View style={styles.diagramCardsRow}>
-              {[1, 2].map(i => (
-                <View
-                  key={i}
-                  style={[
-                    styles.diagramCard,
-                    { backgroundColor: colors.surfaceAlt, borderColor: colors.border + '33' },
-                  ]}>
-                  <Image
-                    source={demoProductPhoto}
-                    style={styles.diagramImg}
-                    resizeMode="contain"
-                  />
-                  <View style={styles.diagramBadge}>
-                    <Text style={styles.diagramBadgeText}>Frame Inspection</Text>
-                  </View>
-                </View>
-              ))}
-            </View>
           </View>
         </View>
 
-        {/* Platform Guarantee & Buyer Protection Card matching Figma */}
-        <View
-          style={[
-            styles.trustCard,
-            { backgroundColor: '#FFFBEB', borderColor: '#FDE68A' },
-          ]}>
-          <View style={styles.trustCardHeader}>
-            <Icon source={shieldBold} size={24} color="#D97706" />
-            <Text style={styles.trustCardTitle}>Platform Guarantee & Buyer Protection</Text>
-          </View>
-          <Text style={styles.trustCardDesc}>
-            We stand behind every transaction on our platform. With our secure escrow system, your
-            payment is protected and is only released to the seller once you receive the product
-            exactly as described. Shop with confidence knowing Our 24/7 support team is here to
-            assist you with any disputes or issues.
-          </Text>
-        </View>
-
-        {/* Easy Returns & Refund Policy Card matching Figma */}
-        <View
-          style={[
-            styles.trustCard,
-            { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' },
-          ]}>
-          <View style={styles.trustCardHeader}>
-            <Icon source={returnOfInvestmentIcon} size={24} color="#059669" />
-            <Text style={[styles.trustCardTitle, { color: '#065F46' }]}>
-              Easy Returns & Refund Policy
-            </Text>
-          </View>
-          <Text style={[styles.trustCardDesc, { color: '#047857' }]}>
-            Not satisfied with your purchase? You can return eligible items within 7 days of
-            delivery for a full refund or exchange. We provide hassle-free return shipping labels
-            and process refunds swiftly back to your original payment method. Terms and conditions
-            apply.
-          </Text>
-        </View>
+        {/* Same sections the web shows before the reviews */}
+        <GradeExplained deviceType={detectDeviceType(product?.raw?.categoryId?.slug, product?.raw?.categoryId?.name || product?.category)} />
+        <PlatformGuarantees />
 
         {/* Rating & Reviews Section */}
         <View style={styles.sectionBlock}>
-          <Text style={[styles.sectionHeading, { color: colors.text }]}>Rating & Reviews</Text>
+          <Text style={[styles.sectionHeading, { color: colors.text }]}>{t('customer.ratingAndReviews')}</Text>
 
           <View
             style={[
               styles.ratingSummaryCard,
               { backgroundColor: colors.surface, borderColor: colors.border + '44' },
             ]}>
-            <View style={styles.ratingScoreCol}>
-              <Text style={[styles.ourRatingLabel, { color: colors.textMuted }]}>Our Rating</Text>
-              <Text style={[styles.ratingScoreLarge, { color: colors.text }]}>4.9</Text>
-              <View style={styles.starsRow}>
-                {[1, 2, 3, 4, 5].map(s => (
-                  <Icon key={s} source={starFilled} size={14} color="#F59E0B" />
-                ))}
-              </View>
-              <Text style={[styles.reviewsCountText, { color: colors.textMuted }]}>
-                ({reviewsList.length + 42} Reviews)
-              </Text>
-            </View>
-
-            {/* Rating breakdown bars */}
-            <View style={styles.ratingBarsCol}>
-              {[5, 4, 3, 2, 1].map(star => {
-                const percent = star === 5 ? '88%' : star === 4 ? '12%' : '0%';
-                return (
-                  <View key={star} style={styles.barRow}>
-                    <Text style={[styles.starNumText, { color: colors.text }]}>{star}</Text>
-                    <Icon source={starFilled} size={12} color="#F59E0B" style={{ marginRight: 6 }} />
-                    <View style={styles.progressTrack}>
-                      <View
-                        style={[
-                          styles.progressBar,
-                          { width: percent as any, backgroundColor: colors.primary },
-                        ]}
-                      />
-                    </View>
-                    <Text style={[styles.percentText, { color: colors.textMuted }]}>
-                      {percent}
-                    </Text>
-                  </View>
-                );
-              })}
-            </View>
-          </View>
-
-          {/* Write a Review Box matching Figma */}
-          <View
-            style={[
-              styles.writeReviewCard,
-              { backgroundColor: colors.surface, borderColor: colors.border + '44' },
-            ]}>
-            <Text style={[styles.writeReviewTitle, { color: colors.text }]}>Write a Review</Text>
-            <Text style={[styles.writeReviewSub, { color: colors.textMuted }]}>
-              Share your experience with other customers
-            </Text>
-
-            <Text style={[styles.yourRatingLabel, { color: colors.textMuted }]}>Your Rating</Text>
-            <View style={styles.starSelectRow}>
-              {[1, 2, 3, 4, 5].map(st => (
-                <TouchableOpacity key={st} onPress={() => setUserRating(st)}>
-                  <Icon
-                    source={userRating >= st ? starFilled : starExtra}
-                    size={24}
-                    color="#F59E0B"
-                    style={{ marginRight: 6 }}
-                  />
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <TextInput
-              value={reviewText}
-              onChangeText={setReviewText}
-              placeholder="Write your Review..."
-              placeholderTextColor={colors.textMuted + '88'}
-              multiline
-              numberOfLines={4}
-              style={[
-                styles.reviewInput,
-                {
-                  backgroundColor: colors.surfaceAlt,
-                  color: colors.text,
-                  borderColor: colors.border + '33',
-                },
-              ]}
-            />
-
-            <View style={styles.mediaButtonsRow}>
-              <TouchableOpacity
-                onPress={() =>
-                  setModal({
-                    visible: true,
-                    type: 'info',
-                    title: 'Attach Photo',
-                    message: 'Photo attachment dialog opened.',
-                  })
-                }
-                style={[
-                  styles.addMediaBtn,
-                  { backgroundColor: colors.surfaceAlt, borderColor: colors.border + '33' },
-                ]}>
-                <Icon source={cameraBold} size={16} color={colors.textMuted} />
-                <Text style={[styles.addMediaText, { color: colors.text }]}>Add a photo</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() =>
-                  setModal({
-                    visible: true,
-                    type: 'info',
-                    title: 'Attach Video',
-                    message: 'Video attachment dialog opened.',
-                  })
-                }
-                style={[
-                  styles.addMediaBtn,
-                  { backgroundColor: colors.surfaceAlt, borderColor: colors.border + '33' },
-                ]}>
-                <Icon source={videoBold} size={16} color={colors.textMuted} />
-                <Text style={[styles.addMediaText, { color: colors.text }]}>Add a video</Text>
-              </TouchableOpacity>
-            </View>
-
-            <Squeeze
-              onPress={handleAddReview}
-              style={[styles.submitReviewBtn, { backgroundColor: colors.primary }]}>
-              <Text style={styles.submitReviewText}>Submit Review</Text>
-            </Squeeze>
-          </View>
-
-          {/* Customer Reviews List */}
-          <View style={styles.reviewsList}>
-            {reviewsList.map(item => (
-              <View
-                key={item.id}
-                style={[
-                  styles.reviewItemCard,
-                  { backgroundColor: colors.surface, borderColor: colors.border + '33' },
-                ]}>
-                <View style={styles.reviewUserRow}>
-                  <View
-                    style={[
-                      styles.reviewerAvatar,
-                      {
-                        backgroundColor: colors.primary + '22',
-                        borderWidth: 1,
-                        borderColor: colors.avatarBorder,
-                      },
-                    ]}>
-                    <Text style={[styles.reviewerInitials, { color: colors.primary }]}>
-                      {item?.name ? item.name.charAt(0) : 'U'}
-                    </Text>
-                  </View>
-                  <View style={styles.reviewerMeta}>
-                    <Text style={[styles.reviewerName, { color: colors.text }]}>{item?.name || 'User'}</Text>
-                    <View style={styles.smallStars}>
-                      {[1, 2, 3, 4, 5].map(s => (
-                        <Icon key={s} source={starFilled} size={12} color="#F59E0B" />
-                      ))}
-                    </View>
-                  </View>
+            {reviewCount > 0 ? (
+              <View style={[styles.ratingScoreCol, { borderRightColor: colors.border }]}>
+                <Text style={[styles.ourRatingLabel, { color: colors.textMuted }]}>{t('customer.ourRating')}</Text>
+                <Text style={[styles.ratingScoreLarge, { color: colors.text }]}>
+                  {averageRating.toFixed(1)}
+                </Text>
+                <View style={styles.starsRow}>
+                  {[1, 2, 3, 4, 5].map(s => (
+                    <Icon
+                      key={s}
+                      source={Math.round(averageRating) >= s ? starFilled : starExtra}
+                      size={14}
+                      color="#F59E0B"
+                    />
+                  ))}
                 </View>
-                <Text style={[styles.reviewComment, { color: colors.textMuted }]}>
-                  {item?.comment || ''}
+                <Text style={[styles.reviewsCountText, { color: colors.textMuted }]}>
+                  ({reviewCount} {reviewCount === 1 ? t('glossary.review') : t('sellerTabs.reviews')})
                 </Text>
               </View>
-            ))}
+            ) : (
+              <Text style={[styles.reviewsCountText, { color: colors.textMuted }]}>
+                {t('customer.noReviewsYet')}
+              </Text>
+            )}
           </View>
         </View>
 
@@ -1101,7 +705,7 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
         {relatedProducts.length > 0 && (
         <View style={styles.sectionBlock}>
           <Text style={[styles.sectionHeading, { color: colors.text }]}>
-            Related Refurbished Products
+            {t('customer.relatedRefurbishedProducts')}
           </Text>
           <ScrollView
             horizontal
@@ -1126,7 +730,7 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
                     {rel?.name || ''}
                   </Text>
                   <Text style={[styles.relatedPrice, { color: colors.primary }]}>
-                    ${rel?.price ?? 0}.00
+                    {formatMoney(rel?.price)}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -1135,21 +739,6 @@ export default function RefurbishedProductDetailScreen({ navigation, route }: an
         )}
       </ScrollView>
       )}
-
-      {/* Ask Platform Modal */}
-      <AskPlatformModal
-        visible={askModalVisible}
-        productName={product?.name || 'Refurbished Device'}
-        onClose={() => setAskModalVisible(false)}
-        onSend={(subj, _msg) => {
-          setModal({
-            visible: true,
-            type: 'success',
-            title: 'Inquiry Sent',
-            message: `Your query regarding "${subj}" has been forwarded to our support team.`,
-          });
-        }}
-      />
 
       {/* Filter Modal */}
       <RefurbishedFilterModal
@@ -1417,6 +1006,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   inStockText: {
+    flexShrink: 1,
     color: '#059669',
     fontSize: 12,
     fontFamily: fonts.medium,
@@ -1453,6 +1043,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   secondaryActionText: {
+    flexShrink: 1,
     color: '#FFFFFF',
     fontSize: 15,
     fontFamily: fonts.bold,
@@ -1484,6 +1075,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   platformName: {
+    flexShrink: 1,
     fontSize: 16,
     fontFamily: fonts.bold,
   },
@@ -1491,20 +1083,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: fonts.regular,
     marginTop: 2,
-  },
-  askPlatformBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 42,
-    borderRadius: 10,
-    borderWidth: 1,
-    marginTop: 14,
-    gap: 8,
-  },
-  askPlatformText: {
-    fontSize: 14,
-    fontFamily: fonts.bold,
   },
   sectionBlock: {
     paddingHorizontal: 16,

@@ -14,11 +14,14 @@ import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
 import CtiLoader from '@/components/CtiLoader';
 import { FadeUp } from '@/animations';
-import { arrowLeftBold, calendarBold, heartExtra, packageBold, shoppingCartExtra } from '@/assets/icons';
+import { arrowLeftBold, calendarBold, packageBold, shoppingCartExtra } from '@/assets/icons';
 import { ctiLogo } from '@/assets/images';
+import { ErrorState } from '@/components/states';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import blogApi, { MobileBlog } from '@/services/blogApi';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 function BlogCard({ post, onPress }: { post: MobileBlog; onPress: () => void }) {
   const { colors } = useTheme();
@@ -27,10 +30,11 @@ function BlogCard({ post, onPress }: { post: MobileBlog; onPress: () => void }) 
     <Pressable
       onPress={onPress}
       style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-      <Image
-        source={{ uri: post.image || 'https://picsum.photos/seed/blog/800/500' }}
-        style={styles.cardImage}
-      />
+      {post.image ? (
+        <Image source={{ uri: post.image }} style={styles.cardImage} />
+      ) : (
+        <View style={[styles.cardImage, { backgroundColor: colors.surfaceAlt }]} />
+      )}
 
       <View style={styles.cardBody}>
         <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>
@@ -44,8 +48,12 @@ function BlogCard({ post, onPress }: { post: MobileBlog; onPress: () => void }) 
         ) : null}
 
         <View style={styles.cardDate}>
-          <Icon source={calendarBold} size={12} color={colors.textMuted} />
-          <Text style={[styles.dateText, { color: colors.textMuted }]}>{post.date}</Text>
+          {post.date ? (
+            <>
+              <Icon source={calendarBold} size={12} color={colors.textMuted} />
+              <Text style={[styles.dateText, { color: colors.textMuted }]}>{post.date}</Text>
+            </>
+          ) : null}
           {post.readTime ? (
             <Text style={[styles.dateText, { color: colors.primary, marginLeft: 8 }]}>
               • {post.readTime}
@@ -58,21 +66,26 @@ function BlogCard({ post, onPress }: { post: MobileBlog; onPress: () => void }) 
 }
 
 export default function BlogsScreen({ navigation }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [blogs, setBlogs] = useState<MobileBlog[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState('');
 
   const fetchBlogs = async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
+    setLoadError('');
 
     try {
       const data = await blogApi.getBlogs();
       setBlogs(data || []);
-    } catch {
+    } catch (err: any) {
+      // never show "no blogs" when the request failed
       setBlogs([]);
+      setLoadError(err?.message || i18n.t('customer.couldNotLoadTheBlogs'));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -112,23 +125,25 @@ export default function BlogsScreen({ navigation }: any) {
           </View>
         </Squeeze>
 
-        <Text style={[styles.title, { color: colors.text }]}>Blogs & Insights</Text>
+        <Text style={[styles.title, { color: colors.text }]}>{t('customer.blogsAndInsights')}</Text>
         <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-          Discover the latest stories, tips and updates from CTI
+          {t('customer.discoverTheLatestStoriesTips')}
         </Text>
 
         {loading && !refreshing ? (
           <CtiLoader
             size="md"
-            text="Loading latest blogs..."
+            text={t('customer.loadingLatestBlogs')}
             style={{ paddingVertical: 50 }}
           />
+        ) : loadError ? (
+          <ErrorState error={loadError} onRetry={() => fetchBlogs()} fullScreen={false} />
         ) : blogs.length === 0 ? (
           <View style={styles.emptyWrap}>
             <Icon source={packageBold} size={44} color={colors.textMuted} />
-            <Text style={[styles.emptyTitle, { color: colors.text }]}>No Blogs Found</Text>
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>{t('customer.noBlogsFound')}</Text>
             <Text style={[styles.emptyText, { color: colors.textMuted }]}>
-              There are no published blog posts right now. Check back later!
+              {t('customer.thereAreNoPublishedBlog')}
             </Text>
           </View>
         ) : (

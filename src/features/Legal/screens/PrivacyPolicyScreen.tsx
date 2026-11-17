@@ -1,4 +1,4 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
@@ -7,11 +7,14 @@ import { FadeUp } from '@/animations';
 import { closeIcon } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
-import { privacyPolicy } from '../content/privacyPolicy';
+import { useTranslation } from 'react-i18next';
+import { getPrivacy } from '../content';
 
 export default function PrivacyPolicyScreen({ navigation }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const { i18n } = useTranslation();
+  const privacyPolicy = getPrivacy(i18n.language);
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>

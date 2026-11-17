@@ -8,8 +8,8 @@ import JobBoardContent from './JobBoardScreen';
 import MyOffersContent from './MyOffersScreen';
 import MyJobsContent from './MyJobsScreen';
 import ReviewsContent from '../../Reviews/screens/ReviewsScreen';
-import EarningsContent from '../../Earnings/screens/EarningsScreen';
 import PartsOrderContent from '../../PartsOrder/screens/PartsOrderScreen';
+import { useTranslation } from 'react-i18next';
 
 // The "Jobs" bottom tab. Everything work-related lives here behind one row of
 // local tabs — switching is a plain re-render, not a navigation, so it's
@@ -17,6 +17,7 @@ import PartsOrderContent from '../../PartsOrder/screens/PartsOrderScreen';
 // Information...) is a real navigated screen. Dashboard is deliberately not
 // here — it's its own bottom tab.
 export default function JobsScreen({ navigation, route }) {
+  useTranslation();
   const { colors } = useTheme();
   const [activeTab, setActiveTab] = useState(route.params?.tab ?? 'JobBoard');
 
@@ -24,7 +25,7 @@ export default function JobsScreen({ navigation, route }) {
   // via `navigation.navigate('JobsTab', { tab: 'MyOffers' })`.
   useEffect(() => {
     if (route.params?.tab) setActiveTab(route.params.tab);
-  }, [route.params?.tab]);
+  }, [route.params?.tab, route.params?.at]);
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -32,11 +33,10 @@ export default function JobsScreen({ navigation, route }) {
       <RepairmanTabs activeTab={activeTab} onChange={setActiveTab} />
 
       {activeTab === 'JobBoard' && <JobBoardContent navigation={navigation} />}
-      {activeTab === 'MyOffers' && <MyOffersContent />}
+      {activeTab === 'MyOffers' && <MyOffersContent navigation={navigation} />}
       {activeTab === 'MyJobs' && <MyJobsContent navigation={navigation} />}
       {activeTab === 'Reviews' && <ReviewsContent />}
-      {activeTab === 'Earnings' && <EarningsContent navigation={navigation} />}
-      {activeTab === 'PartsOrder' && <PartsOrderContent />}
+      {activeTab === 'PartsOrder' && <PartsOrderContent navigation={navigation} />}
     </View>
   );
 }

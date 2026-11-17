@@ -1,0 +1,38 @@
+[
+ {
+  "file": "components/modals/CreateDisputeModal.tsx",
+  "line": 112,
+  "kind": "fixed-height-box",
+  "why": "Box with a fixed height of 46 holds text (1 text)"
+ },
+ {
+  "file": "features/Refurbished/screens/DeviceConditionScreen.tsx",
+  "line": 320,
+  "kind": "fixed-height-box",
+  "why": "Box with a fixed height of 48 holds text (1 text)"
+ },
+ {
+  "file": "features/Refurbished/screens/UploadDeviceMediaScreen.tsx",
+  "line": 325,
+  "kind": "fixed-height-box",
+  "why": "Box with a fixed height of 46 holds text (1 text)"
+ },
+ {
+  "file": "roles/Seller/features/Dashboard/screens/DashboardScreen.tsx",
+  "line": 226,
+  "kind": "fixed-height-box",
+  "why": "Box with a fixed height of 42 holds text (1 text)"
+ },
+ {
+  "file": "roles/Seller/features/Product/screens/AddProductScreen.tsx",
+  "line": 456,
+  "kind": "fixed-width-box",
+  "why": "Box with a fixed width of 88 holds text"
+ },
+ {
+  "file": "roles/Seller/features/Product/screens/ProductListScreen.tsx",
+  "line": 364,
+  "kind": "fixed-height-box",
+  "why": "Box with a fixed height of 38 holds text (1 text)"
+ }
+]

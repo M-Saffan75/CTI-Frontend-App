@@ -58,7 +58,7 @@ react {
 /**
  * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
  */
-def enableProguardInReleaseBuilds = false
+def enableProguardInReleaseBuilds = true
 
 /**
  * The preferred build flavor of JavaScriptCore (JSC)
@@ -73,6 +73,18 @@ def enableProguardInReleaseBuilds = false
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
+// Release signing: android/keystore.properties (never committed) holds storeFile, storePassword, keyAlias, keyPassword.
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def keystoreProperties = new Properties()
+def hasReleaseKeystore = keystorePropertiesFile.exists()
+if (hasReleaseKeystore) {
+    keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
+}
+
+// Version shown in the store: pass -PappVersionCode=2 -PappVersionName=1.0.1 when building an update
+def appVersionCode = project.hasProperty("appVersionCode") ? project.property("appVersionCode").toInteger() : 1
+def appVersionName = project.hasProperty("appVersionName") ? project.property("appVersionName") : "1.0.0"
+
 android {
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
@@ -83,8 +95,8 @@ android {
         applicationId "com.example.new_cti_app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode appVersionCode
+        versionName appVersionName
     }
     signingConfigs {
         debug {
@@ -93,15 +105,23 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        release {
+            if (hasReleaseKeystore) {
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            // Without keystore.properties the release APK is signed with the debug key (local testing only);
+            // the Play bundle task refuses to build in that case (see the check at the end of this file).
+            signingConfig hasReleaseKeystore ? signingConfigs.release : signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
@@ -116,5 +136,17 @@ dependencies {
         implementation("com.facebook.react:hermes-android")
     } else {
         implementation jscFlavor
+    }
+}
+
+// A bundle for the Play Store must never be signed with the debug key
+gradle.taskGraph.whenReady { graph ->
+    if (!hasReleaseKeystore) {
+        if (graph.hasTask(":app:bundleRelease")) {
+            throw new GradleException("android/keystore.properties is missing: refusing to build a Play bundle signed with the debug key.")
+        }
+        if (graph.hasTask(":app:assembleRelease")) {
+            logger.warn("WARNING: android/keystore.properties is missing, so this release APK is signed with the debug key. Use it for testing only.")
+        }
     }
 }

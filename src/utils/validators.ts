@@ -1,49 +1,55 @@
+import i18n from '@/i18n';
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE = /^[0-9+\-\s()]{7,15}$/;
 
 export function validateName(value) {
-  if (!value?.trim()) return 'Name is required';
-  if (value.trim().length < 2) return 'Enter your full name';
+  if (!value?.trim()) return i18n.t('validation.nameRequired');
+  if (value.trim().length < 2) return i18n.t('validation.nameFull');
   return '';
 }
 
 export function validatePhone(value) {
-  if (!value?.trim()) return 'Phone number is required';
-  if (!PHONE.test(value.trim())) return 'Enter a valid phone number';
+  if (!value?.trim()) return i18n.t('validation.phoneRequired');
+  if (!PHONE.test(value.trim())) return i18n.t('validation.phoneInvalid');
   return '';
 }
 
 export function validateEmail(value) {
-  if (!value?.trim()) return 'Email is required';
-  if (!EMAIL.test(value.trim())) return 'Enter a valid email';
+  if (!value?.trim()) return i18n.t('validation.emailRequired');
+  if (!EMAIL.test(value.trim())) return i18n.t('validation.emailInvalid');
   return '';
 }
 
 export function validateEmailOrPhone(value) {
-  if (!value?.trim()) return 'Email or phone is required';
+  if (!value?.trim()) return i18n.t('validation.emailOrPhoneRequired');
   const input = value.trim();
   if (EMAIL.test(input) || PHONE.test(input)) return '';
-  return 'Enter a valid email or phone';
+  return i18n.t('validation.emailOrPhoneInvalid');
 }
 
-export const PASSWORD_MIN = 5;
+export const PASSWORD_MIN = 8;
 export const PASSWORD_MAX = 20;
 
 export function validatePassword(value) {
-  if (!value) return 'Password is required';
-  if (value.length < PASSWORD_MIN) return `Password must be at least ${PASSWORD_MIN} characters`;
-  if (value.length > PASSWORD_MAX) return `Password cannot be more than ${PASSWORD_MAX} characters`;
+  if (!value) return i18n.t('validation.passwordRequired');
+  if (value.length < PASSWORD_MIN) return i18n.t('validation.passwordMin', { count: PASSWORD_MIN });
+  if (value.length > PASSWORD_MAX) return i18n.t('validation.passwordMax', { count: PASSWORD_MAX });
   return '';
 }
 
+// Login only needs a password, not the length rule of a new one (older accounts may be shorter)
+export function validateLoginPassword(value) {
+  return value ? '' : i18n.t('validation.passwordRequired');
+}
+
 export function validateConfirmPassword(value, password) {
-  if (!value) return 'Confirm your password';
-  if (value !== password) return 'Passwords do not match';
+  if (!value) return i18n.t('validation.confirmPassword');
+  if (value !== password) return i18n.t('validation.passwordsMismatch');
   return '';
 }
 
 export function validateOtp(value, length = 6) {
-  if (!value || value.length < length) return `Enter all ${length} digits`;
+  if (!value || value.length < length) return i18n.t('validation.otpDigits', { count: length });
   return '';
 }
 

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   BackHandler,
   ScrollView,
@@ -15,21 +15,21 @@ import { FadeUp } from '@/animations';
 import {
   checkCircleFilled,
   homeBold,
-  shieldBold,
   shoppingBasketBold,
 } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import RefurbishedHeader from '../components/RefurbishedHeader';
+import { Trans, useTranslation } from 'react-i18next';
 
 export default function ApplicationSubmittedScreen({ navigation, route }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
-  const referenceId = route?.params?.referenceId || 'REF-781920';
-  const applicantName = route?.params?.applicantName || 'Valued Customer';
-  const brand = route?.params?.brand || 'Device';
-  const model = route?.params?.model || 'Device Model';
+  const referenceId = route?.params?.referenceId || '';
+  const brand = route?.params?.brand || t('customerMsg.device');
+  const model = route?.params?.model || t('customer.deviceModel');
   const selectedVariants: any[] = route?.params?.selectedVariants || [];
   const conditionAnswers = route?.params?.conditionAnswers || {};
   const picCount = route?.params?.picCount || 0;
@@ -69,9 +69,13 @@ export default function ApplicationSubmittedScreen({ navigation, route }: any) {
     handleGoHome();
   };
 
+  // The back handler is registered once; it always calls the latest handleGoHome
+  const goHomeRef = useRef(handleGoHome);
+  goHomeRef.current = handleGoHome;
+
   useEffect(() => {
     const onBackPress = () => {
-      handleGoHome();
+      goHomeRef.current();
       return true;
     };
 
@@ -102,16 +106,15 @@ export default function ApplicationSubmittedScreen({ navigation, route }: any) {
             </View>
 
             <Text style={[styles.successTitle, { color: colors.text }]}>
-              Application Submitted
+              {t('customer.applicationSubmitted')}
             </Text>
 
             <Text style={[styles.successDesc, { color: colors.textMuted }]}>
-              Thank you,{' '}
-              <Text style={{ color: colors.primary, fontFamily: fonts.bold }}>
-                {referenceId}
-              </Text>
-              . Your request has been successfully registered. We will notify you or email you our
-              offer after our team verifies your device details and uploaded media.
+              {referenceId ? (
+                <Trans i18nKey="customerMsg.thankYouRef" values={{ ref: referenceId }} components={{ hl: <Text style={{ color: colors.primary, fontFamily: fonts.bold }} /> }} />
+              ) : (
+                t('customerMsg.thankYou')
+              )}
             </Text>
 
             <View style={styles.ctaRow}>
@@ -124,7 +127,7 @@ export default function ApplicationSubmittedScreen({ navigation, route }: any) {
                 <View style={styles.ctaBtnContent}>
                   <Icon source={shoppingBasketBold} size={16} color={colors.text} />
                   <Text style={[styles.ctaSecondaryText, { color: colors.text }]}>
-                    Browse Store
+                    {t('customer.browseStore')}
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -133,8 +136,8 @@ export default function ApplicationSubmittedScreen({ navigation, route }: any) {
                 onPress={handleGoHome}
                 style={[styles.ctaPrimaryBtn, { backgroundColor: colors.primary }]}>
                 <View style={styles.ctaBtnContent}>
-                  <Icon source={homeBold} size={16} color="#FFFFFF" />
-                  <Text style={styles.ctaPrimaryText}>Back to Home</Text>
+                  <Icon source={homeBold} size={16} color={colors.onPrimary} />
+                  <Text style={styles.ctaPrimaryText}>{t('customer.backToHome')}</Text>
                 </View>
               </Squeeze>
             </View>
@@ -147,17 +150,17 @@ export default function ApplicationSubmittedScreen({ navigation, route }: any) {
             styles.detailsCard,
             { backgroundColor: colors.surface, borderColor: colors.border + '44' },
           ]}>
-          <Text style={[styles.detailsHeading, { color: colors.text }]}>Device Details</Text>
+          <Text style={[styles.detailsHeading, { color: colors.text }]}>{t('customer.deviceDetails')}</Text>
           <View style={[styles.divider, { backgroundColor: colors.border + '33' }]} />
 
           <View style={styles.detailRow}>
             <View>
-              <Text style={[styles.metaLabel, { color: colors.textMuted }]}>Brand</Text>
+              <Text style={[styles.metaLabel, { color: colors.textMuted }]}>{t('customer.brand2')}</Text>
               <Text style={[styles.metaValue, { color: colors.text }]}>{brand}</Text>
             </View>
 
             <View style={{ alignItems: 'flex-end' }}>
-              <Text style={[styles.metaLabel, { color: colors.textMuted }]}>Model</Text>
+              <Text style={[styles.metaLabel, { color: colors.textMuted }]}>{t('customer.model')}</Text>
               <Text style={[styles.metaValue, { color: colors.text }]}>
                 {model}
               </Text>
@@ -169,7 +172,7 @@ export default function ApplicationSubmittedScreen({ navigation, route }: any) {
             <View style={{ marginTop: 10 }}>
               {selectedVariants.map((v: any, idx: number) => (
                 <View key={idx} style={[styles.detailRow, { marginTop: 6 }]}>
-                  <Text style={[styles.metaLabel, { color: colors.textMuted }]}>{v.key || 'Specification'}</Text>
+                  <Text style={[styles.metaLabel, { color: colors.textMuted }]}>{v.key || t('customerMsg.specification')}</Text>
                   <Text style={[styles.metaValue, { color: colors.text }]}>{v.value}</Text>
                 </View>
               ))}
@@ -180,7 +183,7 @@ export default function ApplicationSubmittedScreen({ navigation, route }: any) {
           {Object.entries(conditionAnswers).length > 0 && (
             <View style={{ marginTop: 14 }}>
               <Text style={[styles.conditionHeader, { color: colors.textMuted }]}>
-                DEVICE CONDITION
+                {t('customer.deviceCondition')}
               </Text>
 
               {Object.entries(conditionAnswers).map(([q, a], idx) => (
@@ -198,29 +201,14 @@ export default function ApplicationSubmittedScreen({ navigation, route }: any) {
 
           <View style={[styles.detailRow, { marginTop: 14 }]}>
             <View>
-              <Text style={[styles.metaLabel, { color: colors.textMuted }]}>Media Uploaded</Text>
+              <Text style={[styles.metaLabel, { color: colors.textMuted }]}>{t('customer.mediaUploaded')}</Text>
               <Text style={[styles.metaValue, { color: colors.primary }]}>
-                {picCount} Pics, {vidCount} Vids
+                {t('customerMsg.picsVids', { pics: picCount, vids: vidCount })}
               </Text>
             </View>
           </View>
         </View>
 
-        {/* Security Trust Card matching Figma */}
-        <View
-          style={[
-            styles.trustCard,
-            { backgroundColor: colors.surface, borderColor: colors.border + '44' },
-          ]}>
-          <View style={styles.trustHeader}>
-            <Icon source={shieldBold} size={20} color={colors.primary} />
-            <Text style={[styles.trustTitle, { color: colors.text }]}>Device Detail</Text>
-          </View>
-          <Text style={[styles.trustDesc, { color: colors.textMuted }]}>
-            Get paid instantly at your doorstep. We guarantee 100% data security and professional
-            device assessment through the CTI platform.
-          </Text>
-        </View>
       </ScrollView>
     </View>
   );
@@ -283,6 +271,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   ctaSecondaryText: {
+    flexShrink: 1,
     fontSize: 13,
     fontFamily: fonts.medium,
   },
@@ -294,6 +283,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   ctaPrimaryText: {
+    flexShrink: 1,
     color: '#FFFFFF',
     fontSize: 13,
     fontFamily: fonts.bold,

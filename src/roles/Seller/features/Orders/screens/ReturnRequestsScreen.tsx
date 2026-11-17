@@ -1,515 +1,442 @@
-import { useEffect, useState } from 'react';
+import { ReactElement, useCallback, useEffect, useRef, useState } from 'react';
 import {
+  FlatList,
+  Modal,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import CtiLoader from '@/components/CtiLoader';
+import Button from '@/components/Button';
 import Icon from '@/components/Icon';
-import Squeeze from '@/components/Squeeze';
+import ProductThumb from '@/components/ProductThumb';
 import AlertModal, { AlertModalType } from '@/components/AlertModal';
-import { FadeUp } from '@/animations';
-import {
-  arrowLeftBold,
-  chevronDownBold,
-  downloadBold,
-  eyeBold,
-  searchBold,
-} from '@/assets/icons';
+import { EmptyState, ErrorState, LoadingState, OfflineBanner, PaginationFooter } from '@/components/states';
+import { packageBold, searchBold } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import ReasonModal from '@/roles/Seller/components/ReasonModal';
+import SellerScreenHeader from '@/roles/Seller/components/SellerScreenHeader';
+import StatusPills from '@/roles/Seller/components/StatusPills';
 import {
-  fetchSellerReturnsApi,
   approveSellerReturnApi,
+  fetchSellerReturnsApi,
   rejectSellerReturnApi,
-  SellerReturnItem,
+  SellerReturn,
+  SellerReturnsPage,
 } from '@/roles/Seller/services/sellerApi';
+import { formatDate, formatMoney } from '@/roles/Seller/utils/sellerUtils';
+import {
+  getStatusStyle,
+  PAYMENT_STATUS_STYLE,
+  RETURN_STATUS_STYLE,
+} from '@/roles/Seller/utils/statusStyles';
+import { markSellerDataChanged } from '@/roles/Seller/utils/orderEvents';
+import usePagedList from '@/roles/Seller/utils/usePagedList';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
-interface ReturnOrder {
-  id: string;
-  orderId: string;
-  customerName: string;
-  productName: string;
-  sku: string;
-  date: string;
-  amount: string;
-  status: 'Delivered' | 'New Request' | 'Shipped Back';
-  statusColor: string;
+const PAGE_SIZE = 10;
+const SEARCH_DEBOUNCE_MS = 500;
+
+interface AlertState {
+  visible: boolean;
+  type: AlertModalType;
+  title: string;
+  message: string;
 }
 
-const RETURN_FILTERS = [
-  { id: 'all', label: 'All Returens', icon: '⊕' },
-  { id: 'new', label: 'New Requests 1', icon: '📥' },
-  { id: 'shipped', label: 'Shipped Back', icon: '🚚' },
-];
+const HIDDEN_ALERT: AlertState = { visible: false, type: 'info', title: '', message: '' };
 
-const MOCK_RETURN_ORDERS: ReturnOrder[] = [
-  {
-    id: 'ret-1',
-    orderId: 'TRB-985836',
-    customerName: 'Customer Abbasi',
-    productName: 'C.A ball',
-    sku: 'PRD11284766WSTL',
-    date: '7/1/2026',
-    amount: '$38.00',
-    status: 'Delivered',
-    statusColor: '#10B981',
-  },
-  {
-    id: 'ret-2',
-    orderId: 'TRB-985837',
-    customerName: 'Sufyan Khan',
-    productName: 'Cricket Bat Grip',
-    sku: 'PRD11284999WSTL',
-    date: '7/2/2026',
-    amount: '$14.00',
-    status: 'New Request',
-    statusColor: '#F59E0B',
-  },
-];
+const ItemSeparator = () => <View style={styles.separator} />;
+
+// Same numbers as the web approve box
+function refundNumbers(ret: SellerReturn) {
+  const amountToCut = Math.max(0, ret.sellerEarnings - ret.shippingDeduction);
+  return { amountToCut, totalRefund: amountToCut + ret.platformFee };
+}
 
 export default function ReturnRequestsScreen({ navigation }: any) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
-  const [selectedFilter, setSelectedFilter] = useState('all');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
 
-  const [returnsList, setReturnsList] = useState<any[]>(MOCK_RETURN_ORDERS);
-  const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-
-  // AlertModal State
-  const [alertConfig, setAlertConfig] = useState<{
-    visible: boolean;
-    type: AlertModalType;
-    title: string;
-    message: string;
-  }>({
-    visible: false,
-    type: 'info',
-    title: '',
-    message: '',
-  });
-
-  const loadReturns = async (isRefresh = false) => {
-    if (isRefresh) setRefreshing(true);
-    else setLoading(true);
-
-    try {
-      const data = await fetchSellerReturnsApi({
-        status: selectedFilter !== 'all' ? selectedFilter : undefined,
-        search: searchQuery.trim() || undefined,
-      });
-
-      if (Array.isArray(data)) {
-        setReturnsList(
-          data.map(r => ({
-            id: r.id,
-            orderId: r.orderId,
-            customerName: r.customer,
-            productName: r.item,
-            sku: r.returnNo,
-            date: r.date,
-            amount: r.amount,
-            status: r.status,
-            statusColor: r.status === 'Approved' || r.status === 'Delivered' ? '#10B981' : '#F59E0B',
-            reason: r.reason,
-          })),
-        );
-      }
-    } catch {
-      // Keep existing
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
+  const [status, setStatus] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+  const [details, setDetails] = useState<SellerReturn | null>(null);
+  const [approveTarget, setApproveTarget] = useState<SellerReturn | null>(null);
+  const [rejectTarget, setRejectTarget] = useState<SellerReturn | null>(null);
+  const [acting, setActing] = useState(false);
+  const [alert, setAlert] = useState<AlertState>(HIDDEN_ALERT);
+  const mounted = useRef(true);
 
   useEffect(() => {
-    loadReturns();
-  }, [selectedFilter]);
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
-  const handleApprove = async (retId: string) => {
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(searchInput.trim()), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  const fetchPage = useCallback(
+    async (page: number) => {
+      const res = await fetchSellerReturnsApi({ page, limit: PAGE_SIZE, status, search });
+      return {
+        items: res.returns,
+        totalPages: res.pagination.totalPages,
+        totalItems: res.pagination.totalItems,
+        extra: res.summary,
+      };
+    },
+    [status, search],
+  );
+
+  const list = usePagedList<SellerReturn, SellerReturnsPage['summary']>(fetchPage);
+  const summary = list.extra;
+
+  const tabs = [
+    { id: '', label: t('sellerAuto.allReturns'), count: summary?.total },
+    { id: 'requested', label: t('sellerAuto.newRequests'), count: summary?.requested },
+    { id: 'shipped', label: t('sellerAuto.shippedBack'), count: summary?.shipped },
+    { id: 'approved', label: t('profile.status.approved'), count: summary?.approved },
+    { id: 'rejected', label: t('chat.quoteStatus.rejected'), count: summary?.rejected },
+  ];
+  const hasFilters = !!(status || search);
+
+  const showAlert = (type: AlertModalType, title: string, message: string) =>
+    setAlert({ visible: true, type, title, message });
+
+  const runAction = async (
+    action: () => Promise<{ message?: string }>,
+    successTitle: string,
+    fallbackMessage: string,
+    failTitle: string,
+    onDone: () => void,
+  ) => {
+    setActing(true);
     try {
-      await approveSellerReturnApi(retId, 'Return approved by merchant');
-      setAlertConfig({
-        visible: true,
-        type: 'success',
-        title: 'Return Approved',
-        message: 'The customer return request has been approved and refund initiated.',
-      });
-      loadReturns();
-    } catch (e: any) {
-      setAlertConfig({
-        visible: true,
-        type: 'error',
-        title: 'Action Failed',
-        message: e?.response?.data?.message || 'Unable to approve return request.',
-      });
+      const res = await action();
+      if (!mounted.current) return;
+      setApproveTarget(null);
+      setRejectTarget(null);
+      onDone();
+      markSellerDataChanged();
+      showAlert('success', successTitle, res?.message || fallbackMessage);
+      list.silentReload();
+    } catch (err: any) {
+      if (!mounted.current) return;
+      setApproveTarget(null);
+      setRejectTarget(null);
+      showAlert('error', failTitle, err?.message || i18n.t('sellerAuto.somethingWentWrongPleaseTry'));
+      list.silentReload();
+    } finally {
+      if (mounted.current) setActing(false);
     }
   };
 
-  const filteredOrders = returnsList.filter(ord => {
-    if (selectedFilter === 'new' && ord.status !== 'New Request' && ord.status !== 'Requested') return false;
-    if (selectedFilter === 'shipped' && ord.status !== 'Shipped Back' && ord.status !== 'Shipped') return false;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      return (
-        ord.orderId.toLowerCase().includes(q) ||
-        ord.customerName.toLowerCase().includes(q) ||
-        ord.productName.toLowerCase().includes(q)
-      );
-    }
-    return true;
-  });
+  // The card changes at once; a status filter that no longer matches drops it
+  const showNewStatus = (id: string, next: string) => {
+    if (status && status !== next) list.removeItem(item => item.id === id);
+    else list.updateItem(item => item.id === id, { status: next });
+  };
+
+  const handleApprove = (note: string) => {
+    if (!approveTarget) return;
+    const id = approveTarget.id;
+    runAction(() => approveSellerReturnApi(id, note), i18n.t('sellerMsg.ret.approved'), i18n.t('sellerMsg.ret.approved'), i18n.t('sellerMsg.ret.approveFailed'), () =>
+      showNewStatus(id, 'approved'),
+    );
+  };
+
+  const handleReject = (reason: string) => {
+    if (!rejectTarget) return;
+    const id = rejectTarget.id;
+    runAction(() => rejectSellerReturnApi(id, reason), i18n.t('sellerMsg.ret.rejected'), i18n.t('sellerMsg.ret.rejected'), i18n.t('sellerMsg.ret.rejectFailed'), () =>
+      showNewStatus(id, 'rejected'),
+    );
+  };
+
+  const renderReturn = ({ item }: { item: SellerReturn }) => {
+    const badge = getStatusStyle(RETURN_STATUS_STYLE, item.status);
+    const canDecide = item.status === 'requested' || item.status === 'shipped';
+    return (
+      <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <View style={styles.cardHeader}>
+          <View style={styles.flex1}>
+            <Text style={[styles.returnNo, { color: colors.text }]}>{item.returnNo}</Text>
+            <Text style={[styles.subText, { color: colors.textMuted }]}>
+              {i18n.t('sellerMsg.ret.orderDate', { no: item.orderNo || '-', date: formatDate(item.createdAt) })}
+            </Text>
+          </View>
+          <View style={[styles.badge, { backgroundColor: badge.color + '20' }]}>
+            <Text style={[styles.badgeText, { color: badge.color }]}>{badge.label}</Text>
+          </View>
+        </View>
+
+        <View style={[styles.divider, { backgroundColor: colors.border }]} />
+
+        <Row label={i18n.t('glossary.customer')} value={item.customer || '-'} />
+        <Row label={i18n.t('tabs.product')} value={item.product || '-'} />
+        <Row label={i18n.t('sellerAuto.reason')} value={item.reason || '-'} />
+        <Row label={i18n.t('sellerAuto.price')} value={formatMoney(item.price)} />
+        <Row label={i18n.t('sellerAuto.yourCut')} value={formatMoney(item.sellerEarnings)} />
+        {item.status === 'rejected' && item.rejectionReason ? (
+          <Row label={i18n.t('sellerAuto.rejectedBecause')} value={item.rejectionReason} />
+        ) : null}
+
+        <View style={styles.actions}>
+          <Button
+            title={i18n.t('sellerAuto.details')}
+            size="sm"
+            variant="outline"
+            fullWidth={false}
+            style={styles.actionBtn}
+            onPress={() => setDetails(item)}
+          />
+          {canDecide ? (
+            <>
+              <Button
+                title={i18n.t('sellerAuto.approve')}
+                size="sm"
+                fullWidth={false}
+                style={styles.actionBtn}
+                onPress={() => setApproveTarget(item)}
+              />
+              <Button
+                title={i18n.t('sellerAuto.reject')}
+                size="sm"
+                variant="outline"
+                color={colors.error}
+                fullWidth={false}
+                style={styles.actionBtn}
+                onPress={() => setRejectTarget(item)}
+              />
+            </>
+          ) : null}
+        </View>
+      </View>
+    );
+  };
+
+  const header = (
+    <View style={styles.headerWrap}>
+      <SellerScreenHeader
+        title={t('seller.dashboard.returnRequests')}
+        subtitle={t('sellerAuto.reviewAndRespondToCustomer')}
+        onBack={() => navigation?.goBack()}
+      />
+
+      <StatusPills options={tabs} selected={status} onSelect={setStatus} />
+
+      <View style={[styles.searchBar, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+        <Icon source={searchBold} size={16} color={colors.textMuted} />
+        <TextInput
+          placeholder={t('sellerAuto.searchReturnOrderCustomerOr')}
+          placeholderTextColor={colors.textMuted}
+          value={searchInput}
+          onChangeText={setSearchInput}
+          returnKeyType="search"
+          style={[styles.searchInput, { color: colors.text }]}
+        />
+      </View>
+    </View>
+  );
+
+  let body: ReactElement | null = null;
+  if (list.loading && list.items.length === 0) {
+    body = <LoadingState text={t('sellerAuto.loadingReturns')} style={styles.stateWrap} />;
+  } else if (list.error && list.items.length === 0) {
+    body = <ErrorState error={list.error} onRetry={list.retry} style={styles.stateWrap} />;
+  } else if (list.items.length === 0) {
+    body = (
+      <EmptyState
+        icon={packageBold}
+        title={t('sellerAuto.noReturnsFound')}
+        message={hasFilters ? t('sellerAuto.noReturnsMatchYourSearch') : t('sellerAuto.youHaveNoReturnRequests')}
+        style={styles.stateWrap}
+      />
+    );
+  }
+
+  const approveNumbers = approveTarget ? refundNumbers(approveTarget) : null;
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: insets.top + 8 }]}>
-      {/* Header */}
-      <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <Squeeze onPress={() => navigation?.goBack()} scale={0.9}>
-          <View style={[styles.backBtn, { backgroundColor: colors.primary }]}>
-            <Icon source={arrowLeftBold} size={18} color={colors.onPrimary} />
-          </View>
-        </Squeeze>
-        <View style={styles.headerTitles}>
-          <Text style={[styles.headerTitle, { color: colors.text }]}>Return Requests</Text>
-          <Text style={[styles.headerSubtitle, { color: colors.textMuted }]}>
-            Manage customer return requests for your orders
-          </Text>
-        </View>
-      </View>
+      <OfflineBanner />
+      <FlatList
+        data={list.items}
+        keyExtractor={item => item.id}
+        renderItem={renderReturn}
+        ListHeaderComponent={header}
+        ListEmptyComponent={body}
+        ListFooterComponent={<PaginationFooter loading={list.loadingMore} hasMore={list.hasMore} />}
+        ItemSeparatorComponent={ItemSeparator}
+        contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 32 }]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        onEndReached={list.onEndReached}
+        onEndReachedThreshold={0.4}
+        refreshControl={
+          <RefreshControl
+            refreshing={list.refreshing}
+            onRefresh={list.onRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
+      />
 
-      <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]}
-        showsVerticalScrollIndicator={false}>
-        {/* Horizontal Filter Pills */}
-        <FadeUp delay={30} duration={300}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.pillsRow}>
-            {RETURN_FILTERS.map(pill => {
-              const isSelected = selectedFilter === pill.id;
-              return (
-                <Squeeze key={pill.id} onPress={() => setSelectedFilter(pill.id)}>
-                  <View
-                    style={[
-                      styles.filterPill,
-                      {
-                        backgroundColor: isSelected ? colors.primary : colors.surface,
-                        borderColor: isSelected ? colors.primary : colors.border,
-                      },
-                    ]}>
-                    <Text
-                      style={[
-                        styles.pillText,
-                        { color: isSelected ? colors.onPrimary : colors.textMuted },
-                        isSelected && { fontFamily: fonts.bold },
-                      ]}>
-                      {pill.icon}  {pill.label}
-                    </Text>
-                  </View>
-                </Squeeze>
-              );
-            })}
-          </ScrollView>
-        </FadeUp>
+      <ReasonModal
+        visible={!!approveTarget}
+        title={t('sellerAuto.approveReturn')}
+        message={
+          approveNumbers
+            ? i18n.t('sellerMsg.ret.approveNote', { cut: formatMoney(approveNumbers.amountToCut), refund: formatMoney(approveNumbers.totalRefund), fee: formatMoney(approveTarget?.platformFee) })
+            : ''
+        }
+        placeholder={t('sellerAuto.notesOptional')}
+        confirmText={t('sellerAuto.approve')}
+        loading={acting}
+        onConfirm={handleApprove}
+        onCancel={() => setApproveTarget(null)}
+      />
 
-        {/* Search & Date Filter Bar */}
-        <FadeUp delay={60} duration={300}>
-          <View style={styles.searchSection}>
-            <View
-              style={[
-                styles.searchBar,
-                { backgroundColor: colors.surface, borderColor: colors.border },
-              ]}>
-              <Icon source={searchBold} size={16} color={colors.textMuted} />
-              <TextInput
-                placeholder="Search order custom product"
-                placeholderTextColor={colors.textMuted}
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                style={[styles.searchInput, { color: colors.text }]}
-              />
-            </View>
+      <ReasonModal
+        visible={!!rejectTarget}
+        title={t('sellerAuto.rejectReturn')}
+        message={t('sellerAuto.tellTheCustomerWhyThis')}
+        placeholder={t('sellerAuto.explainWhyYouAreRejecting')}
+        confirmText={t('sellerAuto.reject')}
+        required
+        danger
+        loading={acting}
+        onConfirm={handleReject}
+        onCancel={() => setRejectTarget(null)}
+      />
 
-            {/* Date Inputs matching Figma */}
-            <View style={styles.dateInputsRow}>
-              <View
-                style={[
-                  styles.dateInputBox,
-                  { backgroundColor: colors.surface, borderColor: colors.border },
-                ]}>
-                <TextInput
-                  placeholder="mm/dd/yyy"
-                  placeholderTextColor={colors.textMuted}
-                  value={startDate}
-                  onChangeText={setStartDate}
-                  style={[styles.dateText, { color: colors.text }]}
-                />
-                <Text style={{ fontSize: 13 }}>📅</Text>
-              </View>
+      <DetailsModal ret={details} onClose={() => setDetails(null)} />
 
-              <View
-                style={[
-                  styles.dateInputBox,
-                  { backgroundColor: colors.surface, borderColor: colors.border },
-                ]}>
-                <TextInput
-                  placeholder="mm/dd/yyy"
-                  placeholderTextColor={colors.textMuted}
-                  value={endDate}
-                  onChangeText={setEndDate}
-                  style={[styles.dateText, { color: colors.text }]}
-                />
-                <Text style={{ fontSize: 13 }}>📅</Text>
-              </View>
-            </View>
-          </View>
-        </FadeUp>
-
-        {/* Orders List matching Order Returns.png */}
-        <View style={styles.ordersList}>
-          {loading && !refreshing ? (
-            <CtiLoader
-              size="md"
-              text="Loading return requests..."
-              style={{ paddingVertical: 40 }}
-            />
-          ) : filteredOrders.length === 0 ? (
-            <View style={[styles.orderCard, { backgroundColor: colors.surface, borderColor: colors.border, padding: 30, alignItems: 'center' }]}>
-              <Text style={{ color: colors.textMuted, fontFamily: fonts.medium }}>No return requests found</Text>
-            </View>
-          ) : (
-            filteredOrders.map((ord, idx) => (
-            <FadeUp key={ord.id} delay={90 + idx * 40} duration={320}>
-              <View
-                style={[
-                  styles.orderCard,
-                  { backgroundColor: colors.surface, borderColor: colors.border },
-                ]}>
-                {/* Top Row: Order ID & Status */}
-                <View style={styles.cardHeader}>
-                  <Text style={[styles.orderIdText, { color: colors.text }]}>{ord.orderId}</Text>
-                  <View
-                    style={[
-                      styles.statusBadge,
-                      { backgroundColor: ord.statusColor + '20', borderColor: ord.statusColor },
-                    ]}>
-                    <Text style={[styles.statusText, { color: ord.statusColor }]}>{ord.status}</Text>
-                  </View>
-                </View>
-
-                {/* Customer and Product info */}
-                <View style={styles.detailsGroup}>
-                  <Text style={[styles.customerName, { color: colors.text }]}>
-                    {ord.customerName}
-                  </Text>
-                  <Text style={[styles.productSku, { color: colors.textMuted }]}>
-                    {ord.productName} / {ord.sku}
-                  </Text>
-                </View>
-
-                {/* Date and Amount Row */}
-                <View style={styles.amountRow}>
-                  <Text style={[styles.orderDate, { color: colors.textMuted }]}>{ord.date}</Text>
-                  <Text style={[styles.amountText, { color: colors.text }]}>{ord.amount}</Text>
-                </View>
-
-                <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-                {/* Bottom Action Row: Eye, Download, Action Button */}
-                <View style={styles.actionRow}>
-                  <View style={styles.leftIcons}>
-                    <TouchableOpacity
-                      onPress={() =>
-                        setAlertConfig({
-                          visible: true,
-                          type: 'info',
-                          title: `Return: ${ord.orderId}`,
-                          message: `Customer: ${ord.customerName}\nProduct: ${ord.productName}\nAmount: ${ord.amount}\nStatus: ${ord.status}\nReason: ${ord.reason || 'Item not matching description'}`,
-                        })
-                      }
-                      style={[
-                        styles.iconActionBtn,
-                        { borderColor: colors.border, backgroundColor: colors.surfaceAlt },
-                      ]}>
-                      <Icon source={eyeBold} size={16} color={colors.text} />
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      onPress={() =>
-                        setAlertConfig({
-                          visible: true,
-                          type: 'success',
-                          title: 'Invoice Downloaded',
-                          message: `Return slip & invoice for ${ord.orderId} have been saved to your device.`,
-                        })
-                      }
-                      style={[
-                        styles.iconActionBtn,
-                        { borderColor: colors.border, backgroundColor: colors.surfaceAlt },
-                      ]}>
-                      <Icon source={downloadBold} size={16} color={colors.text} />
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Delivered / Action Button */}
-                  <TouchableOpacity
-                    onPress={() => handleApprove(ord.id)}
-                    style={[
-                      styles.dropdownBtn,
-                      { borderColor: colors.border, backgroundColor: colors.surfaceAlt },
-                    ]}>
-                    <Text style={[styles.dropdownBtnText, { color: colors.text }]}>
-                      {ord.status}
-                    </Text>
-                    <Icon source={chevronDownBold} size={14} color={colors.textMuted} />
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </FadeUp>
-          ))
-        )}
-      </View>
-      </ScrollView>
-
-      {/* Alert Modal */}
       <AlertModal
-        visible={alertConfig.visible}
-        type={alertConfig.type}
-        title={alertConfig.title}
-        message={alertConfig.message}
-        onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
+        visible={alert.visible}
+        type={alert.type}
+        title={alert.title}
+        message={alert.message}
+        onClose={() => setAlert(HIDDEN_ALERT)}
+      />
+      <AlertModal
+        visible={!!list.loadError}
+        type="error"
+        title={t('sellerAuto.couldNotLoadReturns')}
+        message={list.loadError || ''}
+        onClose={list.clearLoadError}
       />
     </View>
   );
 }
 
+function Row({ label, value }: { label: string; value: string }) {
+  const { colors } = useTheme();
+  useTranslation();
+  return (
+    <View style={styles.dataRow}>
+      <Text style={[styles.rowLabel, { color: colors.textMuted }]}>{label}</Text>
+      <Text style={[styles.rowValue, { color: colors.text }]}>{value}</Text>
+    </View>
+  );
+}
+
+function DetailsModal({ ret, onClose }: { ret: SellerReturn | null; onClose: () => void }) {
+  const { colors } = useTheme();
+  const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
+  if (!ret) return null;
+  const numbers = refundNumbers(ret);
+  const payment = getStatusStyle(PAYMENT_STATUS_STYLE, ret.paymentStatus);
+  const badge = getStatusStyle(RETURN_STATUS_STYLE, ret.status);
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <View style={[styles.modalBackdrop, { backgroundColor: colors.backdrop }]}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <View style={[styles.modalCard, { backgroundColor: colors.surface, marginBottom: insets.bottom + 12 }]}>
+          <Text style={[styles.modalTitle, { color: colors.text }]}>{ret.returnNo}</Text>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.modalBody}>
+            <Row label={t('sellerAuto.status')} value={badge.label} />
+            <Row label={t('glossary.order')} value={ret.orderNo || '-'} />
+            <Row label={t('glossary.customer')} value={ret.customer || '-'} />
+            <Row label={t('tabs.product')} value={ret.product || '-'} />
+            {ret.barcode ? <Row label={t('sellerAuto.barcode')} value={ret.barcode} /> : null}
+            <Row label={t('sellerAuto.quantity')} value={String(ret.quantity)} />
+            <Row label={t('sellerAuto.price')} value={formatMoney(ret.price)} />
+            <Row label={t('sellerAuto.platformFee')} value={formatMoney(ret.platformFee)} />
+            <Row label={t('sellerAuto.netEarningsDeduction')} value={formatMoney(numbers.amountToCut)} />
+            <Row label={t('sellerAuto.customerRefund')} value={formatMoney(numbers.totalRefund)} />
+            <Row label={t('sellerAuto.refundStatus')} value={payment.label} />
+            {ret.trackingNumber ? <Row label={t('sellerAuto.returnTracking')} value={ret.trackingNumber} /> : null}
+            <Row label={t('sellerAuto.created')} value={formatDate(ret.createdAt)} />
+            {ret.approvedAt ? <Row label={t('profile.status.approved')} value={formatDate(ret.approvedAt)} /> : null}
+            {ret.rejectedAt ? <Row label={t('chat.quoteStatus.rejected')} value={formatDate(ret.rejectedAt)} /> : null}
+            <Row label={t('sellerAuto.reason')} value={ret.reason || '-'} />
+            {ret.adminNotes ? <Row label={t('sellerAuto.notes')} value={ret.adminNotes} /> : null}
+            {ret.rejectionReason ? <Row label={t('sellerAuto.rejectionReason')} value={ret.rejectionReason} /> : null}
+
+            {ret.images.length > 0 ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.imageRow}>
+                {ret.images.map(uri => (
+                  <ProductThumb key={uri} uri={uri} size={80} />
+                ))}
+              </ScrollView>
+            ) : null}
+          </ScrollView>
+          <Button title={t('common.close')} size="md" variant="soft" onPress={onClose} />
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    gap: 12,
-  },
-  backBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitles: { flex: 1 },
-  headerTitle: { fontFamily: fonts.bold, fontSize: 18 },
-  headerSubtitle: { fontFamily: fonts.regular, fontSize: 12, marginTop: 2 },
-
-  content: { padding: 16, gap: 14 },
-
-  pillsRow: { flexDirection: 'row', gap: 8, paddingBottom: 4 },
-  filterPill: {
-    paddingHorizontal: 16,
-    paddingVertical: 9,
-    borderRadius: 22,
-    borderWidth: 1,
-  },
-  pillText: { fontFamily: fonts.medium, fontSize: 13 },
-
-  searchSection: { gap: 10 },
+  flex1: { flex: 1 },
+  container: { paddingHorizontal: 16, paddingTop: 6, flexGrow: 1 },
+  separator: { height: 14 },
+  stateWrap: { paddingVertical: 40 },
+  headerWrap: { gap: 12, marginBottom: 14 },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingHorizontal: 12,
+    gap: 10,
+    paddingHorizontal: 14,
     height: 44,
-    gap: 8,
-  },
-  searchInput: { flex: 1, fontFamily: fonts.regular, fontSize: 14 },
-
-  dateInputsRow: { flexDirection: 'row', gap: 10 },
-  dateInputBox: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     borderRadius: 10,
     borderWidth: 1,
-    paddingHorizontal: 12,
-    height: 40,
   },
-  dateText: { flex: 1, fontFamily: fonts.regular, fontSize: 13 },
-
-  ordersList: { gap: 12 },
-  orderCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 16,
-    gap: 10,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  orderIdText: { fontFamily: fonts.bold, fontSize: 16 },
-  statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  statusText: { fontFamily: fonts.medium, fontSize: 12 },
-
-  detailsGroup: { gap: 3 },
-  customerName: { fontFamily: fonts.bold, fontSize: 14 },
-  productSku: { fontFamily: fonts.regular, fontSize: 13 },
-
-  amountRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 2,
-  },
-  orderDate: { fontFamily: fonts.regular, fontSize: 13 },
-  amountText: { fontFamily: fonts.bold, fontSize: 16 },
-
-  divider: { height: 1, width: '100%' },
-
-  actionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  leftIcons: { flexDirection: 'row', gap: 8 },
-  iconActionBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dropdownBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 12,
-    height: 36,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  dropdownBtnText: { fontFamily: fonts.medium, fontSize: 13 },
+  searchInput: { flex: 1, fontFamily: fonts.regular, fontSize: 13, padding: 0 },
+  card: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 10 },
+  cardHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 },
+  returnNo: { fontFamily: fonts.bold, fontSize: 15 },
+  subText: { fontFamily: fonts.regular, fontSize: 12, marginTop: 2 },
+  badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  badgeText: { fontFamily: fonts.bold, fontSize: 11 },
+  divider: { height: 1 },
+  dataRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
+  rowLabel: { fontFamily: fonts.regular, fontSize: 13 },
+  rowValue: { flex: 1, textAlign: 'right', fontFamily: fonts.medium, fontSize: 13 },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
+  actionBtn: { flexGrow: 1, flexBasis: 90 },
+  modalBackdrop: { flex: 1, justifyContent: 'flex-end', padding: 12 },
+  modalCard: { maxHeight: '85%', borderRadius: 20, padding: 18, gap: 12 },
+  modalTitle: { fontFamily: fonts.bold, fontSize: 17 },
+  modalBody: { gap: 10 },
+  imageRow: { gap: 8, paddingTop: 4 },
 });

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useIsFocused } from '@react-navigation/native';
 import {
   ActivityIndicator,
-  Dimensions,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -23,13 +23,13 @@ import {
   cameraBold,
   checkCircleBold,
   commentDotsBold,
-  packageBold,
   phoneBold,
   plusSquareBold,
   tagBold,
   videoBold,
 } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
+import useRefreshOnActive from '@/utils/useRefreshOnActive';
 import { fonts } from '@/theme/fonts';
 import RefurbishedHeader from '../components/RefurbishedHeader';
 import {
@@ -38,14 +38,18 @@ import {
   rejectSellOffer,
   startSellRequestChat,
 } from '../services/refurbishedApi';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+import { formatMoney } from '@/utils/money';
+import { getLocaleTag } from '@/i18n/locale';
+import { useTranslation } from 'react-i18next';
+import { lower } from '@/i18n/locale';
+import { statusLabel } from '@/utils/labels';
+import i18n from '@/i18n';
 
 function formatDate(dateStr?: string): string {
   if (!dateStr) return '';
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('en-GB', {
+  return d.toLocaleDateString(getLocaleTag(), {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
@@ -53,6 +57,7 @@ function formatDate(dateStr?: string): string {
 }
 
 export default function MySellRequestsScreen({ navigation }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -102,13 +107,13 @@ export default function MySellRequestsScreen({ navigation }: any) {
           setAlertState({
             visible: true,
             type: 'warning',
-            title: 'Authentication Required',
-            message: 'Please sign in to view and manage your device sell requests.',
+            title: i18n.t('customer.authenticationRequired'),
+            message: i18n.t('customer.pleaseSignInToView'),
           });
         }
       }
     } catch (e: any) {
-      console.warn('fetchRequests error:', e);
+      if (__DEV__) console.warn('fetchRequests error:', e);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -118,6 +123,13 @@ export default function MySellRequestsScreen({ navigation }: any) {
   useEffect(() => {
     fetchRequests();
   }, [fetchRequests]);
+
+  // A new offer from the CTI team has no push, so the list reloads quietly when it comes back into view or the app returns
+  const isFocused = useIsFocused();
+  const markLoaded = useRefreshOnActive(isFocused, () => fetchRequests(true));
+  useEffect(() => {
+    if (!loading) markLoaded();
+  }, [loading, requests, markLoaded]);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -148,16 +160,16 @@ export default function MySellRequestsScreen({ navigation }: any) {
           setAlertState({
             visible: true,
             type: 'success',
-            title: 'Offer Accepted!',
-            message: 'You have accepted the offer. Our logistics partner will contact you soon for device pickup.',
+            title: i18n.t('customer.offerAccepted'),
+            message: i18n.t('customer.youHaveAcceptedTheOffer'),
           });
           fetchRequests(true);
         } else {
           setAlertState({
             visible: true,
             type: 'error',
-            title: 'Action Failed',
-            message: res.message || 'Could not accept offer. Please try again.',
+            title: i18n.t('chat.actionFailed'),
+            message: res.message || i18n.t('customer.couldNotAcceptOfferPlease'),
           });
         }
       } else {
@@ -166,16 +178,16 @@ export default function MySellRequestsScreen({ navigation }: any) {
           setAlertState({
             visible: true,
             type: 'info',
-            title: 'Offer Declined',
-            message: 'You have declined this offer. You can request a new quote at any time.',
+            title: i18n.t('customer.offerDeclined'),
+            message: i18n.t('customer.youHaveDeclinedThisOffer'),
           });
           fetchRequests(true);
         } else {
           setAlertState({
             visible: true,
             type: 'error',
-            title: 'Action Failed',
-            message: res.message || 'Could not decline offer. Please try again.',
+            title: i18n.t('chat.actionFailed'),
+            message: res.message || i18n.t('customer.couldNotDeclineOfferPlease'),
           });
         }
       }
@@ -183,8 +195,8 @@ export default function MySellRequestsScreen({ navigation }: any) {
       setAlertState({
         visible: true,
         type: 'error',
-        title: 'Error',
-        message: err?.message || 'Something went wrong. Please check your internet connection.',
+        title: i18n.t('common.error'),
+        message: err?.message || i18n.t('customer.somethingWentWrongPleaseCheck'),
       });
     } finally {
       setActionLoadingId(null);
@@ -198,23 +210,23 @@ export default function MySellRequestsScreen({ navigation }: any) {
       if (res.success && res.chat) {
         navigation.navigate('ChatDetail', {
           chatId: res.chat.chatId || res.chat._id,
-          participantName: 'CTI Refurbish Support',
+          participantName: i18n.t('customerMsg.supportName'),
           chatType: 'refurbish',
         });
       } else {
         setAlertState({
           visible: true,
           type: 'info',
-          title: 'Live Chat',
-          message: 'Support chat is being set up. You will receive an update in Messages shortly.',
+          title: i18n.t('customer.liveChat'),
+          message: i18n.t('customer.supportChatIsBeingSet'),
         });
       }
     } catch (err: any) {
       setAlertState({
         visible: true,
         type: 'error',
-        title: 'Chat Error',
-        message: err?.message || 'Could not start chat session.',
+        title: i18n.t('customer.chatError'),
+        message: err?.message || i18n.t('customer.couldNotStartChatSession'),
       });
     } finally {
       setActionLoadingId(null);
@@ -243,14 +255,14 @@ export default function MySellRequestsScreen({ navigation }: any) {
     const s = (status || '').toLowerCase();
     switch (s) {
       case 'accepted':
-        return { bg: '#10B9811A', text: '#10B981', label: 'Accepted' };
+        return { bg: '#10B9811A', text: '#10B981', label: i18n.t('chat.quoteStatus.accepted') };
       case 'rejected':
-        return { bg: '#EF44441A', text: '#EF4444', label: 'Declined' };
+        return { bg: '#EF44441A', text: '#EF4444', label: i18n.t('customer.declined') };
       case 'expired':
-        return { bg: '#6B72801A', text: '#6B7280', label: 'Expired' };
+        return { bg: '#6B72801A', text: '#6B7280', label: i18n.t('customer.expired') };
       case 'pending':
       default:
-        return { bg: '#F59E0B1A', text: '#F59E0B', label: 'Pending Response' };
+        return { bg: '#F59E0B1A', text: '#F59E0B', label: i18n.t('customer.pendingResponse') };
     }
   };
 
@@ -280,7 +292,7 @@ export default function MySellRequestsScreen({ navigation }: any) {
         <View style={styles.centerContainer}>
           <CtiLoader size="lg" />
           <Text style={[styles.loaderText, { color: colors.textMuted }]}>
-            Loading your sell requests...
+            {t('customer.loadingYourSellRequests')}
           </Text>
         </View>
       ) : (
@@ -308,24 +320,24 @@ export default function MySellRequestsScreen({ navigation }: any) {
             scale={0.9}
             style={styles.backWrap}>
             <View style={[styles.back, { backgroundColor: colors.primary }]}>
-              <Icon source={arrowLeftBold} size={20} color="#FFFFFF" />
+              <Icon source={arrowLeftBold} size={20} color={colors.onPrimary} />
             </View>
           </Squeeze>
 
           {/* Page Title & "Sell Device" Action Bar */}
           <View style={styles.titleSection}>
             <View style={styles.titleTextCol}>
-              <Text style={[styles.screenHeading, { color: colors.text }]}>My Sell Requests</Text>
+              <Text style={[styles.screenHeading, { color: colors.text }]}>{t('customer.mySellRequests')}</Text>
               <Text style={[styles.screenSubheading, { color: colors.textMuted }]}>
-                Track & manage your device buyback requests
+                {t('customer.trackAndManageYourDevice')}
               </Text>
             </View>
 
             <TouchableOpacity
               onPress={() => navigation.navigate('SellRefurbished')}
               style={[styles.sellAnotherBtn, { backgroundColor: colors.primary }]}>
-              <Icon source={plusSquareBold} size={14} color="#FFFFFF" />
-              <Text style={styles.sellAnotherText}>Sell Device</Text>
+              <Icon source={plusSquareBold} size={14} color={colors.onPrimary} />
+              <Text style={[styles.sellAnotherText, { color: colors.onPrimary }]}>{t('customer.sellDevice')}</Text>
             </TouchableOpacity>
           </View>
           {requests.length === 0 ? (
@@ -344,16 +356,15 @@ export default function MySellRequestsScreen({ navigation }: any) {
                   <Icon source={tagBold} size={32} color={colors.primary} />
                 </View>
                 <Text style={[styles.emptyTitle, { color: colors.text }]}>
-                  No Sell Requests Found
+                  {t('customer.noSellRequestsFound')}
                 </Text>
                 <Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>
-                  You haven't submitted any requests to sell your devices yet. Get an instant quote
-                  and cash payout!
+                  {t('customer.youHavenTSubmittedAny')}
                 </Text>
                 <Squeeze
                   onPress={() => navigation.navigate('SellRefurbished')}
                   style={[styles.emptyActionBtn, { backgroundColor: colors.primary }]}>
-                  <Text style={styles.emptyActionText}>Get Instant Valuation</Text>
+                  <Text style={styles.emptyActionText}>{t('customer.getInstantValuation')}</Text>
                 </Squeeze>
               </View>
             </FadeUp>
@@ -361,7 +372,7 @@ export default function MySellRequestsScreen({ navigation }: any) {
             requests.map((item, idx) => {
               const brandName = item.brandId?.name || '';
               const modelName = item.modelId?.name || '';
-              const deviceName = `${brandName} ${modelName}`.trim() || 'Custom Device';
+              const deviceName = `${brandName} ${modelName}`.trim() || i18n.t('customer.customDevice');
               const hasOffer = Boolean(item.offer);
               const offerStatus = item.offer?.status;
               const isOfferExpired =
@@ -400,7 +411,7 @@ export default function MySellRequestsScreen({ navigation }: any) {
                           },
                         ]}>
                         <Text style={[styles.statusBadgeText, { color: statusStyle.text }]}>
-                          Status: {item.status || 'Pending'}
+                          {t('customerMsg.statusLine', { status: statusLabel(item.status || 'pending') })}
                         </Text>
                       </View>
 
@@ -423,9 +434,9 @@ export default function MySellRequestsScreen({ navigation }: any) {
                             {deviceName}
                           </Text>
                           <Text style={[styles.trackingIdText, { color: colors.textMuted }]}>
-                            Tracking ID:{' '}
+                            {t('customerMsg.trackingId')}{' '}
                             <Text style={{ fontFamily: fonts.bold, color: colors.primary }}>
-                              {item.trackingId || 'N/A'}
+                              {item.trackingId || t('customerMsg.notAvailable')}
                             </Text>
                           </Text>
                         </View>
@@ -458,7 +469,7 @@ export default function MySellRequestsScreen({ navigation }: any) {
                           <View style={styles.mediaTag}>
                             <Icon source={cameraBold} size={11} color={colors.textMuted} />
                             <Text style={[styles.mediaTagText, { color: colors.textMuted }]}>
-                              {photosCount} photos attached
+                              {t('customerMsg.photosAttached', { count: photosCount })}
                             </Text>
                           </View>
                         )}
@@ -466,7 +477,7 @@ export default function MySellRequestsScreen({ navigation }: any) {
                           <View style={styles.mediaTag}>
                             <Icon source={videoBold} size={11} color={colors.textMuted} />
                             <Text style={[styles.mediaTagText, { color: colors.textMuted }]}>
-                              Video proof attached
+                              {i18n.t('customer.videoProofAttached')}
                             </Text>
                           </View>
                         )}
@@ -491,7 +502,7 @@ export default function MySellRequestsScreen({ navigation }: any) {
                               <>
                                 <Icon source={commentDotsBold} size={14} color={colors.primary} />
                                 <Text style={[styles.chatBtnText, { color: colors.text }]}>
-                                  Chat with Platform
+                                  {i18n.t('customer.chatWithPlatform')}
                                 </Text>
                               </>
                             )}
@@ -520,11 +531,10 @@ export default function MySellRequestsScreen({ navigation }: any) {
                           </View>
                           <View style={{ flex: 1 }}>
                             <Text style={[styles.evalTitle, { color: colors.text }]}>
-                              Under Evaluation
+                              {i18n.t('customer.underEvaluation')}
                             </Text>
                             <Text style={[styles.evalSub, { color: colors.textMuted }]}>
-                              Our technical team is reviewing your device specifications. You will
-                              receive a guaranteed price offer shortly.
+                              {i18n.t('customer.ourTechnicalTeamIsReviewing')}
                             </Text>
                           </View>
                         </View>
@@ -533,7 +543,7 @@ export default function MySellRequestsScreen({ navigation }: any) {
                           {/* Offer Header */}
                           <View style={styles.offerHeaderRow}>
                             <Text style={[styles.offerHeaderTitle, { color: colors.text }]}>
-                              Offer Received
+                              {i18n.t('customer.offerReceived')}
                             </Text>
                             {offerStyle && (
                               <View
@@ -550,16 +560,12 @@ export default function MySellRequestsScreen({ navigation }: any) {
 
                           {/* Payout Amounts */}
                           <View style={styles.payoutBlock}>
-                            <Text style={[styles.payoutLabel, { color: colors.textMuted }]}>
-                              GUARANTEED PAYOUT
-                            </Text>
                             <Text style={[styles.payoutValue, { color: colors.primary }]}>
-                              TRY {Number(item.offer?.offerPrice || 0).toLocaleString()}
+                              {formatMoney(item.offer?.offerPrice)}
                             </Text>
                             {item.offer?.estimatedValue ? (
                               <Text style={[styles.estValueText, { color: colors.textMuted }]}>
-                                Est. Market Value: TRY{' '}
-                                {Number(item.offer.estimatedValue).toLocaleString()}
+                                {t('customerMsg.estValue', { amount: formatMoney(item.offer.estimatedValue) })}
                               </Text>
                             ) : null}
                           </View>
@@ -577,7 +583,7 @@ export default function MySellRequestsScreen({ navigation }: any) {
                               {item.offer.notes ? (
                                 <View style={{ marginBottom: 6 }}>
                                   <Text style={[styles.notesLabel, { color: colors.textMuted }]}>
-                                    EVALUATION NOTES:
+                                    {i18n.t('customer.evaluationNotes')}
                                   </Text>
                                   <Text style={[styles.notesText, { color: colors.text }]}>
                                     {item.offer.notes}
@@ -588,7 +594,7 @@ export default function MySellRequestsScreen({ navigation }: any) {
                               {item.offer.conditions ? (
                                 <View>
                                   <Text style={[styles.notesLabel, { color: colors.textMuted }]}>
-                                    CONDITIONS:
+                                    {i18n.t('customer.conditions')}
                                   </Text>
                                   <Text style={[styles.notesText, { color: colors.text }]}>
                                     {item.offer.conditions}
@@ -617,7 +623,7 @@ export default function MySellRequestsScreen({ navigation }: any) {
                                 ) : (
                                   <>
                                     <Icon source={checkCircleBold} size={14} color="#FFFFFF" />
-                                    <Text style={styles.acceptBtnText}>Accept Offer</Text>
+                                    <Text style={styles.acceptBtnText}>{i18n.t('customer.acceptOffer')}</Text>
                                   </>
                                 )}
                               </TouchableOpacity>
@@ -628,13 +634,13 @@ export default function MySellRequestsScreen({ navigation }: any) {
                                 }
                                 disabled={Boolean(actionLoadingId)}
                                 style={[styles.declineBtn, { borderColor: '#EF444444' }]}>
-                                <Text style={styles.declineBtnText}>Decline</Text>
+                                <Text style={styles.declineBtnText}>{i18n.t('chat.decline')}</Text>
                               </TouchableOpacity>
                             </View>
                           ) : (
                             <View style={styles.offerStatusSummary}>
                               <Text style={[styles.statusSummaryText, { color: colors.textMuted }]}>
-                                This offer is {resolvedOfferStatus}.
+                                {t('customerMsg.offerIs', { status: lower(statusLabel(resolvedOfferStatus)) })}
                               </Text>
                             </View>
                           )}
@@ -654,16 +660,14 @@ export default function MySellRequestsScreen({ navigation }: any) {
       {/* Confirmation Modal */}
       <ConfirmModal
         visible={confirmModal.visible}
-        title={confirmModal.type === 'accept' ? 'Accept Offer?' : 'Decline Offer?'}
+        title={confirmModal.type === 'accept' ? t('customer.acceptOffer2') : t('customer.declineOffer')}
         message={
           confirmModal.type === 'accept'
-            ? `Do you want to accept the offer of TRY ${confirmModal.amount?.toLocaleString()} for request ${
-                confirmModal.trackingId
-              }? Once accepted, our team will schedule your device pickup.`
-            : `Are you sure you want to decline this offer for request ${confirmModal.trackingId}? This decision cannot be reversed.`
+            ? t('customerMsg.acceptOfferMsg', { amount: formatMoney(confirmModal.amount), id: confirmModal.trackingId })
+            : t('customerMsg.declineOfferMsg', { id: confirmModal.trackingId })
         }
-        confirmText={confirmModal.type === 'accept' ? 'Yes, Accept Offer' : 'Yes, Decline'}
-        cancelText="Cancel"
+        confirmText={confirmModal.type === 'accept' ? t('customer.yesAcceptOffer') : t('customer.yesDecline')}
+        cancelText={t('common.cancel')}
         danger={confirmModal.type === 'reject'}
         onConfirm={handleExecuteAction}
         onCancel={() => setConfirmModal(prev => ({ ...prev, visible: false }))}
@@ -727,6 +731,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   sellAnotherText: {
+    flexShrink: 1,
     color: '#FFFFFF',
     fontSize: 12,
     fontFamily: fonts.bold,
@@ -869,6 +874,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   mediaTagText: {
+    flexShrink: 1,
     fontSize: 11,
     fontFamily: fonts.medium,
   },
@@ -913,6 +919,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#88888820',
   },
   offerHeaderTitle: {
+    flexShrink: 1,
     fontSize: 13,
     fontFamily: fonts.bold,
   },

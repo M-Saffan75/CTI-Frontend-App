@@ -22,18 +22,23 @@ export const notificationApi = {
   /**
    * Fetch paginated list of notifications
    */
-  async getNotifications(page = 1, limit = 20, type?: string): Promise<{ notifications: NotificationItem[]; total: number }> {
+  async getNotifications(page = 1, limit = 20, type?: string): Promise<{ notifications: NotificationItem[]; total: number; unreadCount: number }> {
     const params: Record<string, any> = { page, limit };
     if (type) params.type = type;
 
+    // The list is the source of truth, so a failed request throws and the screen shows the real message
     const res = await apiClient.get('/notifications', { params });
-    if (res.data?.success) {
-      return {
-        notifications: res.data?.data?.notifications || [],
-        total: res.data?.data?.total || 0,
-      };
-    }
-    return { notifications: [], total: 0 };
+    const data = res.data?.data || {};
+    // The backend names the text field message; the app uses body
+    const notifications: NotificationItem[] = (data.notifications || []).map((n: any) => ({
+      ...n,
+      body: n.body || n.message || '',
+    }));
+    return {
+      notifications,
+      total: data.pagination?.totalNotifications || notifications.length,
+      unreadCount: data.unreadCount || 0,
+    };
   },
 
   /**

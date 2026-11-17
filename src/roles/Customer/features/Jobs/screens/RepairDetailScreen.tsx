@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useIsFocused } from '@react-navigation/native';
 import {
   Image,
   Pressable,
@@ -38,11 +39,18 @@ import customerJobApi, {
 } from '../services/customerJobApi';
 import { useCart } from '@/roles/Customer/context/CartContext';
 import { startChat } from '@/services/chatApi';
-import BookingModal from '../components/BookingModal';
+import { formatMoney } from '@/utils/money';
+import useRefreshOnActive from '@/utils/useRefreshOnActive';
+import { subscribeJobChanges, useJobChangedChecker } from '../utils/jobLive';
+import { getLocaleTag, upper } from '@/i18n/locale';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
+import { chipLabel, serviceTypeLabel, statusLabel, tx } from '@/utils/labels';
 
 const DESCRIPTION_PREVIEW = 150;
 
 export default function RepairDetailScreen({ navigation, route }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { cartCount } = useCart();
@@ -57,15 +65,14 @@ export default function RepairDetailScreen({ navigation, route }: any) {
   const [expandedOfferDesc, setExpandedOfferDesc] = useState<{ [id: string]: boolean }>({});
   const [expandedAddress, setExpandedAddress] = useState(false);
   const [startingChatId, setStartingChatId] = useState<string | null>(null);
-  const [acceptingOfferId, setAcceptingOfferId] = useState<string | null>(null);
 
   // Custom Modal States (no cheap Alert.alert)
-  const [bookingModalVisible, setBookingModalVisible] = useState(false);
-  const [selectedOfferForBooking, setSelectedOfferForBooking] = useState<NormalizedOffer | null>(null);
   const [reviewModalVisible, setReviewModalVisible] = useState(false);
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [disputeModalVisible, setDisputeModalVisible] = useState(false);
   const [isSubmittingDispute, setIsSubmittingDispute] = useState(false);
+  const disputeBusy = useRef(false);
+  const reviewBusy = useRef(false);
   const [openDisputeId, setOpenDisputeId] = useState<string | null>(null);
   const [alertState, setAlertState] = useState<{
     visible: boolean;
@@ -79,46 +86,79 @@ export default function RepairDetailScreen({ navigation, route }: any) {
     message: '',
   });
 
-  const fetchJobDetail = useCallback(async () => {
-    if (!jobId) {
-      setLoading(false);
-      return;
-    }
-    try {
-      const data = await customerJobApi.getMyJobDetail(jobId);
-      setJob(data);
-    } catch {
-      setJob(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [jobId]);
+  const [loadError, setLoadError] = useState('');
+
+  const fetchJobDetail = useCallback(
+    async (silent = false) => {
+      if (!jobId) {
+        setLoading(false);
+        return;
+      }
+      try {
+        const data = await customerJobApi.getMyJobDetail(jobId);
+        setJob(data);
+        setLoadError('');
+      } catch (err: any) {
+        // a quiet reload keeps what is already on screen
+        if (!silent) {
+          setJob(null);
+          setLoadError(err?.message || i18n.t('customer.couldNotLoadThisJob'));
+        }
+      } finally {
+        setLoading(false);
+      }
+    },
+    [jobId],
+  );
 
   useEffect(() => {
     fetchJobDetail();
   }, [fetchJobDetail]);
 
+  // A repairman sent an offer or changed the booking: reload quietly now if this screen is open,
+  // or when it comes back into view
+  const isFocused = useIsFocused();
+  const focusedRef = useRef(isFocused);
+  focusedRef.current = isFocused;
+  const jobChanged = useJobChangedChecker();
+  const reloadQuietly = () => {
+    fetchJobDetail(true);
+  };
+  const reloadRef = useRef(reloadQuietly);
+  reloadRef.current = reloadQuietly;
+  const markLoaded = useRefreshOnActive(isFocused, reloadQuietly, jobChanged);
+  useEffect(() => {
+    if (!loading) markLoaded();
+  }, [loading, markLoaded]);
+  useEffect(
+    () =>
+      subscribeJobChanges(() => {
+        if (focusedRef.current && jobChanged()) reloadRef.current();
+      }),
+    [jobChanged],
+  );
+
   // Dynamic Tabs based on job type
   const availableTabs = useMemo(() => {
-    if (!job) return [{ key: 'details', label: 'Details' }];
+    if (!job) return [{ key: 'details', label: i18n.t('customer.details') }];
 
     const tabs: Array<{ key: string; label: string }> = [
-      { key: 'details', label: 'Details' },
+      { key: 'details', label: i18n.t('customer.details') },
     ];
 
     if (job.tag === 'job_posting') {
       const offersCount = job.offers?.length || 0;
       if (job.selectedOffer) {
-        tabs.push({ key: 'offers', label: 'Selected Offer' });
+        tabs.push({ key: 'offers', label: i18n.t('customer.selectedOffer') });
       } else {
-        tabs.push({ key: 'offers', label: `Offers (${offersCount})` });
+        tabs.push({ key: 'offers', label: i18n.t('customerMsg.offersCount', { count: offersCount }) });
       }
     } else if (job.tag === 'direct_message') {
-      tabs.push({ key: 'repairman', label: 'Repairman Info' });
+      tabs.push({ key: 'repairman', label: i18n.t('customer.repairmanInfo') });
     }
 
     if (job.booking || ['booked', 'in_progress', 'completed', 'delivered', 'closed'].includes(job.status)) {
-      tabs.push({ key: 'booking', label: 'Booking' });
+      tabs.push({ key: 'booking', label: i18n.t('glossary.booking') });
     }
 
     return tabs;
@@ -126,7 +166,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
 
   // Keep active tab valid if tabs change
   useEffect(() => {
-    if (!availableTabs.some(t => t.key === activeTabKey)) {
+    if (!availableTabs.some(tab => tab.key === activeTabKey)) {
       setActiveTabKey('details');
     }
   }, [availableTabs, activeTabKey]);
@@ -141,8 +181,8 @@ export default function RepairDetailScreen({ navigation, route }: any) {
       setAlertState({
         visible: true,
         type: 'warning',
-        title: 'Notice',
-        message: 'Technician contact details not found.',
+        title: i18n.t('common.notice'),
+        message: i18n.t('customer.technicianContactDetailsNotFound'),
       });
       return;
     }
@@ -150,6 +190,15 @@ export default function RepairDetailScreen({ navigation, route }: any) {
     try {
       setStartingChatId(repairmanId);
       const res = await startChat({ repairmanId, jobId: job?.id });
+      if (!res.success || !res.chat) {
+        setAlertState({
+          visible: true,
+          type: 'error',
+          title: i18n.t('customer.couldNotOpenTheChat2'),
+          message: res.message || i18n.t('customer.pleaseTryAgain'),
+        });
+        return;
+      }
       const targetName = res.chat?.user?.name || res.chat?.repairman?.name || repairmanName;
       const targetAvatar =
         res.chat?.user?.avatar || res.chat?.repairman?.avatar || repairmanAvatar;
@@ -160,8 +209,13 @@ export default function RepairDetailScreen({ navigation, route }: any) {
         participantName: targetName,
         participantAvatar: targetAvatar,
       });
-    } catch {
-      navigation.navigate('ChatList');
+    } catch (err: any) {
+      setAlertState({
+        visible: true,
+        type: 'error',
+        title: i18n.t('customer.couldNotOpenTheChat2'),
+        message: err?.message || i18n.t('customer.pleaseTryAgain'),
+      });
     } finally {
       setStartingChatId(null);
     }
@@ -172,59 +226,12 @@ export default function RepairDetailScreen({ navigation, route }: any) {
     setAlertState({
       visible: true,
       type: 'info',
-      title: 'Complete on Website',
-      message: `To accept this offer of ${offer.currency} ${offer.finalTotal.toLocaleString()} from "${offer.repairmanName}" and secure your booking with Buyer Protection, please complete checkout on the CTI website.`,
+      title: i18n.t('customer.completeOnWebsite'),
+      message: i18n.t('customerMsg.acceptOfferWeb', {
+        amount: formatMoney(offer.finalTotal, offer.currency),
+        name: tx(offer.repairmanName),
+      }),
     });
-  };
-
-  // Submit booking from modern BookingModal
-  const handleSubmitBooking = async (bookingData: {
-    serviceType: string;
-    scheduledDate: string;
-    specialInstructions: string;
-    pickUpAddress?: string;
-  }) => {
-    if (!job?.id || !selectedOfferForBooking?.id) return;
-
-    try {
-      setAcceptingOfferId(selectedOfferForBooking.id);
-      const result = await customerJobApi.selectOffer(
-        job.id,
-        selectedOfferForBooking.id,
-        bookingData,
-      );
-
-      setBookingModalVisible(false);
-
-      if (result.success) {
-        setAlertState({
-          visible: true,
-          type: 'success',
-          title: 'Booking Confirmed!',
-          message:
-            result.message ||
-            `Your repair service has been successfully booked with "${selectedOfferForBooking.repairmanName}".`,
-        });
-        await fetchJobDetail();
-      } else {
-        setAlertState({
-          visible: true,
-          type: 'warning',
-          title: 'Booking Notice',
-          message: result.message || 'Please proceed to confirm booking details and payment.',
-        });
-      }
-    } catch (err: any) {
-      setBookingModalVisible(false);
-      setAlertState({
-        visible: true,
-        type: 'error',
-        title: 'Booking Error',
-        message: err?.message || 'Could not complete booking. Please try again.',
-      });
-    } finally {
-      setAcceptingOfferId(null);
-    }
   };
 
   const toggleOfferDesc = (id: string) => {
@@ -281,6 +288,8 @@ export default function RepairDetailScreen({ navigation, route }: any) {
   );
 
   const handleSubmitDispute = async (data: { category: string; description: string }) => {
+    if (disputeBusy.current) return;
+    disputeBusy.current = true;
     try {
       setIsSubmittingDispute(true);
       const res = await customerJobApi.createDispute({ bookingId: disputeBookingId, ...data });
@@ -290,18 +299,19 @@ export default function RepairDetailScreen({ navigation, route }: any) {
       setAlertState({
         visible: true,
         type: 'success',
-        title: 'Dispute Created',
-        message: res.message || 'Your dispute has been submitted.',
+        title: i18n.t('customer.disputeCreated'),
+        message: res.message || i18n.t('customer.yourDisputeHasBeenSubmitted'),
       });
       setOpenDisputeId(disputeId ? String(disputeId) : null);
     } catch (err: any) {
       setAlertState({
         visible: true,
         type: 'error',
-        title: 'Dispute Error',
-        message: err?.message || 'Failed to create dispute.',
+        title: i18n.t('customer.disputeError'),
+        message: err?.message || i18n.t('customer.failedToCreateDispute'),
       });
     } finally {
+      disputeBusy.current = false;
       setIsSubmittingDispute(false);
     }
   };
@@ -327,24 +337,24 @@ export default function RepairDetailScreen({ navigation, route }: any) {
         setAlertState({
           visible: true,
           type: 'success',
-          title: 'Job Closed',
-          message: res.message || 'Job closed successfully. Technician earnings released.',
+          title: i18n.t('customer.jobClosed'),
+          message: res.message || i18n.t('customer.jobClosedSuccessfullyTechnicianEarnings'),
         });
         await fetchJobDetail();
       } else {
         setAlertState({
           visible: true,
           type: 'error',
-          title: 'Error',
-          message: res.message || 'Failed to close job.',
+          title: i18n.t('common.error'),
+          message: res.message || i18n.t('customer.failedToCloseJob'),
         });
       }
     } catch (err: any) {
       setAlertState({
         visible: true,
         type: 'error',
-        title: 'Error',
-        message: err?.message || 'Failed to close job.',
+        title: i18n.t('common.error'),
+        message: err?.message || i18n.t('customer.failedToCloseJob'),
       });
     } finally {
       setIsClosingJob(false);
@@ -378,9 +388,9 @@ export default function RepairDetailScreen({ navigation, route }: any) {
       bookingId,
       jobId: job?.id ? String(job.id) : undefined,
       repairmanId,
-      repairmanName: job?.repairman?.name || job?.selectedOffer?.repairmanName || 'Technician',
+      repairmanName: job?.repairman?.name || tx(job?.selectedOffer?.repairmanName) || i18n.t('chat.technician'),
       repairmanAvatar: job?.repairman?.avatar || undefined,
-      deviceTitle: job?.title || 'Device Repair',
+      deviceTitle: tx(job?.title) || i18n.t('customer.deviceRepair'),
     };
   }, [job]);
 
@@ -389,8 +399,8 @@ export default function RepairDetailScreen({ navigation, route }: any) {
       setAlertState({
         visible: true,
         type: 'warning',
-        title: 'Notice',
-        message: 'Booking or technician details are missing for submitting a review.',
+        title: i18n.t('common.notice'),
+        message: i18n.t('customer.bookingOrTechnicianDetailsAre'),
       });
       return;
     }
@@ -404,6 +414,8 @@ export default function RepairDetailScreen({ navigation, route }: any) {
     overallRating: number;
     reviewText: string;
   }) => {
+    if (reviewBusy.current) return;
+    reviewBusy.current = true;
     try {
       setIsSubmittingReview(true);
       const res = await customerJobApi.createReview(reviewData);
@@ -411,18 +423,19 @@ export default function RepairDetailScreen({ navigation, route }: any) {
       setAlertState({
         visible: true,
         type: 'success',
-        title: 'Review Submitted',
-        message: res.message || 'Thank you! Your review has been submitted successfully.',
+        title: i18n.t('customer.reviewSubmitted'),
+        message: res.message || i18n.t('customer.thankYouYourReviewHas'),
       });
       await fetchJobDetail();
     } catch (err: any) {
       setAlertState({
         visible: true,
         type: 'error',
-        title: 'Review Error',
-        message: err?.message || 'Failed to submit review.',
+        title: i18n.t('customer.reviewError'),
+        message: err?.message || i18n.t('customer.failedToSubmitReview2'),
       });
     } finally {
+      reviewBusy.current = false;
       setIsSubmittingReview(false);
     }
   };
@@ -461,13 +474,13 @@ export default function RepairDetailScreen({ navigation, route }: any) {
 
         {loading ? (
           <View style={{ paddingVertical: 80, alignItems: 'center' }}>
-            <CtiLoader size="lg" text="Loading repair job details..." />
+            <CtiLoader size="lg" text={t('customer.loadingRepairJobDetails')} />
           </View>
         ) : !job ? (
           <View style={{ paddingVertical: 80, alignItems: 'center', paddingHorizontal: 24 }}>
             <Icon source={packageBold} size={48} color={colors.textMuted} />
             <Text style={[styles.title, { color: colors.text, textAlign: 'center', marginTop: 12 }]}>
-              Repair Job Not Found
+              {loadError ? t('customer.couldNotLoadTheRepair') : t('customer.repairJobNotFound')}
             </Text>
             <Text
               style={{
@@ -478,8 +491,18 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                 textAlign: 'center',
               }}
             >
-              The requested repair job details could not be found or loaded.
+              {loadError || t('customer.theRequestedRepairJobCould')}
             </Text>
+            {loadError ? (
+              <Squeeze
+                onPress={() => {
+                  setLoading(true);
+                  fetchJobDetail();
+                }}
+                style={{ marginTop: 20, paddingHorizontal: 24, paddingVertical: 12, backgroundColor: colors.primary, borderRadius: 12 }}>
+                <Text style={{ color: colors.onPrimary, fontFamily: fonts.bold }}>{t('customer.tryAgain')}</Text>
+              </Squeeze>
+            ) : null}
             <Squeeze
               onPress={() => navigation.goBack()}
               style={{
@@ -490,13 +513,13 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                 borderRadius: 12,
               }}
             >
-              <Text style={{ color: '#fff', fontFamily: fonts.bold }}>Go Back</Text>
+              <Text style={{ color: '#fff', fontFamily: fonts.bold }}>{t('customer.goBack')}</Text>
             </Squeeze>
           </View>
         ) : (
           <>
             {/* Title & Chips */}
-            <Text style={[styles.title, { color: colors.text }]}>{job.title}</Text>
+            <Text style={[styles.title, { color: colors.text }]}>{tx(job.title)}</Text>
 
             <View style={styles.chips}>
               {job.chips.map((chip, idx) => (
@@ -504,19 +527,19 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                   key={`${chip}-${idx}`}
                   style={[styles.chip, { borderColor: colors.primary, backgroundColor: colors.primary + '10' }]}
                 >
-                  <Text style={[styles.chipText, { color: colors.primary }]}>{chip}</Text>
+                  <Text style={[styles.chipText, { color: colors.primary }]}>{chipLabel(chip)}</Text>
                 </View>
               ))}
             </View>
 
             {/* Dynamic Tabs */}
             <View style={[styles.tabsWrap, { borderColor: colors.border }]}>
-              {availableTabs.map(t => {
-                const active = t.key === activeTabKey;
+              {availableTabs.map(tab => {
+                const active = tab.key === activeTabKey;
                 return (
                   <Pressable
-                    key={t.key}
-                    onPress={() => setActiveTabKey(t.key)}
+                    key={tab.key}
+                    onPress={() => setActiveTabKey(tab.key)}
                     style={[styles.tab, active && { borderBottomColor: colors.primary }]}
                   >
                     <Text
@@ -528,7 +551,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                         },
                       ]}
                     >
-                      {t.label}
+                      {tab.label}
                     </Text>
                   </Pressable>
                 );
@@ -539,56 +562,56 @@ export default function RepairDetailScreen({ navigation, route }: any) {
             {activeTabKey === 'details' && (
               <FadeUp duration={400}>
                 <Text style={[styles.price, { color: colors.text }]}>{job.priceLabel}</Text>
-                <Text style={[styles.muted, { color: colors.textMuted }]}>{job.urgencyNote}</Text>
+                <Text style={[styles.muted, { color: colors.textMuted }]}>{tx(job.urgencyNote)}</Text>
 
-                <Text style={[styles.sectionTitle, { color: colors.text }]}>Description</Text>
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('customer.description')}</Text>
                 <Text
                   style={[styles.text, { color: colors.textMuted }]}
                   numberOfLines={expandedDesc ? undefined : 3}
                 >
-                  {job.description}
+                  {tx(job.description)}
                 </Text>
-                {job.description.length > DESCRIPTION_PREVIEW && (
+                {tx(job.description).length > DESCRIPTION_PREVIEW && (
                   <Pressable onPress={() => setExpandedDesc(!expandedDesc)} hitSlop={6}>
                     <Text style={[styles.link, { color: colors.primary }]}>
-                      {expandedDesc ? 'Read Less' : 'Read More'}
+                      {expandedDesc ? t('customer.readLess') : t('customer.readMore2')}
                     </Text>
                   </Pressable>
                 )}
 
-                <Text style={[styles.sectionTitle, { color: colors.text }]}>Services Required</Text>
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('customer.servicesRequired')}</Text>
                 <View style={styles.pills}>
                   {job.services.map((service, idx) => (
-                    <View key={`${service}-${idx}`} style={[styles.pill, { borderColor: colors.primary }]}>
-                      <Text style={[styles.pillText, { color: colors.primary }]}>{service}</Text>
+                    <View key={`${tx(service)}-${idx}`} style={[styles.pill, { borderColor: colors.primary }]}>
+                      <Text style={[styles.pillText, { color: colors.primary }]}>{tx(service)}</Text>
                     </View>
                   ))}
                 </View>
 
-                <Text style={[styles.sectionTitle, { color: colors.text }]}>Location</Text>
-                <Text style={[styles.text, { color: colors.textMuted }]}>{job.locationNote}</Text>
-                <Text style={[styles.link, { color: colors.primary }]}>{job.locationLabel}</Text>
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('customer.location')}</Text>
+                <Text style={[styles.text, { color: colors.textMuted }]}>{tx(job.locationNote)}</Text>
+                <Text style={[styles.link, { color: colors.primary }]}>{tx(job.locationLabel)}</Text>
 
-                <Text style={[styles.sectionTitle, { color: colors.text }]}>Service Preference</Text>
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('customer.servicePreference')}</Text>
                 <View style={[styles.pill, styles.singlePill, { borderColor: colors.primary }]}>
                   <Text style={[styles.pillText, { color: colors.primary }]}>
                     {job.servicePreference}
                   </Text>
                 </View>
 
-                <Text style={[styles.sectionTitle, { color: colors.text }]}>Job Overview</Text>
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('customer.jobOverview')}</Text>
                 <View style={[styles.statsBox, { backgroundColor: colors.surfaceAlt }]}>
                   {job.stats.map(stat => (
-                    <View key={stat.label} style={styles.statItem}>
-                      <Text style={[styles.statLabel, { color: colors.textMuted }]}>{stat.label}</Text>
-                      <Text style={[styles.statValue, { color: colors.text }]}>{stat.value}</Text>
+                    <View key={tx(stat.label)} style={styles.statItem}>
+                      <Text style={[styles.statLabel, { color: colors.textMuted }]}>{tx(stat.label)}</Text>
+                      <Text style={[styles.statValue, { color: colors.text }]}>{tx(stat.value)}</Text>
                     </View>
                   ))}
                 </View>
 
                 <View style={[styles.divider, { backgroundColor: colors.border }]} />
                 <Text style={[styles.footerText, { color: colors.textMuted }]}>
-                  Created: {job.createdAt}
+                  {t('customerMsg.createdOn', { date: tx(job.createdAt) })}
                 </Text>
               </FadeUp>
             )}
@@ -613,10 +636,10 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                       >
                         <Icon source={toolExtra} size={36} color={colors.primary} />
                         <Text style={[styles.emptyOffersTitle, { color: colors.text }]}>
-                          No Offers Available Yet
+                          {i18n.t('customer.noOffersAvailableYet')}
                         </Text>
                         <Text style={[styles.emptyOffersText, { color: colors.textMuted }]}>
-                          Expert repair technicians are reviewing your job request. When a technician submits an offer, you will see their proposal, pricing breakdown, and warranty details right here!
+                          {i18n.t('customer.expertRepairTechniciansAreReviewing')}
                         </Text>
                       </View>
                     );
@@ -649,7 +672,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                             <View style={styles.offerHeader}>
                               <View style={styles.offerTechInfo}>
                                 <Text style={[styles.offerTechName, { color: colors.text }]}>
-                                  {offer.repairmanName}
+                                  {tx(offer.repairmanName)}
                                 </Text>
                                 <Text style={[styles.offerShopName, { color: colors.textMuted }]}>
                                   @{offer.shopName}
@@ -657,12 +680,14 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                               </View>
 
                               <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                              <View style={styles.offerRatingRow}>
-                                <Icon source={starExtra} size={14} color="#f59e0b" />
-                                <Text style={[styles.offerRatingText, { color: colors.text }]}>
-                                  {offer.rating.toFixed(1)}
-                                </Text>
-                              </View>
+                              {offer.rating > 0 && (
+                                <View style={styles.offerRatingRow}>
+                                  <Icon source={starExtra} size={14} color="#f59e0b" />
+                                  <Text style={[styles.offerRatingText, { color: colors.text }]}>
+                                    {offer.rating.toFixed(1)}
+                                  </Text>
+                                </View>
+                              )}
                               <View
                                 style={[
                                   styles.offerStatusPill,
@@ -679,7 +704,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                                     { color: isAccepted ? colors.success : colors.primary },
                                   ]}
                                 >
-                                  {isAccepted ? 'Accepted Offer' : offer.status || 'Active Offer'}
+                                  {isAccepted ? i18n.t('customer.acceptedOffer') : offer.status ? statusLabel(offer.status) : i18n.t('customer.activeOffer')}
                                 </Text>
                               </View>
                             </View>
@@ -689,14 +714,16 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                           <View style={styles.offerBadgesRow}>
                             <View style={[styles.miniBadge, { backgroundColor: colors.surfaceAlt }]}>
                               <Text style={[styles.miniBadgeText, { color: colors.textMuted }]}>
-                                💼 {offer.totalJobs} jobs
+                                {t('customerMsg.jobsCount', { count: offer.totalJobs })}
                               </Text>
                             </View>
-                            <View style={[styles.miniBadge, { backgroundColor: colors.surfaceAlt }]}>
-                              <Text style={[styles.miniBadgeText, { color: colors.textMuted }]}>
-                                ✔ {offer.successRate}% success
-                              </Text>
-                            </View>
+                            {offer.successRate > 0 && (
+                              <View style={[styles.miniBadge, { backgroundColor: colors.surfaceAlt }]}>
+                                <Text style={[styles.miniBadgeText, { color: colors.textMuted }]}>
+                                  {t('customerMsg.successRate', { rate: offer.successRate })}
+                                </Text>
+                              </View>
+                            )}
                             <View
                               style={[
                                 styles.miniBadge,
@@ -704,20 +731,20 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                               ]}
                             >
                               <Text style={[styles.miniBadgeText, { color: colors.primary }]}>
-                                🛡 {offer.warrantyLabel}
+                                🛡 {tx(offer.warrantyLabel)}
                               </Text>
                             </View>
                             {offer.pickupAvailable && (
                               <View style={[styles.miniBadge, { backgroundColor: '#e0f2fe' }]}>
                                 <Text style={[styles.miniBadgeText, { color: '#0369a1' }]}>
-                                  🚗 Pickup ({offer.currency} {offer.pickupCharge})
+                                  {t('customerMsg.pickupFee', { fee: formatMoney(offer.pickupCharge, offer.currency) })}
                                 </Text>
                               </View>
                             )}
                             {offer.homeService && (
                               <View style={[styles.miniBadge, { backgroundColor: '#dcfce7' }]}>
                                 <Text style={[styles.miniBadgeText, { color: '#15803d' }]}>
-                                  🏠 Home Service
+                                  {i18n.t('customer.homeService')}
                                 </Text>
                               </View>
                             )}
@@ -737,12 +764,12 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                                 style={[styles.offerDescText, { color: colors.textMuted }]}
                                 numberOfLines={isExpanded ? undefined : 2}
                               >
-                                {offer.description}
+                                {tx(offer.description)}
                               </Text>
-                              {offer.description.length > 90 && (
+                              {tx(offer.description).length > 90 && (
                                 <Pressable onPress={() => toggleOfferDesc(offer.id)} hitSlop={6}>
                                   <Text style={[styles.link, { color: colors.primary, fontSize: 12 }]}>
-                                    {isExpanded ? 'Read Less' : 'Read More'}
+                                    {isExpanded ? i18n.t('customer.readLess') : i18n.t('customer.readMore2')}
                                   </Text>
                                 </Pressable>
                               )}
@@ -753,18 +780,18 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                           <View style={[styles.timingRow, { borderColor: colors.border }]}>
                             <View style={styles.timingItem}>
                               <Text style={[styles.timingLabel, { color: colors.textMuted }]}>
-                                Can Start:
+                                {i18n.t('customer.canStart')}
                               </Text>
                               <Text style={[styles.timingValue, { color: colors.text }]}>
-                                {offer.startLabel}
+                                {tx(offer.startLabel)}
                               </Text>
                             </View>
                             <View style={styles.timingItem}>
                               <Text style={[styles.timingLabel, { color: colors.textMuted }]}>
-                                Estimated Time:
+                                {i18n.t('chat.estimatedTime')}
                               </Text>
                               <Text style={[styles.timingValue, { color: colors.text }]}>
-                                {offer.timeLabel}
+                                {tx(offer.timeLabel)}
                               </Text>
                             </View>
                           </View>
@@ -773,7 +800,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                           {offer.requiredParts.length > 0 && (
                             <View style={styles.partsSection}>
                               <Text style={[styles.partsTitle, { color: colors.text }]}>
-                                Required Replacement Parts:
+                                {i18n.t('customer.requiredReplacementParts')}
                               </Text>
                               <View style={styles.partsGrid}>
                                 {offer.requiredParts.map(part => (
@@ -785,10 +812,10 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                                     ]}
                                   >
                                     <Text style={[styles.partName, { color: colors.text }]} numberOfLines={1}>
-                                      {part.name}
+                                      {tx(part.name)}
                                     </Text>
                                     <Text style={[styles.partPrice, { color: colors.primary }]}>
-                                      {offer.currency} {part.price.toLocaleString()}
+                                      {formatMoney(part.price, offer.currency)}
                                     </Text>
                                   </View>
                                 ))}
@@ -804,25 +831,25 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                             ]}
                           >
                             <Text style={[styles.breakdownHeader, { color: colors.text }]}>
-                              Price Breakdown
+                              {i18n.t('customer.priceBreakdown')}
                             </Text>
 
                             <View style={styles.breakdownRow}>
                               <Text style={[styles.breakdownLabel, { color: colors.textMuted }]}>
-                                Labor Cost:
+                                {i18n.t('customer.laborCost')}
                               </Text>
                               <Text style={[styles.breakdownVal, { color: colors.text }]}>
-                                {offer.currency} {offer.basePrice.toLocaleString()}
+                                {formatMoney(offer.basePrice, offer.currency)}
                               </Text>
                             </View>
 
                             {offer.partsEstimate > 0 && (
                               <View style={styles.breakdownRow}>
                                 <Text style={[styles.breakdownLabel, { color: colors.textMuted }]}>
-                                  Parts Cost:
+                                  {i18n.t('customer.partsCost')}
                                 </Text>
                                 <Text style={[styles.breakdownVal, { color: colors.text }]}>
-                                  {offer.currency} {offer.partsEstimate.toLocaleString()}
+                                  {formatMoney(offer.partsEstimate, offer.currency)}
                                 </Text>
                               </View>
                             )}
@@ -830,10 +857,10 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                             {offer.pickupAvailable && offer.pickupCharge > 0 && (
                               <View style={styles.breakdownRow}>
                                 <Text style={[styles.breakdownLabel, { color: colors.textMuted }]}>
-                                  Pickup Fee:
+                                  {i18n.t('customer.pickupFee')}
                                 </Text>
                                 <Text style={[styles.breakdownVal, { color: colors.text }]}>
-                                  +{offer.currency} {offer.pickupCharge.toLocaleString()}
+                                  +{formatMoney(offer.pickupCharge, offer.currency)}
                                 </Text>
                               </View>
                             )}
@@ -842,10 +869,10 @@ export default function RepairDetailScreen({ navigation, route }: any) {
 
                             <View style={styles.breakdownRow}>
                               <Text style={[styles.totalLabel, { color: colors.text }]}>
-                                Total Amount:
+                                {i18n.t('customer.totalAmount2')}
                               </Text>
                               <Text style={[styles.totalVal, { color: colors.primary }]}>
-                                {offer.currency} {offer.finalTotal.toLocaleString()}
+                                {formatMoney(offer.finalTotal, offer.currency)}
                               </Text>
                             </View>
                           </View>
@@ -854,7 +881,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                           <View style={styles.actionsRow}>
                             {/* Chat Button */}
                             <Button
-                              title={isAccepted ? 'Chat' : 'Chat with Tech'}
+                              title={isAccepted ? i18n.t('customer.chat') : i18n.t('customer.chatWithTech')}
                               icon={sendBold}
                               iconPosition="left"
                               size="sm"
@@ -862,7 +889,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                               onPress={() =>
                                 handleStartChatWithTech(
                                   offer.repairmanId,
-                                  offer.repairmanName,
+                                  tx(offer.repairmanName),
                                 )
                               }
                               disabled={isStartingChat}
@@ -875,7 +902,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                             {/* Accept Offer Guidance */}
                             {!isAccepted && (
                               <Button
-                                title="Accept Offer"
+                                title={i18n.t('customer.acceptOffer')}
                                 size="sm"
                                 variant="primary"
                                 onPress={() => handleAcceptOffer(offer)}
@@ -895,7 +922,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                               >
                                 <Icon source={checkCircleBold} size={16} color={colors.success} />
                                 <Text style={[styles.acceptBtnText, { color: colors.success }]}>
-                                  Accepted
+                                  {i18n.t('chat.quoteStatus.accepted')}
                                 </Text>
                               </View>
                             )}
@@ -919,9 +946,9 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                               </View>
                               <Text style={[styles.secureNoticeText, { color: colors.textMuted }]}>
                                 <Text style={{ fontFamily: fonts.bold, color: colors.text }}>
-                                  Secure Payment:{' '}
+                                  {t('customerMsg.securePayment')}{' '}
                                 </Text>
-                                You can safely complete payment and accept this offer from the CTI website.
+                                {t('customerMsg.securePaymentText')}
                               </Text>
                             </View>
                           )}
@@ -967,23 +994,25 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                         ]}
                       >
                         <Text style={[styles.avatarText, { color: colors.primary }]}>
-                          {job.repairman?.name?.charAt(0)?.toUpperCase() || 'R'}
+                          {upper(job.repairman?.name?.charAt(0) || '') || 'R'}
                         </Text>
                       </View>
                     )}
                     <View style={{ flex: 1, gap: 2 }}>
                       <Text style={[styles.repairmanName, { color: colors.text }]}>
-                        {job.repairman?.name || 'Certified Repair Technician'}
+                        {job.repairman?.name || t('chat.technician')}
                       </Text>
                       <Text style={[styles.repairmanShop, { color: colors.textMuted }]}>
-                        {job.repairman?.shopName || 'Certified Repair Center'}
+                        {job.repairman?.shopName || ''}
                       </Text>
-                      <View style={styles.offerRatingRow}>
-                        <Icon source={starExtra} size={14} color="#f59e0b" />
-                        <Text style={[styles.offerRatingText, { color: colors.text }]}>
-                          {Number(job.repairman?.rating || 5.0).toFixed(1)}
-                        </Text>
-                      </View>
+                      {Number(job.repairman?.rating) > 0 && (
+                        <View style={styles.offerRatingRow}>
+                          <Icon source={starExtra} size={14} color="#f59e0b" />
+                          <Text style={[styles.offerRatingText, { color: colors.text }]}>
+                            {Number(job.repairman?.rating).toFixed(1)}
+                          </Text>
+                        </View>
+                      )}
                     </View>
                   </View>
 
@@ -991,7 +1020,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
 
                   {Boolean(job.repairman?.city) && (
                     <View style={styles.statItem}>
-                      <Text style={[styles.statLabel, { color: colors.textMuted }]}>City / Area:</Text>
+                      <Text style={[styles.statLabel, { color: colors.textMuted }]}>{t('customer.cityArea2')}</Text>
                       <Text style={[styles.statValue, { color: colors.text }]}>
                         {job.repairman.city}
                       </Text>
@@ -1000,7 +1029,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
 
                   {Boolean(job.repairman?.phone) && (
                     <View style={[styles.statItem, { marginTop: 6 }]}>
-                      <Text style={[styles.statLabel, { color: colors.textMuted }]}>Contact:</Text>
+                      <Text style={[styles.statLabel, { color: colors.textMuted }]}>{t('customer.contact2')}</Text>
                       <Text style={[styles.statValue, { color: colors.text }]}>
                         {job.repairman.phone}
                       </Text>
@@ -1008,7 +1037,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                   )}
 
                   <Button
-                    title="Chat with Technician"
+                    title={t('customer.chatWithTechnician')}
                     icon={sendBold}
                     iconPosition="left"
                     size="md"
@@ -1017,7 +1046,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                     onPress={() =>
                       handleStartChatWithTech(
                         job.repairman?.id,
-                        job.repairman?.name || 'Technician',
+                        job.repairman?.name || i18n.t('chat.technician'),
                         job.repairman?.avatar,
                       )
                     }
@@ -1040,7 +1069,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                 >
                   <View style={styles.bookingCardHeader}>
                     <Text style={[styles.sectionTitle, { color: colors.text, marginTop: 0 }]}>
-                      Booking Overview
+                      {t('customer.bookingOverview')}
                     </Text>
                     <View
                       style={[
@@ -1054,7 +1083,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                           { color: colors.primary },
                         ]}
                       >
-                        {job.booking?.status || job.status || 'Scheduled'}
+                        {statusLabel(job.booking?.status || job.status || 'scheduled')}
                       </Text>
                     </View>
                   </View>
@@ -1089,29 +1118,31 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                           ]}
                         >
                           <Text style={[styles.avatarText, { color: colors.primary }]}>
-                            {job.repairman?.name?.charAt(0)?.toUpperCase() || 'T'}
+                            {upper(job.repairman?.name?.charAt(0) || '') || 'T'}
                           </Text>
                         </View>
                       )}
                       <View style={{ flex: 1, gap: 2 }}>
                         <Text style={[styles.repairmanName, { color: colors.text }]}>
-                          {job.repairman?.name || job.selectedOffer?.repairmanName || 'Certified Technician'}
+                          {job.repairman?.name || tx(job.selectedOffer?.repairmanName) || ''}
                         </Text>
                         <Text style={[styles.repairmanShop, { color: colors.textMuted }]}>
-                          {job.repairman?.shopName || job.selectedOffer?.shopName || 'Certified Repair Center'}
+                          {job.repairman?.shopName || job.selectedOffer?.shopName || ''}
                         </Text>
-                        <View style={styles.offerRatingRow}>
-                          <Icon source={starExtra} size={14} color="#f59e0b" />
-                          <Text style={[styles.offerRatingText, { color: colors.text }]}>
-                            {Number(job.repairman?.rating || job.selectedOffer?.rating || 5.0).toFixed(1)}
-                          </Text>
-                        </View>
+                        {Number(job.repairman?.rating || job.selectedOffer?.rating) > 0 && (
+                          <View style={styles.offerRatingRow}>
+                            <Icon source={starExtra} size={14} color="#f59e0b" />
+                            <Text style={[styles.offerRatingText, { color: colors.text }]}>
+                              {Number(job.repairman?.rating || job.selectedOffer?.rating).toFixed(1)}
+                            </Text>
+                          </View>
+                        )}
                       </View>
                     </View>
 
                     {/* Chat with technician button */}
                     <Button
-                      title="Chat with Technician"
+                      title={t('customer.chatWithTechnician')}
                       icon={sendBold}
                       iconPosition="left"
                       size="sm"
@@ -1120,7 +1151,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                       onPress={() =>
                         handleStartChatWithTech(
                           job.repairman?.id || job.selectedOffer?.repairmanId || '',
-                          job.repairman?.name || job.selectedOffer?.repairmanName || 'Technician',
+                          job.repairman?.name || tx(job.selectedOffer?.repairmanName) || i18n.t('chat.technician'),
                           job.repairman?.avatar || undefined,
                         )
                       }
@@ -1135,17 +1166,17 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                   {/* Scheduled Date */}
                   <View style={styles.statItem}>
                     <Text style={[styles.statLabel, { color: colors.textMuted }]}>
-                      Scheduled Date:
+                      {t('customer.scheduledDate')}
                     </Text>
                     <Text style={[styles.statValue, { color: colors.text }]}>
                       {job.booking?.bookingDetails?.scheduledDate
-                        ? new Date(job.booking.bookingDetails.scheduledDate).toLocaleDateString('en-US', {
+                        ? new Date(job.booking.bookingDetails.scheduledDate).toLocaleDateString(getLocaleTag(), {
                             weekday: 'short',
                             year: 'numeric',
                             month: 'short',
                             day: 'numeric',
                           })
-                        : 'To be scheduled'}
+                        : t('customer.toBeScheduled')}
                     </Text>
                   </View>
 
@@ -1153,10 +1184,10 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                   {Boolean(job.booking?.bookingDetails?.estimatedCompletion) && (
                     <View style={[styles.statItem, { marginTop: 10 }]}>
                       <Text style={[styles.statLabel, { color: colors.textMuted }]}>
-                        Estimated Completion:
+                        {t('customer.estimatedCompletion')}
                       </Text>
                       <Text style={[styles.statValue, { color: colors.text }]}>
-                        {new Date(job.booking.bookingDetails.estimatedCompletion).toLocaleDateString('en-US', {
+                        {new Date(job.booking.bookingDetails.estimatedCompletion).toLocaleDateString(getLocaleTag(), {
                           month: 'short',
                           day: 'numeric',
                           hour: '2-digit',
@@ -1169,7 +1200,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                   {/* Service Type */}
                   <View style={[styles.statItem, { marginTop: 10 }]}>
                     <Text style={[styles.statLabel, { color: colors.textMuted }]}>
-                      Service Type:
+                      {t('customer.serviceType2')}
                     </Text>
                     <Text
                       style={[
@@ -1177,11 +1208,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                         { color: colors.text, textTransform: 'capitalize' },
                       ]}
                     >
-                      {String(
-                        job.booking?.bookingDetails?.serviceType ||
-                          job.servicePreference ||
-                          'Drop-off',
-                      ).replace('-', ' ')}
+                      {serviceTypeLabel(job.booking?.bookingDetails?.serviceType || job.servicePreference || 'drop-off')}
                     </Text>
                   </View>
 
@@ -1193,20 +1220,15 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                     ]}
                   >
                     <Text style={[styles.breakdownHeader, { color: colors.text }]}>
-                      Pricing Breakdown
+                      {t('customer.pricingBreakdown')}
                     </Text>
 
                     <View style={styles.breakdownRow}>
                       <Text style={[styles.breakdownLabel, { color: colors.textMuted }]}>
-                        Base / Labor:
+                        {t('customer.baseLabor')}
                       </Text>
                       <Text style={[styles.breakdownVal, { color: colors.text }]}>
-                        {job.booking?.bookingDetails?.pricing?.currency || 'TRY'}{' '}
-                        {Number(
-                          job.booking?.bookingDetails?.pricing?.basePrice ||
-                            job.selectedOffer?.basePrice ||
-                            0,
-                        ).toLocaleString()}
+                        {formatMoney(job.booking?.bookingDetails?.pricing?.basePrice || job.selectedOffer?.basePrice || 0, job.booking?.bookingDetails?.pricing?.currency || 'TRY')}
                       </Text>
                     </View>
 
@@ -1217,15 +1239,10 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                     ) > 0 && (
                       <View style={styles.breakdownRow}>
                         <Text style={[styles.breakdownLabel, { color: colors.textMuted }]}>
-                          Parts Cost:
+                          {t('customer.partsCost')}
                         </Text>
                         <Text style={[styles.breakdownVal, { color: colors.text }]}>
-                          {job.booking?.bookingDetails?.pricing?.currency || 'TRY'}{' '}
-                          {Number(
-                            job.booking?.bookingDetails?.pricing?.partsPrice ||
-                              job.selectedOffer?.partsEstimate ||
-                              0,
-                          ).toLocaleString()}
+                          {formatMoney(job.booking?.bookingDetails?.pricing?.partsPrice || job.selectedOffer?.partsEstimate || 0, job.booking?.bookingDetails?.pricing?.currency || 'TRY')}
                         </Text>
                       </View>
                     )}
@@ -1237,15 +1254,10 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                     ) > 0 && (
                       <View style={styles.breakdownRow}>
                         <Text style={[styles.breakdownLabel, { color: colors.textMuted }]}>
-                          Service / Pickup Fee:
+                          {t('customer.servicePickupFee')}
                         </Text>
                         <Text style={[styles.breakdownVal, { color: colors.text }]}>
-                          +{job.booking?.bookingDetails?.pricing?.currency || 'TRY'}{' '}
-                          {Number(
-                            job.booking?.bookingDetails?.pricing?.serviceCharge ||
-                              job.selectedOffer?.pickupCharge ||
-                              0,
-                          ).toLocaleString()}
+                          +{formatMoney(job.booking?.bookingDetails?.pricing?.serviceCharge || job.selectedOffer?.pickupCharge || 0, job.booking?.bookingDetails?.pricing?.currency || 'TRY')}
                         </Text>
                       </View>
                     )}
@@ -1254,32 +1266,30 @@ export default function RepairDetailScreen({ navigation, route }: any) {
 
                     <View style={styles.breakdownRow}>
                       <Text style={[styles.totalLabel, { color: colors.text }]}>
-                        Total Price:
+                        {t('customer.totalPrice')}
                       </Text>
                       <Text style={[styles.totalVal, { color: colors.primary }]}>
-                        {job.booking?.bookingDetails?.pricing?.currency || 'TRY'}{' '}
-                        {Number(
-                          job.booking?.bookingDetails?.pricing?.totalAmount ||
-                            job.selectedOffer?.finalTotal ||
-                            0,
-                        ).toLocaleString()}
+                        {formatMoney(job.booking?.bookingDetails?.pricing?.totalAmount || job.selectedOffer?.finalTotal || 0, job.booking?.bookingDetails?.pricing?.currency || 'TRY')}
                       </Text>
                     </View>
                   </View>
 
-                  {/* Warranty info */}
-                  <View style={[styles.statItem, { marginTop: 12 }]}>
-                    <Text style={[styles.statLabel, { color: colors.textMuted }]}>
-                      Warranty Protection:
-                    </Text>
-                    <Text style={[styles.statValue, { color: colors.primary }]}>
-                      {typeof job.booking?.bookingDetails?.warranty === 'string'
-                        ? job.booking.bookingDetails.warranty
-                        : job.booking?.bookingDetails?.warranty?.duration
-                        ? `${job.booking.bookingDetails.warranty.duration} Days Warranty`
-                        : job.selectedOffer?.warrantyLabel || '30 Days Warranty'}
-                    </Text>
-                  </View>
+                  {/* Warranty info: only what the backend sends */}
+                  {(() => {
+                    const warranty = job.booking?.bookingDetails?.warranty;
+                    const label =
+                      typeof warranty === 'string'
+                        ? warranty
+                        : warranty?.duration
+                        ? i18n.t('customerMsg.warrantyDaysLabel', { days: warranty.duration })
+                        : tx(job.selectedOffer?.warrantyLabel);
+                    return label ? (
+                      <View style={[styles.statItem, { marginTop: 12 }]}>
+                        <Text style={[styles.statLabel, { color: colors.textMuted }]}>{i18n.t('customer.warrantyProtection')}</Text>
+                        <Text style={[styles.statValue, { color: colors.primary }]}>{label}</Text>
+                      </View>
+                    ) : null;
+                  })()}
 
                   {/* Service / Pickup Address */}
                   {Boolean(
@@ -1289,7 +1299,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                   ) && (
                     <View style={styles.addressBlock}>
                       <Text style={[styles.addressLabel, { color: colors.textMuted }]}>
-                        Service / Pickup Address:
+                        {t('customer.servicePickupAddress2')}
                       </Text>
                       <View
                         style={[
@@ -1320,7 +1330,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                             style={styles.seeMoreBtn}
                           >
                             <Text style={[styles.seeMoreText, { color: colors.primary }]}>
-                              {expandedAddress ? 'See Less' : 'See More'}
+                              {expandedAddress ? t('customer.seeLess2') : t('customer.seeMore2')}
                             </Text>
                           </Pressable>
                         )}
@@ -1332,7 +1342,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                   {Boolean(job.booking?.timeline) && (
                     <View style={styles.timelineSection}>
                       <Text style={[styles.addressLabel, { color: colors.textMuted, marginTop: 14 }]}>
-                        Service Timeline:
+                        {t('customer.serviceTimeline')}
                       </Text>
                       <View
                         style={[
@@ -1344,7 +1354,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                           <View style={styles.timelineRow}>
                             <View style={[styles.timelineDot, { backgroundColor: colors.success }]} />
                             <Text style={[styles.timelineText, { color: colors.text }]}>
-                              Confirmed: {new Date(job.booking.timeline.confirmedAt).toLocaleDateString()}
+                              {t('customerMsg.timeline.confirmed', { date: new Date(job.booking.timeline.confirmedAt).toLocaleDateString(getLocaleTag()) })}
                             </Text>
                           </View>
                         )}
@@ -1352,7 +1362,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                           <View style={styles.timelineRow}>
                             <View style={[styles.timelineDot, { backgroundColor: colors.primary }]} />
                             <Text style={[styles.timelineText, { color: colors.text }]}>
-                              Scheduled: {new Date(job.booking.timeline.scheduledAt).toLocaleDateString()}
+                              {t('customerMsg.timeline.scheduled', { date: new Date(job.booking.timeline.scheduledAt).toLocaleDateString(getLocaleTag()) })}
                             </Text>
                           </View>
                         )}
@@ -1360,7 +1370,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                           <View style={styles.timelineRow}>
                             <View style={[styles.timelineDot, { backgroundColor: '#f59e0b' }]} />
                             <Text style={[styles.timelineText, { color: colors.text }]}>
-                              Repair Started: {new Date(job.booking.timeline.startedAt).toLocaleDateString()}
+                              {t('customerMsg.timeline.started', { date: new Date(job.booking.timeline.startedAt).toLocaleDateString(getLocaleTag()) })}
                             </Text>
                           </View>
                         )}
@@ -1368,7 +1378,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                           <View style={styles.timelineRow}>
                             <View style={[styles.timelineDot, { backgroundColor: '#8b5cf6' }]} />
                             <Text style={[styles.timelineText, { color: colors.text }]}>
-                              Repair Completed: {new Date(job.booking.timeline.completedAt).toLocaleDateString()}
+                              {t('customerMsg.timeline.completed', { date: new Date(job.booking.timeline.completedAt).toLocaleDateString(getLocaleTag()) })}
                             </Text>
                           </View>
                         )}
@@ -1376,7 +1386,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                           <View style={styles.timelineRow}>
                             <View style={[styles.timelineDot, { backgroundColor: colors.success }]} />
                             <Text style={[styles.timelineText, { color: colors.text }]}>
-                              Delivered to Customer: {new Date(job.booking.timeline.deliveredAt).toLocaleDateString()}
+                              {t('customerMsg.timeline.delivered', { date: new Date(job.booking.timeline.deliveredAt).toLocaleDateString(getLocaleTag()) })}
                             </Text>
                           </View>
                         )}
@@ -1395,14 +1405,14 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                         <Icon source={shieldBold} size={18} color="#b45309" />
                         <Text style={[styles.bookingDisputeTitle, { color: '#b45309' }]}>
-                          Case Under Dispute / Mediation
+                          {t('customer.caseUnderDisputeMediation')}
                         </Text>
                       </View>
                       <Text style={[styles.bookingDisputeDesc, { color: '#92400e' }]}>
-                        Payment is held securely in escrow while our customer support team reviews the case.
+                        {t('customer.paymentIsHeldSecurelyIn')}
                       </Text>
                       <Button
-                        title="View Dispute Details"
+                        title={t('customer.viewDisputeDetails')}
                         size="sm"
                         onPress={() =>
                           navigation.navigate('DisputeDetail', {
@@ -1429,7 +1439,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                       ]}>
                       <Icon source={infoCircleBold} size={16} color={colors.primary} />
                       <Text style={[styles.deliveryNoticeText, { color: colors.textMuted }]}>
-                        Repair completed by technician. Review will unlock once the device is marked delivered.
+                        {t('customer.repairCompletedByTechnicianReview')}
                       </Text>
                     </View>
                   )}
@@ -1443,14 +1453,14 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                       ]}>
                       <View style={{ flex: 1, gap: 4 }}>
                         <Text style={[styles.sectionTitle, { color: colors.text, marginTop: 0, fontSize: 13 }]}>
-                          Device Delivered
+                          {t('customer.deviceDelivered')}
                         </Text>
                         <Text style={[styles.deliveryNoticeText, { color: colors.textMuted }]}>
-                          Please inspect your device. If satisfied, confirm to close the job and release funds.
+                          {t('customer.pleaseInspectYourDeviceIf')}
                         </Text>
                       </View>
                       <Button
-                        title={isClosingJob ? 'Closing...' : 'Close Job'}
+                        title={isClosingJob ? t('customer.closing') : t('customer.closeJob')}
                         size="sm"
                         variant="soft"
                         loading={isClosingJob}
@@ -1473,7 +1483,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                     >
                       <Icon source={checkCircleBold} size={16} color={colors.success} />
                       <Text style={[styles.reviewedSuccessText, { color: colors.text }]}>
-                        Review submitted for this repair job. Thank you!
+                        {t('customer.reviewSubmittedForThisRepair')}
                       </Text>
                     </View>
                   )}
@@ -1482,7 +1492,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                   {canReview && (
                     <View style={styles.bookingActionsRow}>
                       <Button
-                        title="Write a Review"
+                        title={t('reviewModal.title')}
                         size="md"
                         variant="filled"
                         icon={starExtra}
@@ -1499,7 +1509,7 @@ export default function RepairDetailScreen({ navigation, route }: any) {
                   {canReportProblem && (
                     <View style={styles.bookingActionsRow}>
                       <Button
-                        title="Report a Problem"
+                        title={t('dispute.reportProblem')}
                         size="md"
                         variant="soft"
                         onPress={() => setDisputeModalVisible(true)}
@@ -1516,28 +1526,13 @@ export default function RepairDetailScreen({ navigation, route }: any) {
         )}
       </ScrollView>
 
-      {/* Modern Booking Modal */}
-      <BookingModal
-        visible={bookingModalVisible}
-        offer={selectedOfferForBooking}
-        jobTitle={job?.title}
-        onClose={() => {
-          if (!acceptingOfferId) {
-            setBookingModalVisible(false);
-            setSelectedOfferForBooking(null);
-          }
-        }}
-        onSubmit={handleSubmitBooking}
-        isSubmitting={Boolean(acceptingOfferId)}
-      />
-
       {/* Modern Animated Alert / Feedback Modal (No cheap Alert.alert) */}
       <AlertModal
         visible={alertState.visible}
         type={alertState.type}
         title={alertState.title}
         message={alertState.message}
-        buttonText="Okay"
+        buttonText={t('common.okay')}
         onButtonPress={dismissAlert}
         onClose={dismissAlert}
       />
@@ -1608,7 +1603,7 @@ const styles = StyleSheet.create({
 
   price: { fontFamily: fonts.bold, fontSize: 16 },
   muted: { fontFamily: fonts.regular, fontSize: 12, marginTop: 4 },
-  sectionTitle: { fontFamily: fonts.bold, fontSize: 14, marginTop: 18 },
+  sectionTitle: { flexShrink: 1, fontFamily: fonts.bold, fontSize: 14, marginTop: 18 },
   text: { fontFamily: fonts.regular, fontSize: 13, lineHeight: 19, marginTop: 6 },
   link: { fontFamily: fonts.bold, fontSize: 13, marginTop: 4 },
 
@@ -1619,8 +1614,8 @@ const styles = StyleSheet.create({
 
   statsBox: { borderRadius: 12, padding: 14, gap: 10, marginTop: 8 },
   statItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  statLabel: { fontFamily: fonts.regular, fontSize: 13 },
-  statValue: { fontFamily: fonts.bold, fontSize: 13 },
+  statLabel: { flexShrink: 1, fontFamily: fonts.regular, fontSize: 13 },
+  statValue: { flexShrink: 1, fontFamily: fonts.bold, fontSize: 13 },
 
   divider: { height: 1, marginVertical: 14 },
   footerText: { fontFamily: fonts.regular, fontSize: 12 },
@@ -1731,10 +1726,12 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   timingLabel: {
+    flexShrink: 1,
     fontFamily: fonts.regular,
     fontSize: 11,
   },
   timingValue: {
+    flexShrink: 1,
     fontFamily: fonts.bold,
     fontSize: 12,
   },
@@ -1789,6 +1786,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   breakdownLabel: {
+    flexShrink: 1,
     fontFamily: fonts.regular,
     fontSize: 12,
   },
@@ -1801,6 +1799,7 @@ const styles = StyleSheet.create({
     marginVertical: 4,
   },
   totalLabel: {
+    flexShrink: 1,
     fontFamily: fonts.bold,
     fontSize: 14,
   },
@@ -1845,6 +1844,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   acceptBtnText: {
+    flexShrink: 1,
     color: '#fff',
     fontFamily: fonts.bold,
     fontSize: 13,
@@ -1954,6 +1954,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   bookingDisputeTitle: {
+    flexShrink: 1,
     fontFamily: fonts.bold,
     fontSize: 14,
   },
@@ -1995,6 +1996,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   reviewedSuccessText: {
+    flexShrink: 1,
     fontFamily: fonts.medium,
     fontSize: 12,
   },
@@ -2026,6 +2028,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   timelineText: {
+    flexShrink: 1,
     fontFamily: fonts.regular,
     fontSize: 12,
   },

@@ -9,7 +9,6 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import LinearGradient from 'react-native-linear-gradient';
 
 import Icon from '@/components/Icon';
 import Button from '@/components/Button';
@@ -17,29 +16,32 @@ import Squeeze from '@/components/Squeeze';
 import CtiLoader from '@/components/CtiLoader';
 import { FadeUp } from '@/animations';
 import { arrowLeftBold, searchBold } from '@/assets/icons';
-import { ctiLogo } from '@/assets/images';
+import { academyImages, ctiLogo } from '@/assets/images';
+import { ErrorState } from '@/components/states';
 import { useTheme } from '@/theme/ThemeContext';
-import { gradients } from '@/theme/colors';
 import { fonts } from '@/theme/fonts';
 import academyApi, { AcademicCategoryItem } from '@/services/academyApi';
-
-const PITCH =
-  'Hundreds of comprehensive training courses, enriched with hands-on content, await you at CTI Academy! Easily access all the knowledge you need, anytime and anywhere, and take your skills to the next level with personalized learning tailored to your journey.';
+import { Trans, useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 export default function AcademyScreen({ navigation }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
   const [categories, setCategories] = useState<AcademicCategoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState('');
 
   const loadCategories = useCallback(async () => {
     try {
+      setLoadError('');
       const res = await academyApi.getCategories();
       setCategories(res);
-    } catch (err) {
-      if (__DEV__) console.warn('Failed to load categories:', err);
+    } catch (err: any) {
+      setCategories([]);
+      setLoadError(err?.message || i18n.t('customer.couldNotLoadTheCategories'));
     } finally {
       setLoading(false);
     }
@@ -103,7 +105,7 @@ export default function AcademyScreen({ navigation }: any) {
             onChangeText={setSearch}
             onSubmitEditing={handleSearchSubmit}
             returnKeyType="search"
-            placeholder="Search Courses"
+            placeholder={t('customer.searchCourses')}
             placeholderTextColor={colors.textMuted}
             style={[styles.searchInput, { color: colors.text }]}
           />
@@ -111,21 +113,21 @@ export default function AcademyScreen({ navigation }: any) {
 
         <FadeUp delay={100} duration={600}>
           <Image
-            source={{ uri: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=900&auto=format&fit=crop&q=80' }}
+            source={academyImages.hero}
             style={[styles.hero, { backgroundColor: colors.primary }]}
           />
 
           <Text style={[styles.heading, { color: colors.text }]}>
-            <Text style={{ color: colors.primary }}>CTI</Text> Academy is here for you!
+            <Trans i18nKey="customerMsg.academyHere" components={{ hl: <Text style={{ color: colors.primary }} /> }} />
           </Text>
           <Text style={[styles.subheading, { color: colors.text }]}>
-            Hundreds of training courses!
+            {t('customer.hundredsOfTrainingCourses')}
           </Text>
-          <Text style={[styles.text, { color: colors.textMuted }]}>{PITCH}</Text>
+          <Text style={[styles.text, { color: colors.textMuted }]}>{t('customerMsg.academyPitch')}</Text>
 
           <View style={styles.ctaRow}>
             <Button
-              title="Explore Courses"
+              title={t('customer.exploreCourses')}
               size="md"
               fullWidth={false}
               onPress={() => openCourses(null)}
@@ -136,14 +138,23 @@ export default function AcademyScreen({ navigation }: any) {
 
         <FadeUp delay={180} duration={600}>
           <Text style={[styles.centerHeading, { color: colors.text }]}>
-            Master the Skills{'\n'}You Need
+            {t('customerMsg.masterSkills')}
           </Text>
           <Text style={[styles.centerText, { color: colors.textMuted }]}>
-            Explore our comprehensive course catalog
+            {t('customer.exploreOurComprehensiveCourseCatalog')}
           </Text>
 
           {loading ? (
-            <CtiLoader size="sm" text="Loading categories..." style={{ paddingVertical: 20 }} />
+            <CtiLoader size="sm" text={t('customer.loadingCategories')} style={{ paddingVertical: 20 }} />
+          ) : loadError ? (
+            <ErrorState
+              error={loadError}
+              onRetry={() => {
+                setLoading(true);
+                loadCategories();
+              }}
+              fullScreen={false}
+            />
           ) : categories.length > 0 ? (
             <>
               {/* Category pills split across two rows */}
@@ -176,12 +187,12 @@ export default function AcademyScreen({ navigation }: any) {
             </>
           ) : (
             <Text style={[styles.emptyText, { color: colors.textMuted }]}>
-              No categories available at the moment.
+              {t('customer.noCategoriesAvailableAtThe')}
             </Text>
           )}
 
           <Button
-            title="View All Courses"
+            title={t('customer.viewAllCourses')}
             size="md"
             fullWidth={false}
             onPress={() => openCourses(null)}
@@ -191,24 +202,24 @@ export default function AcademyScreen({ navigation }: any) {
 
         <FadeUp delay={260} duration={600}>
           <Image
-            source={{ uri: 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?w=900&auto=format&fit=crop&q=80' }}
+            source={academyImages.learn}
             style={styles.block}
           />
           <Text style={[styles.heading, { color: colors.text }]}>
-            <Text style={{ color: colors.primary }}>Learn &amp; Grow</Text> with Certified Experts
+            <Trans i18nKey="customerMsg.learnGrow" components={{ hl: <Text style={{ color: colors.primary }} /> }} />
           </Text>
-          <Text style={[styles.text, { color: colors.textMuted }]}>{PITCH}</Text>
+          <Text style={[styles.text, { color: colors.textMuted }]}>{t('customerMsg.academyPitch')}</Text>
         </FadeUp>
 
         <FadeUp delay={360} duration={600}>
           <View style={[styles.banner, { backgroundColor: colors.primary }]}>
             <Text style={styles.bannerText}>
-              CTI Academy courses provide industry-grade learning modules for repair, electronics, and technical certifications.
+              {t('customer.ctiAcademyCoursesProvideIndustry')}
             </Text>
             <Squeeze onPress={() => openCourses(null)}>
               <View style={[styles.bannerButton, { backgroundColor: colors.background }]}>
                 <Text style={[styles.bannerButtonText, { color: colors.primary }]}>
-                  Go to Academy Courses
+                  {t('customer.goToAcademyCourses')}
                 </Text>
               </View>
             </Squeeze>

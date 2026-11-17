@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Image,
   Keyboard,
-  KeyboardAvoidingView,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,6 +20,8 @@ import CtiLoader from '@/components/CtiLoader';
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
 import { arrowLeftBold, checkCircleBold, dummyProfileExtra, sendBold } from '@/assets/icons';
+import i18n from '@/i18n';
+import { upper } from '@/i18n/locale';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import {
@@ -34,6 +38,11 @@ import {
 } from '@/services/chatApi';
 import AuthService from '@/services/authService';
 import socketService from '@/services/socketService';
+import { formatMoney } from '@/utils/money';
+import KeyboardSafeView from '@/components/KeyboardSafeView';
+import { ErrorState } from '@/components/states';
+import { getLocaleTag } from '@/i18n/locale';
+import { useTranslation } from 'react-i18next';
 
 export type ChatRole = 'customer' | 'repairman' | 'seller';
 
@@ -41,19 +50,42 @@ function formatMessageTime(dateStr?: string): string {
   if (!dateStr) return '';
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return '';
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleTimeString(getLocaleTag(), { hour: '2-digit', minute: '2-digit' });
 }
 
 function formatMessageDate(dateStr?: string): string {
-  if (!dateStr) return 'Today';
+  if (!dateStr) return i18n.t('chat.today');
   const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return 'Today';
+  if (isNaN(d.getTime())) return i18n.t('chat.today');
   const now = new Date();
-  if (d.toDateString() === now.toDateString()) return 'Today';
+  if (d.toDateString() === now.toDateString()) return i18n.t('chat.today');
   const yesterday = new Date(now);
   yesterday.setDate(yesterday.getDate() - 1);
-  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
-  return d.toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' });
+  if (d.toDateString() === yesterday.toDateString()) return i18n.t('chat.yesterday');
+  return d.toLocaleDateString(getLocaleTag(), { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+// How long a socket message may stay unconfirmed before it is shown as not sent
+const SEND_TIMEOUT_MS = 10000;
+
+const isLocalMessage = (m: ChatMessageItem) =>
+  Boolean(m._id?.startsWith('local-') || m.messageId?.startsWith('local-'));
+
+function toMessageItem(msg: any, id: string): ChatMessageItem {
+  return {
+    _id: id,
+    messageId: id,
+    content: msg.content || '',
+    messageType: msg.messageType || 'text',
+    senderType: msg.senderType,
+    senderId: msg.senderId,
+    timestamp: msg.timestamp || new Date().toISOString(),
+    mediaUrl: msg.mediaUrl,
+    fileName: msg.fileName,
+    quotationId: msg.quotationId,
+    quotationData: msg.quotationData,
+    isRead: true,
+  };
 }
 
 function QuotationCard({
@@ -66,6 +98,7 @@ function QuotationCard({
   isResponding?: boolean;
 }) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   if (!quotationData) return null;
 
   const total =
@@ -85,36 +118,36 @@ function QuotationCard({
         { backgroundColor: colors.surfaceAlt, borderColor: colors.border },
       ]}>
       <View style={styles.quotationHeader}>
-        <Text style={[styles.quotationTitle, { color: colors.text }]}>Service Quotation</Text>
+        <Text style={[styles.quotationTitle, { color: colors.text }]}>{t('chat.serviceQuotation')}</Text>
         <View style={[styles.quotationStatusBadge, { backgroundColor: statusColor + '20' }]}>
           <Text style={[styles.quotationStatusText, { color: statusColor }]}>
-            {status.toUpperCase()}
+            {upper(t(`chat.quoteStatus.${status}`, { defaultValue: status }))}
           </Text>
         </View>
       </View>
       <Text style={[styles.quotationDesc, { color: colors.textMuted }]}>
-        {quotationData.repairmanNotes || quotationData.description || 'Repair service estimate'}
+        {quotationData.repairmanNotes || quotationData.description || t('chat.repairEstimate')}
       </Text>
       <View style={[styles.quotationDivider, { backgroundColor: colors.border }]} />
       <View style={styles.quotationRow}>
-        <Text style={[styles.quotationLabel, { color: colors.textMuted }]}>Estimated Time:</Text>
+        <Text style={[styles.quotationLabel, { color: colors.textMuted }]}>{t('chat.estimatedTime')}</Text>
         <Text style={[styles.quotationVal, { color: colors.text }]}>
           {quotationData.serviceDetails?.estimatedDuration ||
             quotationData.estimatedDuration ||
-            '1-2 days'}
+            t('chat.defaultDuration')}
         </Text>
       </View>
       <View style={styles.quotationRow}>
-        <Text style={[styles.quotationLabel, { color: colors.textMuted }]}>Total Amount:</Text>
+        <Text style={[styles.quotationLabel, { color: colors.textMuted }]}>{t('customer.totalAmount')}:</Text>
         <Text style={[styles.quotationPrice, { color: colors.primary }]}>
-          {currency} {total.toLocaleString()}
+          {formatMoney(total, currency)}
         </Text>
       </View>
 
       {status === 'pending' && onRespond && quotationId && (
         <View style={styles.quotationActions}>
           <Button
-            title="Accept"
+            title={t('chat.accept')}
             size="sm"
             variant="primary"
             loading={isResponding}
@@ -123,7 +156,7 @@ function QuotationCard({
             style={styles.quotationActionBtn}
           />
           <Button
-            title="Decline"
+            title={t('chat.decline')}
             size="sm"
             variant="outline"
             disabled={isResponding}
@@ -142,14 +175,19 @@ function Bubble({
   isMine,
   onRespondQuotation,
   isRespondingQuotation,
+  onRetry,
+  onDiscard,
 }: {
   message: ChatMessageItem;
   participant: ChatParticipant | null;
   isMine: boolean;
   onRespondQuotation?: (quotationId: string, action: 'accepted' | 'rejected') => void;
   isRespondingQuotation?: boolean;
+  onRetry?: (id: string) => void;
+  onDiscard?: (id: string) => void;
 }) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
 
   const bubble = (
     <View
@@ -170,13 +208,29 @@ function Bubble({
         <Text style={[styles.bubbleText, { color: colors.text }]}>{message.content}</Text>
       )}
       <View style={styles.bubbleFooter}>
-        <Text style={[styles.bubbleTime, { color: colors.textMuted }]}>
-          {formatMessageTime(message.timestamp)}
-        </Text>
-        {isMine && message.isRead && (
+        {message.localStatus === 'sending' ? (
+          <Text style={[styles.bubbleTime, { color: colors.textMuted }]}>{t('chat.sending')}</Text>
+        ) : message.localStatus === 'failed' ? (
+          <Text style={[styles.bubbleTime, { color: colors.error }]}>{t('chat.notSent')}</Text>
+        ) : (
+          <Text style={[styles.bubbleTime, { color: colors.textMuted }]}>
+            {formatMessageTime(message.timestamp)}
+          </Text>
+        )}
+        {isMine && message.isRead && !message.localStatus && (
           <Icon source={checkCircleBold} size={11} color={colors.primary} />
         )}
       </View>
+      {message.localStatus === 'failed' && (
+        <View style={styles.failedRow}>
+          <TouchableOpacity onPress={() => onRetry?.(message._id)} hitSlop={8}>
+            <Text style={[styles.failedAction, { color: colors.primary }]}>{t('chat.retry')}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => onDiscard?.(message._id)} hitSlop={8}>
+            <Text style={[styles.failedAction, { color: colors.textMuted }]}>{t('chat.delete')}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 
@@ -217,8 +271,9 @@ export default function ChatDetailScreen({
   role: ChatRole;
 }) {
   const isCustomer = role === 'customer';
-  const defaultParticipantName = isCustomer ? 'Technician' : 'User';
+  const defaultParticipantName = isCustomer ? i18n.t('chat.technician') : i18n.t('chat.user');
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const chatId = route?.params?.chatId;
   const queryId = route?.params?.queryId || (chatId?.startsWith('query_') ? chatId.replace(/^query_/, '') : undefined);
@@ -243,7 +298,10 @@ export default function ChatDetailScreen({
   });
 
   const [messages, setMessages] = useState<ChatMessageItem[]>(() => {
-    if (initialCached && initialCached.length > 0) return initialCached;
+    if (initialCached && initialCached.length > 0) {
+      // nothing can be in flight at mount, so a cached "sending" message was never sent
+      return initialCached.map(m => (m.localStatus === 'sending' ? { ...m, localStatus: 'failed' as const } : m));
+    }
     return [];
   });
   const [draft, setDraft] = useState('');
@@ -252,7 +310,10 @@ export default function ChatDetailScreen({
     return !initialCached || initialCached.length === 0;
   });
   const [isOtherTyping, setIsOtherTyping] = useState(false);
-  const [isSending, setIsSending] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [olderError, setOlderError] = useState('');
   const [isRespondingQuotation, setIsRespondingQuotation] = useState(false);
   const [alertConfig, setAlertConfig] = useState<{
     visible: boolean;
@@ -268,6 +329,25 @@ export default function ChatDetailScreen({
   const processedMessageIdsRef = useRef<Set<string>>(new Set());
   const participantRef = useRef(participant);
   const hasInitialScrolledRef = useRef(false);
+  const mountedRef = useRef(true);
+  const messagesRef = useRef<ChatMessageItem[]>(messages);
+  const draftRef = useRef('');
+  const deliveringRef = useRef<Set<string>>(new Set());
+  const sendTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    const timers = sendTimersRef.current;
+    return () => {
+      mountedRef.current = false;
+      timers.forEach(timer => clearTimeout(timer));
+      timers.clear();
+    };
+  }, []);
 
   useEffect(() => {
     currentUserIdRef.current = currentUserId;
@@ -315,177 +395,216 @@ export default function ChatDetailScreen({
     loadUser();
   }, []);
 
-  const rememberMessageIds = (list: ChatMessageItem[]) => {
-    list.forEach(m => {
-      if (m.messageId) processedMessageIdsRef.current.add(m.messageId);
-      if (m._id) processedMessageIdsRef.current.add(m._id);
-    });
-  };
+  const clearSendTimer = useCallback((id: string) => {
+    const timer = sendTimersRef.current.get(id);
+    if (timer) clearTimeout(timer);
+    sendTimersRef.current.delete(id);
+  }, []);
+
+  const patchMessage = useCallback(
+    (id: string, patch: Partial<ChatMessageItem>, onlyIfStatus?: 'sending' | 'failed') => {
+      if (!chatId) return;
+      setMessages(prev => {
+        const next = prev.map(m =>
+          m._id === id && (!onlyIfStatus || m.localStatus === onlyIfStatus) ? { ...m, ...patch } : m,
+        );
+        setCachedMessages(chatId, next);
+        return next;
+      });
+    },
+    [chatId],
+  );
+
+  // Put a loaded page into the screen. A silent refresh (after a reconnect) keeps the older
+  // pages already loaded; messages not yet confirmed by the server are always kept.
+  const applyHistory = useCallback(
+    (
+      data: { messages: ChatMessageItem[]; hasMore?: boolean; user?: ChatParticipant },
+      silent: boolean,
+    ) => {
+      if (!chatId) return;
+      const server = data.messages;
+      server.forEach(m => {
+        if (m.messageId) processedMessageIdsRef.current.add(m.messageId);
+        if (m._id) processedMessageIdsRef.current.add(m._id);
+      });
+
+      const locals = messagesRef.current
+        .filter(isLocalMessage)
+        .filter(
+          local =>
+            !server.some(
+              srv =>
+                srv.content === local.content &&
+                srv.senderType === role &&
+                new Date(srv.timestamp).getTime() >= new Date(local.timestamp).getTime() - 5000,
+            ),
+        )
+        .map(m =>
+          m.localStatus === 'sending' &&
+          !deliveringRef.current.has(m._id) &&
+          !sendTimersRef.current.has(m._id)
+            ? { ...m, localStatus: 'failed' as const }
+            : m,
+        );
+
+      let base = server;
+      if (silent) {
+        const byId = new Map<string, ChatMessageItem>();
+        messagesRef.current.filter(m => !isLocalMessage(m)).forEach(m => byId.set(m._id, m));
+        server.forEach(m => byId.set(m._id, m));
+        base = Array.from(byId.values()).sort(
+          (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+        );
+      }
+
+      const merged = [...base, ...locals];
+      setMessages(merged);
+      setCachedMessages(chatId, merged);
+      if (!silent || messagesRef.current.length === 0) setHasMore(Boolean(data.hasMore));
+
+      if (data.user) {
+        setParticipant(prev => {
+          const hasValidName = Boolean(prev.name && prev.name !== defaultParticipantName);
+          return {
+            ...prev,
+            id: data.user?.id || prev.id,
+            name: hasValidName ? prev.name : (data.user?.name || prev.name),
+            avatar: prev.avatar || data.user?.avatar || null,
+          };
+        });
+      }
+    },
+    [chatId, role, defaultParticipantName],
+  );
+
+  const loadHistory = useCallback(
+    async (silent = false) => {
+      if (!chatId) return;
+      if (!silent) {
+        setHistoryError('');
+        const cached = getCachedMessages(chatId);
+        if (!cached || cached.length === 0) setLoading(true);
+      }
+      try {
+        if (isSellerQuery) {
+          const data = await fetchQueryMessages(queryId || chatId);
+          if (!mountedRef.current) return;
+          applyHistory({ messages: data.messages, user: data.user }, silent);
+        } else {
+          socketService.joinChat(chatId);
+          markChatAsRead(chatId);
+          const data = await fetchChatMessages(chatId);
+          if (!mountedRef.current) return;
+          applyHistory(data, silent);
+        }
+        setHistoryError('');
+      } catch (err: any) {
+        if (mountedRef.current) {
+          setHistoryError(err?.message || i18n.t('chat.loadMessagesFailed'));
+        }
+      } finally {
+        if (mountedRef.current) setLoading(false);
+      }
+    },
+    [chatId, isSellerQuery, queryId, applyHistory],
+  );
+
+  // Older messages: the server pages by the id of the oldest message we hold
+  const loadOlder = useCallback(async () => {
+    if (!chatId || isSellerQuery || loadingOlder || !hasMore) return;
+    const oldest = messagesRef.current.find(m => !isLocalMessage(m));
+    if (!oldest) return;
+    setLoadingOlder(true);
+    setOlderError('');
+    try {
+      const data = await fetchChatMessages(chatId, oldest._id);
+      if (!mountedRef.current) return;
+      data.messages.forEach(m => {
+        if (m.messageId) processedMessageIdsRef.current.add(m.messageId);
+        if (m._id) processedMessageIdsRef.current.add(m._id);
+      });
+      setMessages(prev => {
+        const have = new Set(prev.map(m => m._id));
+        const next = [...data.messages.filter(m => !have.has(m._id)), ...prev];
+        setCachedMessages(chatId, next);
+        return next;
+      });
+      setHasMore(data.hasMore);
+    } catch (err: any) {
+      if (mountedRef.current) setOlderError(err?.message || i18n.t('chat.loadOlderFailed'));
+    } finally {
+      if (mountedRef.current) setLoadingOlder(false);
+    }
+  }, [chatId, isSellerQuery, loadingOlder, hasMore]);
 
   // 2. Load message history and bind socket room
   useEffect(() => {
     if (!chatId) return;
 
-    let isMounted = true;
-
-    async function initChat() {
-      if (isSellerQuery) {
-        setLoading(true);
-        try {
-          const data = await fetchQueryMessages(queryId || chatId);
-          if (isMounted) {
-            setMessages(data.messages);
-            rememberMessageIds(data.messages);
-            if (data.user) {
-              setParticipant(prev => {
-                const hasValidName = Boolean(prev.name && prev.name !== defaultParticipantName);
-                return {
-                  ...prev,
-                  id: data.user?.id || prev.id,
-                  name: hasValidName ? prev.name : (data.user?.name || prev.name),
-                  avatar: prev.avatar || data.user?.avatar || null,
-                };
-              });
-            }
-          }
-        } catch (err) {
-          if (__DEV__) console.log('[ChatDetailScreen] fetchQueryMessages error:', err);
-        } finally {
-          if (isMounted) setLoading(false);
-        }
-        return;
-      }
-
-      const cached = getCachedMessages(chatId);
-      if (!cached || cached.length === 0) {
-        setLoading(true);
-      }
-
-      try {
-        // Join socket room
-        socketService.joinChat(chatId);
-        markChatAsRead(chatId);
-
-        // Fetch messages
-        const data = await fetchChatMessages(chatId);
-        if (isMounted) {
-          setMessages(data.messages);
-          rememberMessageIds(data.messages);
-          setCachedMessages(chatId, data.messages);
-          if (data.user) {
-            setParticipant(prev => {
-              const hasValidName = Boolean(prev.name && prev.name !== defaultParticipantName);
-              return {
-                ...prev,
-                id: data.user?.id || prev.id,
-                name: hasValidName ? prev.name : (data.user?.name || prev.name),
-                avatar: prev.avatar || data.user?.avatar || null,
-              };
-            });
-          }
-        }
-      } catch (err) {
-        if (__DEV__) console.log('[ChatDetailScreen] init error:', err);
-      } finally {
-        if (isMounted) setLoading(false);
-      }
-    }
-
-    initChat();
+    loadHistory(false);
 
     // Listen to real-time incoming messages
     const unsubNewMsg = socketService.onNewMessage((msg: any) => {
-      if (msg.chatId === chatId) {
-        const incomingId = msg.messageId || msg._id || `msg-${Date.now()}`;
+      if (msg.chatId !== chatId) return;
+      const incomingId = msg.messageId || msg._id || `msg-${Date.now()}`;
 
-        // The server emits to both the chat and user rooms, so ignore repeated wire events
-        if (processedMessageIdsRef.current.has(incomingId)) {
-          return;
+      // The server emits to both the chat and user rooms, so ignore repeated wire events
+      if (processedMessageIdsRef.current.has(incomingId)) return;
+      processedMessageIdsRef.current.add(incomingId);
+
+      setMessages(prev => {
+        if (prev.some(m => m.messageId === incomingId || m._id === incomingId)) return prev;
+
+        // A message sent by me replaces its local copy (even one already shown as not sent)
+        const myId = currentUserIdRef.current;
+        const sId = typeof msg.senderId === 'object' ? msg.senderId?._id || msg.senderId?.id : msg.senderId;
+        const isFromMe = (myId && sId === myId) || msg.senderType === role;
+        const incoming = toMessageItem(msg, incomingId);
+        const pendingIndex = isFromMe
+          ? prev.findIndex(m => isLocalMessage(m) && m.content === msg.content)
+          : -1;
+
+        let updated: ChatMessageItem[];
+        if (pendingIndex !== -1) {
+          clearSendTimer(prev[pendingIndex]._id);
+          updated = [...prev];
+          updated[pendingIndex] = incoming;
+        } else {
+          updated = [...prev, incoming];
         }
-        processedMessageIdsRef.current.add(incomingId);
+        setCachedMessages(chatId, updated);
+        return updated;
+      });
 
-        setMessages(prev => {
-          // 1. Prevent duplicate by exact ID
-          if (prev.some(m => m.messageId === incomingId || m._id === incomingId)) {
-            return prev;
-          }
+      // Mark read immediately since user is actively viewing this chat
+      socketService.markMessagesRead(chatId, [incomingId]);
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
+    });
 
-          // 2. If message was sent by me, reconcile with existing pending local optimistic message
-          const myId = currentUserIdRef.current;
-          const sId = typeof msg.senderId === 'object' ? msg.senderId?._id || msg.senderId.id : msg.senderId;
-          const isFromMe = (myId && sId === myId) || msg.senderType === role;
-
-          let updated: ChatMessageItem[];
-          if (isFromMe) {
-            const pendingIndex = prev.findIndex(
-              m =>
-                (m._id.startsWith('local-') || m.messageId.startsWith('local-')) &&
-                m.content === msg.content,
-            );
-            if (pendingIndex !== -1) {
-              const copy = [...prev];
-              copy[pendingIndex] = {
-                _id: incomingId,
-                messageId: incomingId,
-                content: msg.content || '',
-                messageType: msg.messageType || 'text',
-                senderType: msg.senderType,
-                senderId: msg.senderId,
-                timestamp: msg.timestamp || new Date().toISOString(),
-                mediaUrl: msg.mediaUrl,
-                fileName: msg.fileName,
-                quotationId: msg.quotationId,
-                quotationData: msg.quotationData,
-                isRead: true,
-              };
-              updated = copy;
-            } else {
-              updated = [
-                ...prev,
-                {
-                  _id: incomingId,
-                  messageId: incomingId,
-                  content: msg.content || '',
-                  messageType: msg.messageType || 'text',
-                  senderType: msg.senderType,
-                  senderId: msg.senderId,
-                  timestamp: msg.timestamp || new Date().toISOString(),
-                  mediaUrl: msg.mediaUrl,
-                  fileName: msg.fileName,
-                  quotationId: msg.quotationId,
-                  quotationData: msg.quotationData,
-                  isRead: true,
-                },
-              ];
-            }
-          } else {
-            updated = [
-              ...prev,
-              {
-                _id: incomingId,
-                messageId: incomingId,
-                content: msg.content || '',
-                messageType: msg.messageType || 'text',
-                senderType: msg.senderType,
-                senderId: msg.senderId,
-                timestamp: msg.timestamp || new Date().toISOString(),
-                mediaUrl: msg.mediaUrl,
-                fileName: msg.fileName,
-                quotationId: msg.quotationId,
-                quotationData: msg.quotationData,
-                isRead: true,
-              },
-            ];
-          }
-
-          setCachedMessages(chatId, updated);
-          return updated;
-        });
-
-        // Mark read immediately since user is actively viewing this chat
-        socketService.markMessagesRead(chatId, [incomingId]);
-        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
+    // The server could not save a message
+    const unsubChatError = socketService.onChatError(data => {
+      if (data?.type !== 'message_send_error') return;
+      const sending = messagesRef.current.filter(m => m.localStatus === 'sending');
+      if (sending.length > 0) {
+        sending.forEach(m => clearSendTimer(m._id));
+        setMessages(prev => prev.map(m => (m.localStatus === 'sending' ? { ...m, localStatus: 'failed' } : m)));
+        return;
       }
+      // the message was already shown from the live echo but never saved: reload the truth
+      setAlertConfig({
+        visible: true,
+        title: i18n.t('chat.messageNotSaved'),
+        message: i18n.t('chat.messageNotSavedBody'),
+        type: 'error',
+      });
+      loadHistory(false);
+    });
+
+    // After a connection drop, fetch what was missed
+    const unsubReconnect = socketService.onReconnect(() => {
+      socketService.joinChat(chatId);
+      loadHistory(true);
     });
 
     // Listen to read receipts from the other participant
@@ -529,16 +648,17 @@ export default function ChatDetailScreen({
     });
 
     return () => {
-      isMounted = false;
       socketService.leaveChat(chatId);
       unsubNewMsg();
+      unsubChatError();
+      unsubReconnect();
       unsubRead();
       unsubTypingStart();
       unsubTypingStop();
       unsubOnline();
       unsubOffline();
     };
-  }, [chatId, isSellerQuery, queryId, defaultParticipantName, role]);
+  }, [chatId, role, loadHistory, clearSendTimer]);
 
   // Initial scroll to bottom once messages are rendered
   useEffect(() => {
@@ -552,6 +672,7 @@ export default function ChatDetailScreen({
 
   // Handle typing debounce
   const handleTextChange = (text: string) => {
+    draftRef.current = text;
     setDraft(text);
     if (!chatId) return;
 
@@ -562,18 +683,65 @@ export default function ChatDetailScreen({
     }, 2000);
   };
 
-  const send = async () => {
-    const text = draft.trim();
-    if (!text || !chatId || isSending) return;
+  // Sends (or re-sends) one message that already sits in the list as a local copy
+  const deliver = useCallback(
+    async (tempId: string, text: string) => {
+      if (!chatId || deliveringRef.current.has(tempId)) return;
+      deliveringRef.current.add(tempId);
+      patchMessage(tempId, { localStatus: 'sending' });
+      try {
+        if (isSellerQuery) {
+          const ok = await sendQueryReply(queryId || chatId, text);
+          if (mountedRef.current) patchMessage(tempId, { localStatus: ok ? undefined : 'failed' });
+          return;
+        }
 
-    setIsSending(true);
+        if (socketService.isConnected()) {
+          socketService.sendChatMessage({ chatId, content: text, messageType: 'text' });
+          // the server echoes the message back; no echo in time means it was not sent
+          clearSendTimer(tempId);
+          sendTimersRef.current.set(
+            tempId,
+            setTimeout(() => {
+              sendTimersRef.current.delete(tempId);
+              if (mountedRef.current) patchMessage(tempId, { localStatus: 'failed' }, 'sending');
+            }, SEND_TIMEOUT_MS),
+          );
+          return;
+        }
+
+        // Fallback to HTTP only when socket is not connected
+        const res = await sendChatMessageHttp(chatId, { content: text });
+        if (!mountedRef.current) return;
+        if (res.success) {
+          const serverId = res.message?._id || res.message?.messageId;
+          if (serverId) processedMessageIdsRef.current.add(serverId);
+          patchMessage(
+            tempId,
+            serverId ? { _id: serverId, messageId: serverId, localStatus: undefined } : { localStatus: undefined },
+          );
+        } else {
+          patchMessage(tempId, { localStatus: 'failed' });
+        }
+      } catch {
+        if (mountedRef.current) patchMessage(tempId, { localStatus: 'failed' });
+      } finally {
+        deliveringRef.current.delete(tempId);
+      }
+    },
+    [chatId, isSellerQuery, queryId, patchMessage, clearSendTimer],
+  );
+
+  const send = () => {
+    // read from the ref so a quick double tap cannot send the same text twice
+    const text = draftRef.current.trim();
+    if (!text || !chatId) return;
+    draftRef.current = '';
 
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     socketService.stopTyping(chatId);
 
-    const tempId = `local-${Date.now()}`;
-    const nowIso = new Date().toISOString();
-
+    const tempId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const localMsg: ChatMessageItem = {
       _id: tempId,
       messageId: tempId,
@@ -581,8 +749,9 @@ export default function ChatDetailScreen({
       messageType: 'text',
       senderType: role,
       senderId: currentUserIdRef.current,
-      timestamp: nowIso,
+      timestamp: new Date().toISOString(),
       isRead: false,
+      localStatus: 'sending',
     };
 
     setMessages(prev => {
@@ -592,46 +761,27 @@ export default function ChatDetailScreen({
     });
     setDraft('');
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
+    deliver(tempId, text);
+  };
 
-    if (isSellerQuery) {
-      try {
-        await sendQueryReply(queryId || chatId, text);
-      } catch (err) {
-        if (__DEV__) console.log('[ChatDetailScreen] sendQueryReply error:', err);
-      } finally {
-        setIsSending(false);
-      }
-      return;
-    }
+  const retryMessage = (id: string) => {
+    const m = messagesRef.current.find(x => x._id === id);
+    if (m && m.localStatus === 'failed') deliver(id, m.content);
+  };
 
-    try {
-      if (socketService.isConnected()) {
-        // Only send via socket when connected
-        socketService.sendChatMessage({
-          chatId,
-          content: text,
-          messageType: 'text',
-        });
-      } else {
-        // Fallback to HTTP only when socket is not connected
-        const res = await sendChatMessageHttp(chatId, { content: text });
-        if (res.success && res.message) {
-          const serverId = res.message._id || res.message.messageId;
-          if (serverId) {
-            setMessages(prev => {
-              const updated = prev.map(m =>
-                m._id === tempId ? { ...m, _id: serverId, messageId: serverId } : m,
-              );
-              setCachedMessages(chatId, updated);
-              return updated;
-            });
-          }
-        }
-      }
-    } catch (err) {
-      if (__DEV__) console.log('[ChatDetailScreen] send error:', err);
-    } finally {
-      setIsSending(false);
+  const discardMessage = (id: string) => {
+    if (!chatId) return;
+    clearSendTimer(id);
+    setMessages(prev => {
+      const next = prev.filter(m => m._id !== id);
+      setCachedMessages(chatId, next);
+      return next;
+    });
+  };
+
+  const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (e.nativeEvent.contentOffset.y < 80 && hasInitialScrolledRef.current && !olderError) {
+      loadOlder();
     }
   };
 
@@ -650,19 +800,19 @@ export default function ChatDetailScreen({
       );
       setAlertConfig({
         visible: true,
-        title: action === 'accepted' ? 'Quote Accepted' : 'Quote Declined',
+        title: action === 'accepted' ? i18n.t('chat.quoteAccepted') : i18n.t('chat.quoteDeclined'),
         message:
           res?.message ||
           (action === 'accepted'
-            ? 'You have accepted the technician quotation.'
-            : 'You have declined this quotation.'),
+            ? i18n.t('chat.acceptedBody')
+            : i18n.t('chat.declinedBody')),
         type: action === 'accepted' ? 'success' : 'info',
       });
     } catch (err: any) {
       setAlertConfig({
         visible: true,
-        title: 'Action Failed',
-        message: err?.message || 'Unable to update quotation. Please try again.',
+        title: i18n.t('chat.actionFailed'),
+        message: err?.message || i18n.t('chat.quoteUpdateFailed'),
         type: 'error',
       });
     } finally {
@@ -683,10 +833,8 @@ export default function ChatDetailScreen({
   const avatarSource = participant.avatar ? { uri: participant.avatar } : dummyProfileExtra;
 
   return (
-    <KeyboardAvoidingView
-      style={[styles.screen, { backgroundColor: colors.background }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}>
+    <KeyboardSafeView
+      style={[styles.screen, { backgroundColor: colors.background }]}>
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <Squeeze onPress={() => navigation.goBack()} scale={0.9}>
@@ -715,12 +863,12 @@ export default function ChatDetailScreen({
                 { color: participant.isOnline ? colors.success : colors.textMuted },
               ]}>
               {isOtherTyping
-                ? 'Typing...'
+                ? t('chat.typing')
                 : route?.params?.question
-                ? `${route.params.question}${queryId ? ` - ID: ${queryId}` : ''}`
+                ? `${route.params.question}${queryId ? t('chat.idSuffix', { id: queryId }) : ''}`
                 : participant.isOnline
-                ? 'Online'
-                : 'Offline'}
+                ? t('chat.online')
+                : t('chat.offline')}
             </Text>
           </View>
         </View>
@@ -728,7 +876,9 @@ export default function ChatDetailScreen({
 
       {/* Messages */}
       {loading && messages.length === 0 ? (
-        <CtiLoader size="md" text="Loading conversation..." style={{ flex: 1 }} />
+        <CtiLoader size="md" text={t('chat.loadingConversation')} style={{ flex: 1 }} />
+      ) : historyError && messages.length === 0 ? (
+        <ErrorState error={historyError} onRetry={() => loadHistory(false)} fullScreen={false} />
       ) : (
         <ScrollView
           ref={scrollRef}
@@ -736,16 +886,41 @@ export default function ChatDetailScreen({
           contentContainerStyle={styles.body}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          scrollEventThrottle={100}
+          onScroll={handleScroll}
+          maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
           onContentSizeChange={() => {
             if (!hasInitialScrolledRef.current && messages.length > 0) {
               hasInitialScrolledRef.current = true;
               scrollRef.current?.scrollToEnd({ animated: false });
             }
           }}>
+          {/* index 0 is always this row, so older messages can be added above without a jump */}
+          <View style={styles.notice}>
+            {loadingOlder ? (
+              <Text style={[styles.noticeText, { color: colors.textMuted }]}>{t('chat.loadingOlder')}</Text>
+            ) : olderError ? (
+              <TouchableOpacity
+                onPress={() => {
+                  setOlderError('');
+                  loadOlder();
+                }}>
+                <Text style={[styles.noticeText, { color: colors.error }]}>
+                  {t('chat.olderRetry')}
+                </Text>
+              </TouchableOpacity>
+            ) : historyError ? (
+              <TouchableOpacity onPress={() => loadHistory(false)}>
+                <Text style={[styles.noticeText, { color: colors.error }]}>
+                  {t('chat.refreshRetry')}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
           {messages.length === 0 ? (
             <View style={styles.emptyWrap}>
               <Text style={[styles.emptyPrompt, { color: colors.textMuted }]}>
-                This is the start of your direct conversation with {participant.name}.
+                {t('chat.startOfConversation', { name: participant.name })}
               </Text>
             </View>
           ) : (
@@ -771,6 +946,8 @@ export default function ChatDetailScreen({
                     isMine={isMine}
                     onRespondQuotation={isCustomer ? handleRespondQuotation : undefined}
                     isRespondingQuotation={isRespondingQuotation}
+                    onRetry={retryMessage}
+                    onDiscard={discardMessage}
                   />
                 </View>
               );
@@ -792,7 +969,7 @@ export default function ChatDetailScreen({
         <TextInput
           value={draft}
           onChangeText={handleTextChange}
-          placeholder={isCustomer ? 'Type your message...' : 'Type your reply here...'}
+          placeholder={isCustomer ? t('chat.typeMessage') : t('chat.typeReply')}
           placeholderTextColor={colors.textMuted}
           multiline
           style={[
@@ -800,11 +977,11 @@ export default function ChatDetailScreen({
             { color: colors.text, backgroundColor: colors.surfaceAlt, borderColor: colors.border },
           ]}
         />
-        <Squeeze onPress={send} scale={0.9} disabled={isSending}>
+        <Squeeze onPress={send} scale={0.9} disabled={!draft.trim()}>
           <View
             style={[
               styles.sendButton,
-              { backgroundColor: colors.primary, opacity: isSending ? 0.6 : 1 },
+              { backgroundColor: colors.primary, opacity: draft.trim() ? 1 : 0.5 },
             ]}>
             <Icon source={sendBold} size={18} color={colors.onPrimary} />
           </View>
@@ -818,7 +995,7 @@ export default function ChatDetailScreen({
         type={alertConfig.type}
         onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
       />
-    </KeyboardAvoidingView>
+    </KeyboardSafeView>
   );
 }
 
@@ -880,19 +1057,23 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   bubbleTime: { fontFamily: fonts.regular, fontSize: 10 },
+  failedRow: { flexDirection: 'row', justifyContent: 'flex-end', gap: 16, marginTop: 6 },
+  failedAction: { fontFamily: fonts.bold, fontSize: 12 },
+  notice: { alignSelf: 'center', paddingVertical: 8, paddingHorizontal: 14 },
+  noticeText: { fontFamily: fonts.medium, fontSize: 12, textAlign: 'center' },
 
   emptyWrap: { paddingVertical: 80, alignItems: 'center', paddingHorizontal: 30 },
   emptyPrompt: { fontFamily: fonts.regular, fontSize: 13, textAlign: 'center', lineHeight: 20 },
 
   quotationCard: { borderRadius: 12, borderWidth: 1, padding: 12, gap: 8, minWidth: 200 },
   quotationHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  quotationTitle: { fontFamily: fonts.bold, fontSize: 13 },
+  quotationTitle: { flexShrink: 1, fontFamily: fonts.bold, fontSize: 13 },
   quotationStatusBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 },
   quotationStatusText: { fontFamily: fonts.bold, fontSize: 10 },
   quotationDesc: { fontFamily: fonts.regular, fontSize: 12, lineHeight: 17 },
   quotationDivider: { height: 1, width: '100%' },
   quotationRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  quotationLabel: { fontFamily: fonts.regular, fontSize: 12 },
+  quotationLabel: { flexShrink: 1, fontFamily: fonts.regular, fontSize: 12 },
   quotationVal: { fontFamily: fonts.medium, fontSize: 12 },
   quotationActions: { flexDirection: 'row', gap: 8, marginTop: 4 },
   quotationActionBtn: { flex: 1 },

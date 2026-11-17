@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Image,
   RefreshControl,
@@ -6,20 +6,26 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import CtiLoader from '@/components/CtiLoader';
+import { ErrorState } from '@/components/states';
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
 import { FadeUp } from '@/animations';
 import { arrowLeftBold, searchBold } from '@/assets/icons';
 import { dummyProfileExtra } from '@/assets/icons';
+import i18n from '@/i18n';
+
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { ChatItem, fetchChatList } from '@/services/chatApi';
 import socketService from '@/services/socketService';
+import { getLocaleTag } from '@/i18n/locale';
+import { useTranslation } from 'react-i18next';
 
 function formatChatTime(dateStr?: string): string {
   if (!dateStr) return '';
@@ -28,14 +34,14 @@ function formatChatTime(dateStr?: string): string {
   const now = new Date();
   const isToday = d.toDateString() === now.toDateString();
   if (isToday) {
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleTimeString(getLocaleTag(), { hour: '2-digit', minute: '2-digit' });
   }
   const yesterday = new Date(now);
   yesterday.setDate(yesterday.getDate() - 1);
   if (d.toDateString() === yesterday.toDateString()) {
-    return 'Yesterday';
+    return i18n.t('chat.yesterday');
   }
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return d.toLocaleDateString(getLocaleTag(), { month: 'short', day: 'numeric' });
 }
 
 function ChatRow({
@@ -48,9 +54,12 @@ function ChatRow({
   fallbackName: string;
 }) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const avatarSource = chat.participant?.avatar
     ? { uri: chat.participant.avatar }
     : dummyProfileExtra;
+  const isQuery = chat.chatType === 'seller_query';
+  const rowFallback = isQuery ? t('glossary.seller') : fallbackName;
 
   return (
     <Squeeze
@@ -60,7 +69,7 @@ function ChatRow({
           queryId: chat.queryId,
           chatType: chat.chatType,
           participantId: chat.participant?.id || (chat.participant as any)?._id || '',
-          participantName: chat.participant?.name || fallbackName,
+          participantName: chat.participant?.name || rowFallback,
           participantAvatar: chat.participant?.avatar,
           isOnline: chat.participant?.isOnline,
         })
@@ -83,10 +92,11 @@ function ChatRow({
 
         <View style={styles.rowBody}>
           <Text style={[styles.name, { color: colors.text }]} numberOfLines={1}>
-            {chat.participant?.name || fallbackName}
+            {chat.participant?.name || rowFallback}
           </Text>
           <Text style={[styles.lastMessage, { color: colors.textMuted }]} numberOfLines={1}>
-            {chat.lastMessage?.content || 'No messages yet'}
+            {chat.lastMessage?.fromMe ? t('appMsg.youPrefix') : ''}
+            {chat.lastMessage?.content || (isQuery ? t('glossary.enquiry') : t('chat.noMessagesYet'))}
           </Text>
         </View>
 
@@ -113,14 +123,23 @@ export default function ChatListScreen({
   role: 'customer' | 'repairman' | 'seller';
 }) {
   const isCustomer = role === 'customer';
-  const fallbackName = isCustomer ? 'Technician' : 'User';
+  const { t } = useTranslation();
+  const fallbackName = isCustomer ? t('chat.technician') : t('chat.user');
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
   const [chats, setChats] = useState<ChatItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const chatsRef = useRef<ChatItem[]>([]);
+  const firstFocusRef = useRef(true);
 
+  useEffect(() => {
+    chatsRef.current = chats;
+  }, [chats]);
+
+  // A failed load never wipes the list: the old chats stay and an error line shows
   const loadChats = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
@@ -128,13 +147,26 @@ export default function ChatListScreen({
     try {
       const data = await fetchChatList();
       setChats(data);
-    } catch {
-      // Keep existing
+      setLoadError('');
+    } catch (err: any) {
+      setLoadError(err?.message || i18n.t('chat.loadFailed'));
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }, []);
+
+  // Counts changed in the open chat (read) must show when coming back to this list
+  useEffect(() => {
+    const unsubFocus = navigation.addListener('focus', () => {
+      if (firstFocusRef.current) {
+        firstFocusRef.current = false;
+        return;
+      }
+      loadChats(true);
+    });
+    return unsubFocus;
+  }, [navigation, loadChats]);
 
   useEffect(() => {
     loadChats();
@@ -150,8 +182,19 @@ export default function ChatListScreen({
       loadChats(true);
     });
 
+    // Fetch what was missed while the connection was down
+    const unsubReconnect = socketService.onReconnect(() => loadChats(true));
+
     // Listen to new message to bump conversation
     const unsubNewMsg = socketService.onNewMessage((msg: any) => {
+      if (!chatsRef.current.some(c => c.chatId === msg.chatId)) {
+        // not in the list yet, reload from API
+        loadChats(true);
+        return;
+      }
+      // my own messages and messages of the chat I am looking at are not unread
+      const countsAsUnread =
+        msg.senderType !== role && socketService.getActiveChatId() !== msg.chatId;
       setChats(prev => {
         const index = prev.findIndex(c => c.chatId === msg.chatId);
         if (index !== -1) {
@@ -163,23 +206,22 @@ export default function ChatListScreen({
               timestamp: msg.timestamp || new Date().toISOString(),
               messageType: msg.messageType || 'text',
             },
-            unreadCount: (prev[index].unreadCount || 0) + 1,
+            unreadCount: (prev[index].unreadCount || 0) + (countsAsUnread ? 1 : 0),
             updatedAt: msg.timestamp || new Date().toISOString(),
           };
           const rest = prev.filter((_, i) => i !== index);
           return [updatedChat, ...rest];
         }
-        // If not in list, reload from API
-        loadChats(true);
         return prev;
       });
     });
 
     return () => {
       unsubListUpdate();
+      unsubReconnect();
       unsubNewMsg();
     };
-  }, [loadChats]);
+  }, [loadChats, role]);
 
   const filtered = chats.filter(chat =>
     (chat.participant?.name || '').toLowerCase().includes(search.trim().toLowerCase()),
@@ -217,30 +259,40 @@ export default function ChatListScreen({
             <TextInput
               value={search}
               onChangeText={setSearch}
-              placeholder="Search conversations..."
+              placeholder={t('chat.searchConversations')}
               placeholderTextColor={colors.textMuted}
               style={[styles.searchInput, { color: colors.text }]}
             />
           </View>
         </View>
 
-        <Text style={[styles.title, { color: colors.text }]}>Chats ({chats.length})</Text>
+        <Text style={[styles.title, { color: colors.text }]}>{t('chat.chatsCount', { count: chats.length })}</Text>
+
+        {loadError && chats.length > 0 && (
+          <TouchableOpacity onPress={() => loadChats(true)} style={styles.errorLine}>
+            <Text style={[styles.errorLineText, { color: colors.error }]}>
+              {t('chat.refreshFailed')}
+            </Text>
+          </TouchableOpacity>
+        )}
 
         {loading && !refreshing ? (
-          <CtiLoader size="md" text="Loading chats..." style={{ paddingVertical: 50 }} />
+          <CtiLoader size="md" text={t('chat.loadingChats')} style={{ paddingVertical: 50 }} />
+        ) : loadError && chats.length === 0 ? (
+          <ErrorState error={loadError} onRetry={() => loadChats()} fullScreen={false} />
         ) : filtered.length === 0 ? (
           <View style={styles.emptyContainer}>
             <Text style={[styles.emptyTitle, { color: colors.text }]}>
-              {search.trim() ? 'No chats matching search' : 'No conversations yet'}
+              {search.trim() ? t('chat.noChatsMatching') : t('chat.noConversations')}
             </Text>
             <Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>
               {search.trim()
                 ? isCustomer
-                  ? 'Try searching with another technician or shop name.'
-                  : 'Try searching with another name.'
+                  ? t('chat.tryOtherTechnician')
+                  : t('chat.tryOtherName')
                 : isCustomer
-                ? 'When you chat with technicians or sellers, messages will appear here.'
-                : 'When customers reach out or orders begin, messages will appear here.'}
+                ? t('chat.emptyCustomer')
+                : t('chat.emptyOther')}
             </Text>
           </View>
         ) : (
@@ -277,6 +329,9 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, fontFamily: fonts.regular, fontSize: 13, padding: 0 },
 
   title: { fontFamily: fonts.bold, fontSize: 22, marginTop: 20, marginBottom: 6 },
+
+  errorLine: { paddingVertical: 8 },
+  errorLineText: { fontFamily: fonts.medium, fontSize: 12 },
 
   list: {},
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },

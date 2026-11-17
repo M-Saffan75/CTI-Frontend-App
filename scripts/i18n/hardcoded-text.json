@@ -1,0 +1,541 @@
+[
+ {
+  "file": "components/LanguagePicker.tsx",
+  "line": 102,
+  "kind": "prop-other",
+  "text": "top left",
+  "code": "transformOrigin: 'top left',"
+ },
+ {
+  "file": "components/ThemePicker.tsx",
+  "line": 129,
+  "kind": "prop-other",
+  "text": "top right",
+  "code": "transformOrigin: 'top right',"
+ },
+ {
+  "file": "features/Profile/components/EditCustomerProfileModal.tsx",
+  "line": 62,
+  "kind": "fallback-short",
+  "text": "Turkey",
+  "code": "profile?.country || 'Turkey',"
+ },
+ {
+  "file": "features/Profile/components/EditCustomerProfileModal.tsx",
+  "line": 81,
+  "kind": "fallback-short",
+  "text": "Turkey",
+  "code": "countryName: profile?.country || 'Turkey',"
+ },
+ {
+  "file": "features/Profile/components/EditCustomerProfileModal.tsx",
+  "line": 89,
+  "kind": "fallback-short",
+  "text": "Turkey",
+  "code": "setSelectedCountryName(profile?.country || 'Turkey');"
+ },
+ {
+  "file": "features/Profile/components/EditCustomerProfileModal.tsx",
+  "line": 97,
+  "kind": "fallback-short",
+  "text": "Turkey",
+  "code": "countryName: profile?.country || 'Turkey',"
+ },
+ {
+  "file": "features/Refurbished/components/RefurbishedFilterModal.tsx",
+  "line": 75,
+  "kind": "list",
+  "text": "Platform Products",
+  "code": "safeInitial?.sources || ['Platform Products'],"
+ },
+ {
+  "file": "features/Refurbished/components/RefurbishedFilterModal.tsx",
+  "line": 141,
+  "kind": "list",
+  "text": "Platform Products",
+  "code": "setSelectedSources(['Platform Products']);"
+ },
+ {
+  "file": "features/Refurbished/components/RefurbishedFilterModal.tsx",
+  "line": 252,
+  "kind": "list",
+  "text": "Platform Products",
+  "code": "{['Platform Products', 'Seller Products'].map(src => {"
+ },
+ {
+  "file": "features/Refurbished/components/RefurbishedFilterModal.tsx",
+  "line": 252,
+  "kind": "list",
+  "text": "Seller Products",
+  "code": "{['Platform Products', 'Seller Products'].map(src => {"
+ },
+ {
+  "file": "features/Refurbished/data/gradeData.ts",
+  "line": 3,
+  "kind": "list",
+  "text": "Superb",
+  "code": "export const GRADE_TABS = [\"Superb\",\"Good\",\"Fair\",\"Best Value\"] as const;"
+ },
+ {
+  "file": "features/Refurbished/data/gradeData.ts",
+  "line": 3,
+  "kind": "list",
+  "text": "Good",
+  "code": "export const GRADE_TABS = [\"Superb\",\"Good\",\"Fair\",\"Best Value\"] as const;"
+ },
+ {
+  "file": "features/Refurbished/data/gradeData.ts",
+  "line": 3,
+  "kind": "list",
+  "text": "Fair",
+  "code": "export const GRADE_TABS = [\"Superb\",\"Good\",\"Fair\",\"Best Value\"] as const;"
+ },
+ {
+  "file": "features/Refurbished/data/gradeData.ts",
+  "line": 3,
+  "kind": "list",
+  "text": "Best Value",
+  "code": "export const GRADE_TABS = [\"Superb\",\"Good\",\"Fair\",\"Best Value\"] as const;"
+ },
+ {
+  "file": "features/Refurbished/data/refurbishedData.ts",
+  "line": 41,
+  "kind": "prop-other",
+  "text": "All Types",
+  "code": "{ id: 'all', name: 'All Types' },"
+ },
+ {
+  "file": "features/Refurbished/data/refurbishedData.ts",
+  "line": 42,
+  "kind": "prop-other",
+  "text": "Sell Phone",
+  "code": "{ id: 'phone', name: 'Sell Phone', figmaName: 'Sell Phone' },"
+ },
+ {
+  "file": "features/Refurbished/data/refurbishedData.ts",
+  "line": 42,
+  "kind": "prop-other",
+  "text": "Sell Phone",
+  "code": "{ id: 'phone', name: 'Sell Phone', figmaName: 'Sell Phone' },"
+ },
+ {
+  "file": "features/Refurbished/data/refurbishedData.ts",
+  "line": 45,
+  "kind": "prop-other",
+  "text": "Gaming Console",
+  "code": "{ id: 'gaming', name: 'Gaming Console', figmaName: 'Gaming Console' },"
+ },
+ {
+  "file": "features/Refurbished/data/refurbishedData.ts",
+  "line": 45,
+  "kind": "prop-other",
+  "text": "Gaming Console",
+  "code": "{ id: 'gaming', name: 'Gaming Console', figmaName: 'Gaming Console' },"
+ },
+ {
+  "file": "features/Refurbished/data/refurbishedData.ts",
+  "line": 46,
+  "kind": "prop-other",
+  "text": "Cameras & Lenses",
+  "code": "{ id: 'camera', name: 'Cameras & Lenses', figmaName: 'Cameras & Lenses' },"
+ },
+ {
+  "file": "features/Refurbished/data/refurbishedData.ts",
+  "line": 46,
+  "kind": "prop-other",
+  "text": "Cameras & Lenses",
+  "code": "{ id: 'camera', name: 'Cameras & Lenses', figmaName: 'Cameras & Lenses' },"
+ },
+ {
+  "file": "features/Refurbished/data/refurbishedData.ts",
+  "line": 47,
+  "kind": "prop-other",
+  "text": "Smart watches",
+  "code": "{ id: 'watch', name: 'Smart watches', figmaName: 'Smart watches' },"
+ },
+ {
+  "file": "features/Refurbished/data/refurbishedData.ts",
+  "line": 47,
+  "kind": "prop-other",
+  "text": "Smart watches",
+  "code": "{ id: 'watch', name: 'Smart watches', figmaName: 'Smart watches' },"
+ },
+ {
+  "file": "features/Refurbished/data/refurbishedData.ts",
+  "line": 50,
+  "kind": "prop-other",
+  "text": "Air Conditioner (AC)",
+  "code": "{ id: 'ac', name: 'Air Conditioner (AC)', figmaName: 'Air Conditioner (AC)' },"
+ },
+ {
+  "file": "features/Refurbished/data/refurbishedData.ts",
+  "line": 50,
+  "kind": "prop-other",
+  "text": "Air Conditioner (AC)",
+  "code": "{ id: 'ac', name: 'Air Conditioner (AC)', figmaName: 'Air Conditioner (AC)' },"
+ },
+ {
+  "file": "features/Refurbished/data/refurbishedData.ts",
+  "line": 87,
+  "kind": "list",
+  "text": "Redmi Note 13 Pro",
+  "code": "Xiaomi: ['13 Pro', '12 Pro', 'Redmi Note 13 Pro', 'Redmi Note 12'],"
+ },
+ {
+  "file": "features/Refurbished/data/refurbishedData.ts",
+  "line": 87,
+  "kind": "list",
+  "text": "Redmi Note 12",
+  "code": "Xiaomi: ['13 Pro', '12 Pro', 'Redmi Note 13 Pro', 'Redmi Note 12'],"
+ },
+ {
+  "file": "features/Refurbished/data/refurbishedData.ts",
+  "line": 88,
+  "kind": "list",
+  "text": "OnePlus 12",
+  "code": "OnePlus: ['OnePlus 12', 'OnePlus 11', 'OnePlus 10 Pro', 'OnePlus Nord 3'],"
+ },
+ {
+  "file": "features/Refurbished/data/refurbishedData.ts",
+  "line": 88,
+  "kind": "list",
+  "text": "OnePlus 11",
+  "code": "OnePlus: ['OnePlus 12', 'OnePlus 11', 'OnePlus 10 Pro', 'OnePlus Nord 3'],"
+ },
+ {
+  "file": "features/Refurbished/data/refurbishedData.ts",
+  "line": 88,
+  "kind": "list",
+  "text": "OnePlus 10 Pro",
+  "code": "OnePlus: ['OnePlus 12', 'OnePlus 11', 'OnePlus 10 Pro', 'OnePlus Nord 3'],"
+ },
+ {
+  "file": "features/Refurbished/data/refurbishedData.ts",
+  "line": 88,
+  "kind": "list",
+  "text": "OnePlus Nord 3",
+  "code": "OnePlus: ['OnePlus 12', 'OnePlus 11', 'OnePlus 10 Pro', 'OnePlus Nord 3'],"
+ },
+ {
+  "file": "features/Refurbished/screens/BuyRefurbishedScreen.tsx",
+  "line": 106,
+  "kind": "prop-other",
+  "text": "Sell Phone",
+  "code": "{ title: t('customer.phones'), category: 'Sell Phone', limit: 4, match: (p: RefurbishedProduct) => has(p, ['ph"
+ },
+ {
+  "file": "features/Refurbished/screens/BuyRefurbishedScreen.tsx",
+  "line": 109,
+  "kind": "prop-other",
+  "text": "Gaming Console",
+  "code": "{ title: t('customer.gaming'), category: 'Gaming Console', limit: 4, match: (p: RefurbishedProduct) => has(p, "
+ },
+ {
+  "file": "features/Refurbished/screens/SellRefurbishedScreen.tsx",
+  "line": 142,
+  "kind": "fallback-short",
+  "text": "All",
+  "code": "brand: category.name || 'All',"
+ },
+ {
+  "file": "roles/Customer/features/Home/screens/HomeScreen.tsx",
+  "line": 656,
+  "kind": "assign",
+  "text": "Mobile Repair",
+  "code": "displayQuery = 'Mobile Repair';"
+ },
+ {
+  "file": "roles/Customer/features/Home/screens/HomeScreen.tsx",
+  "line": 658,
+  "kind": "assign",
+  "text": "Laptop Repair",
+  "code": "displayQuery = 'Laptop Repair';"
+ },
+ {
+  "file": "roles/Customer/features/Home/screens/HomeScreen.tsx",
+  "line": 660,
+  "kind": "assign",
+  "text": "Motherboard",
+  "code": "displayQuery = 'Motherboard';"
+ },
+ {
+  "file": "roles/Customer/features/Home/screens/HomeScreen.tsx",
+  "line": 662,
+  "kind": "assign",
+  "text": "Panel / Screen",
+  "code": "displayQuery = 'Panel / Screen';"
+ },
+ {
+  "file": "roles/Customer/features/Home/screens/HomeScreen.tsx",
+  "line": 664,
+  "kind": "assign",
+  "text": "Software",
+  "code": "displayQuery = 'Software';"
+ },
+ {
+  "file": "roles/Customer/features/Jobs/screens/DisputeDetailScreen.tsx",
+  "line": 780,
+  "kind": "fallback-short",
+  "text": "User",
+  "code": "const senderType = resp.respondedBy?.userType || 'User';"
+ },
+ {
+  "file": "roles/Customer/features/Jobs/screens/JobsScreen.tsx",
+  "line": 851,
+  "kind": "ternary",
+  "text": "DisputeDetail",
+  "code": "job.status === 'disputed' ? 'DisputeDetail' : 'RepairDetail',"
+ },
+ {
+  "file": "roles/Customer/features/Jobs/screens/JobsScreen.tsx",
+  "line": 851,
+  "kind": "ternary",
+  "text": "RepairDetail",
+  "code": "job.status === 'disputed' ? 'DisputeDetail' : 'RepairDetail',"
+ },
+ {
+  "file": "roles/Customer/features/Jobs/screens/RepairDetailScreen.tsx",
+  "line": 656,
+  "kind": "piece-template",
+  "text": "`offer-${idx}`",
+  "code": "key={offer.id || `offer-${idx}`}"
+ },
+ {
+  "file": "roles/Customer/features/Orders/screens/OrderDetailScreen.tsx",
+  "line": 367,
+  "kind": "piece-template",
+  "text": "`step-bar-${label}-${index}`",
+  "code": "key={`step-bar-${label}-${index}`}"
+ },
+ {
+  "file": "roles/Customer/features/Orders/screens/OrderDetailScreen.tsx",
+  "line": 378,
+  "kind": "piece-template",
+  "text": "`step-label-${label}-${index}`",
+  "code": "key={`step-label-${label}-${index}`}"
+ },
+ {
+  "file": "roles/Customer/features/Product/screens/ProductDetailScreen.tsx",
+  "line": 1067,
+  "kind": "piece-template",
+  "text": "`review-${reviewIndex}`",
+  "code": "key={item._id || `review-${reviewIndex}`}"
+ },
+ {
+  "file": "roles/Customer/features/Product/screens/WishlistScreen.tsx",
+  "line": 222,
+  "kind": "piece-template",
+  "text": "`wishlist-${product.id || product._id || index}-${index}`",
+  "code": "key={`wishlist-${product.id || product._id || index}-${index}`}"
+ },
+ {
+  "file": "roles/Customer/features/Settings/screens/SettingsScreen.tsx",
+  "line": 81,
+  "kind": "prop-other",
+  "text": "Smart watches",
+  "code": "params: { initialCategory: 'Smart watches', categorySlug: 'smart-watches' },"
+ },
+ {
+  "file": "roles/Customer/features/Settings/screens/SettingsScreen.tsx",
+  "line": 93,
+  "kind": "prop-other",
+  "text": "Gaming Console",
+  "code": "params: { initialCategory: 'Gaming Console', categorySlug: 'gaming-consoles' },"
+ },
+ {
+  "file": "roles/Customer/features/Settings/screens/SettingsScreen.tsx",
+  "line": 153,
+  "kind": "piece-template",
+  "text": "`child-${childIdx}`",
+  "code": "<MenuRow key={child?.label || `child-${childIdx}`} item={child} depth={depth + 1} navigation={navigation} />"
+ },
+ {
+  "file": "roles/Repairman/features/Dashboard/components/JobsCalendar.tsx",
+  "line": 94,
+  "kind": "piece-template",
+  "text": "`blank-${index}`",
+  "code": "return <View key={`blank-${index}`} style={styles.cell} />;"
+ },
+ {
+  "file": "roles/Repairman/features/Dashboard/screens/DashboardScreen.tsx",
+  "line": 57,
+  "kind": "list",
+  "text": "Jan",
+  "code": "{ label: 'Q1', months: ['Jan', 'Feb', 'Mar'] },"
+ },
+ {
+  "file": "roles/Repairman/features/Dashboard/screens/DashboardScreen.tsx",
+  "line": 57,
+  "kind": "list",
+  "text": "Feb",
+  "code": "{ label: 'Q1', months: ['Jan', 'Feb', 'Mar'] },"
+ },
+ {
+  "file": "roles/Repairman/features/Dashboard/screens/DashboardScreen.tsx",
+  "line": 57,
+  "kind": "list",
+  "text": "Mar",
+  "code": "{ label: 'Q1', months: ['Jan', 'Feb', 'Mar'] },"
+ },
+ {
+  "file": "roles/Repairman/features/Dashboard/screens/DashboardScreen.tsx",
+  "line": 58,
+  "kind": "list",
+  "text": "Apr",
+  "code": "{ label: 'Q2', months: ['Apr', 'May', 'Jun'] },"
+ },
+ {
+  "file": "roles/Repairman/features/Dashboard/screens/DashboardScreen.tsx",
+  "line": 58,
+  "kind": "list",
+  "text": "May",
+  "code": "{ label: 'Q2', months: ['Apr', 'May', 'Jun'] },"
+ },
+ {
+  "file": "roles/Repairman/features/Dashboard/screens/DashboardScreen.tsx",
+  "line": 58,
+  "kind": "list",
+  "text": "Jun",
+  "code": "{ label: 'Q2', months: ['Apr', 'May', 'Jun'] },"
+ },
+ {
+  "file": "roles/Repairman/features/Dashboard/screens/DashboardScreen.tsx",
+  "line": 59,
+  "kind": "list",
+  "text": "Jul",
+  "code": "{ label: 'Q3', months: ['Jul', 'Aug', 'Sep'] },"
+ },
+ {
+  "file": "roles/Repairman/features/Dashboard/screens/DashboardScreen.tsx",
+  "line": 59,
+  "kind": "list",
+  "text": "Aug",
+  "code": "{ label: 'Q3', months: ['Jul', 'Aug', 'Sep'] },"
+ },
+ {
+  "file": "roles/Repairman/features/Dashboard/screens/DashboardScreen.tsx",
+  "line": 59,
+  "kind": "list",
+  "text": "Sep",
+  "code": "{ label: 'Q3', months: ['Jul', 'Aug', 'Sep'] },"
+ },
+ {
+  "file": "roles/Repairman/features/Dashboard/screens/DashboardScreen.tsx",
+  "line": 60,
+  "kind": "list",
+  "text": "Oct",
+  "code": "{ label: 'Q4', months: ['Oct', 'Nov', 'Dec'] },"
+ },
+ {
+  "file": "roles/Repairman/features/Dashboard/screens/DashboardScreen.tsx",
+  "line": 60,
+  "kind": "list",
+  "text": "Nov",
+  "code": "{ label: 'Q4', months: ['Oct', 'Nov', 'Dec'] },"
+ },
+ {
+  "file": "roles/Repairman/features/Dashboard/screens/DashboardScreen.tsx",
+  "line": 60,
+  "kind": "list",
+  "text": "Dec",
+  "code": "{ label: 'Q4', months: ['Oct', 'Nov', 'Dec'] },"
+ },
+ {
+  "file": "roles/Repairman/features/Jobs/screens/JobsScreen.tsx",
+  "line": 22,
+  "kind": "fallback-short",
+  "text": "JobBoard",
+  "code": "const [activeTab, setActiveTab] = useState(route.params?.tab ?? 'JobBoard');"
+ },
+ {
+  "file": "roles/Repairman/features/PartsOrder/utils/parts.ts",
+  "line": 21,
+  "kind": "prop-other",
+  "text": "Partially Paid",
+  "code": "{ get label() { return i18n.t('repairman.partiallyPaid'); }, value: 'Partially Paid' },"
+ },
+ {
+  "file": "roles/Repairman/features/Settings/screens/SettingsScreen.tsx",
+  "line": 80,
+  "kind": "prop-other",
+  "text": "Smart watches",
+  "code": "params: { initialCategory: 'Smart watches' },"
+ },
+ {
+  "file": "roles/Repairman/features/Settings/screens/SettingsScreen.tsx",
+  "line": 92,
+  "kind": "prop-other",
+  "text": "Gaming Console",
+  "code": "params: { initialCategory: 'Gaming Console' },"
+ },
+ {
+  "file": "roles/Seller/features/Profile/components/ScheduleModal.tsx",
+  "line": 15,
+  "kind": "list",
+  "text": "Monday",
+  "code": "export const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];"
+ },
+ {
+  "file": "roles/Seller/features/Profile/components/ScheduleModal.tsx",
+  "line": 15,
+  "kind": "list",
+  "text": "Tuesday",
+  "code": "export const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];"
+ },
+ {
+  "file": "roles/Seller/features/Profile/components/ScheduleModal.tsx",
+  "line": 15,
+  "kind": "list",
+  "text": "Wednesday",
+  "code": "export const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];"
+ },
+ {
+  "file": "roles/Seller/features/Profile/components/ScheduleModal.tsx",
+  "line": 15,
+  "kind": "list",
+  "text": "Thursday",
+  "code": "export const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];"
+ },
+ {
+  "file": "roles/Seller/features/Profile/components/ScheduleModal.tsx",
+  "line": 15,
+  "kind": "list",
+  "text": "Friday",
+  "code": "export const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];"
+ },
+ {
+  "file": "roles/Seller/features/Profile/components/ScheduleModal.tsx",
+  "line": 15,
+  "kind": "list",
+  "text": "Saturday",
+  "code": "export const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];"
+ },
+ {
+  "file": "roles/Seller/features/Profile/components/ScheduleModal.tsx",
+  "line": 15,
+  "kind": "list",
+  "text": "Sunday",
+  "code": "export const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];"
+ },
+ {
+  "file": "roles/Seller/utils/statusStyles.ts",
+  "line": 15,
+  "kind": "piece-template",
+  "text": "`seller.status.${group}.${key}`",
+  "code": "label: `seller.status.${group}.${key}`,"
+ },
+ {
+  "file": "utils/money.ts",
+  "line": 15,
+  "kind": "prop-other",
+  "text": "AED ",
+  "code": "AED: 'AED ',"
+ },
+ {
+  "file": "utils/money.ts",
+  "line": 16,
+  "kind": "prop-other",
+  "text": "PKR ",
+  "code": "PKR: 'PKR ',"
+ }
+]

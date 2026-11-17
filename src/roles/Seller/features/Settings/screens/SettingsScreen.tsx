@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Image,
   Platform,
@@ -16,177 +16,133 @@ import Icon from '@/components/Icon';
 import ConfirmModal from '@/components/ConfirmModal';
 import Squeeze from '@/components/Squeeze';
 import ThemePicker from '@/components/ThemePicker';
+import { useLanguage } from '@/i18n/LanguageContext';
+import { lower } from '@/i18n/locale';
 import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
-  blogExtra,
-  bookmarkBold,
-  chevronDownBold,
-  clockBold,
+  chartPieBold,
   commentDotsBold,
-  desktopBold,
+  creditCardBold,
   dummyProfileExtra,
   fileBold,
-  headphonesBold,
+  globeBold,
+  folderBold,
   homeBold,
-  infoCircleBold,
+  inboxBold,
   lockBold,
   logOutBold,
-  mobileBold,
   packageBold,
-  phoneBold,
   searchBold,
   shieldBold,
   shoppingBasketBold,
-  storeBold,
-  tabletBold,
-  tagBold,
-  usersThreeBold,
+  starBold,
+  userBold,
+  volumeUpBold,
 } from '@/assets/icons';
+import AuthService, { AuthUser } from '@/services/authService';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import { fetchSellerQueryStatsApi } from '@/roles/Seller/services/sellerApi';
+import { openSellerTab } from '@/roles/Seller/utils/sellerUtils';
+import { useTranslation } from 'react-i18next';
 
-// Complete menu routing for Seller
-const MENU = [
-  { label: 'Home', icon: homeBold, tab: 'Dashboard' },
-  { label: 'Top expert repairman', icon: usersThreeBold, screen: 'ExpertRepairmen' },
-  { label: 'About', icon: infoCircleBold, screen: 'About' },
-  { label: 'Academy', icon: bookmarkBold, screen: 'Academy' },
-  { label: 'Blogs', icon: blogExtra, screen: 'Blogs' },
-  { label: 'Support', icon: headphonesBold, tab: 'Enquiries' },
-  { label: 'My Order', icon: packageBold, tab: 'OrderManagement' },
-  { label: 'My Messages', icon: commentDotsBold, screen: 'ChatList' },
-  { label: 'My Sell Request', icon: tagBold, screen: 'MySellRequests' },
-  {
-    label: 'Refurbished devices',
-    icon: mobileBold,
-    children: [
-      { label: 'Sell gadgets', icon: storeBold, screen: 'SellRefurbished', params: { mode: 'gadget' } },
-      { label: 'Sell  phone', icon: phoneBold, screen: 'SellRefurbished', params: { mode: 'phone' } },
-    ],
-  },
-  {
-    label: 'Buy refurbished devices',
-    icon: shoppingBasketBold,
-    children: [
-      { label: 'Browse Refurbished Store', icon: shoppingBasketBold, screen: 'BuyRefurbished' },
-      {
-        label: 'refurbished Smart watch',
-        icon: clockBold,
-        screen: 'AllGadgets',
-        params: { initialCategory: 'Smart watches' },
-      },
-      {
-        label: 'refurbished Tablet',
-        icon: tabletBold,
-        screen: 'AllGadgets',
-        params: { initialCategory: 'Tablets' },
-      },
-      {
-        label: 'refurbished Gaming consolt',
-        icon: desktopBold,
-        screen: 'AllGadgets',
-        params: { initialCategory: 'Gaming Console' },
-      },
-    ],
-  },
-  { label: 'Change Password', icon: lockBold, screen: 'ChangePassword' },
-  { label: 'Privacy Policy', icon: shieldBold, screen: 'PrivacyPolicy' },
-  { label: 'Terms & Conditions', icon: fileBold, screen: 'Terms' },
+const MENU: MenuItem[] = [
+  { label: 'settings.menu.home', icon: homeBold, tab: 'Dashboard' },
+  { label: 'settings.menu.myProfile', icon: userBold, screen: 'Profile' },
+  { label: 'settings.menu.myProducts', icon: shoppingBasketBold, tab: 'Product' },
+  { label: 'settings.menu.myOrders', icon: packageBold, tab: 'OrderManagement' },
+  { label: 'settings.menu.wallet', icon: creditCardBold, tab: 'Wallet' },
+  { label: 'settings.menu.myAds', icon: volumeUpBold, tab: 'Ads' },
+  { label: 'settings.menu.reports', icon: chartPieBold, tab: 'Reported' },
+  { label: 'settings.menu.invoices', icon: folderBold, tab: 'Invoices' },
+  { label: 'settings.menu.enquiries', icon: inboxBold, tab: 'Enquiries' },
+  { label: 'settings.menu.reviews', icon: starBold, tab: 'Reviews' },
+  { label: 'settings.menu.myMessages', icon: commentDotsBold, screen: 'ChatList' },
+  { label: 'settings.menu.changePassword', icon: lockBold, screen: 'ChangePassword' },
+  { label: 'settings.menu.privacyPolicy', icon: shieldBold, screen: 'PrivacyPolicy' },
+  { label: 'settings.menu.language', icon: globeBold, action: 'language' },
+  { label: 'settings.menu.terms', icon: fileBold, screen: 'Terms' },
 ];
 
-function MenuRow({ item, depth = 0, navigation, onSelectTab, searchQuery }: any) {
-  const { colors } = useTheme();
-  const [open, setOpen] = useState(false);
-  const hasChildren = Boolean(item.children);
+interface MenuItem {
+  label: string;
+  icon: any;
+  tab?: string;
+  screen?: string;
+  action?: 'language';
+}
 
-  const isChildMatched = Boolean(
-    searchQuery &&
-      item?.children?.some((child: any) =>
-        child?.label?.toLowerCase()?.includes(String(searchQuery).toLowerCase()),
-      ),
-  );
-  const isOpen = open || isChildMatched;
+function MenuRow({ item, navigation, badge }: { item: MenuItem; navigation: any; badge?: number }) {
+  const { colors } = useTheme();
+  const { t } = useTranslation();
+  const { openLanguageModal } = useLanguage();
 
   const onPress = () => {
-    try {
-      if (hasChildren) {
-        setOpen(!open);
-      } else if (item?.tab) {
-        onSelectTab?.(item.tab);
-        navigation?.navigate('SellerMain', { initialTab: item.tab });
-      } else if (item?.screen) {
-        navigation?.navigate(item.screen, item.params);
-      }
-    } catch (err) {
-      console.warn('Navigation error:', err);
+    if (item.action === 'language') {
+      openLanguageModal();
+    } else if (item.tab) {
+      openSellerTab(navigation, item.tab);
+    } else if (item.screen) {
+      navigation?.navigate(item.screen);
     }
   };
 
   return (
-    <>
-      <Pressable
-        onPress={onPress}
-        android_ripple={{ color: colors.primary + '12' }}
-        style={({ pressed }) => [
-          styles.row,
-          { paddingLeft: 10 + depth * 14 },
-          pressed && Platform.OS === 'ios' && { backgroundColor: colors.primary + '12' },
-        ]}>
-        <Icon source={item.icon} size={depth ? 18 : 21} color={colors.text} />
-
-        <Text
-          style={[
-            styles.label,
-            {
-              color: depth ? colors.textMuted : colors.text,
-              fontFamily: hasChildren ? fonts.bold : fonts.regular,
-              fontSize: depth ? 14 : 16,
-            },
-          ]}>
-          {item.label}
-        </Text>
-
-        {hasChildren && (
-          <Icon
-            source={chevronDownBold}
-            size={16}
-            color={colors.text}
-            style={isOpen ? { transform: [{ rotate: '180deg' }] } : undefined}
-          />
-        )}
-      </Pressable>
-
-      {hasChildren &&
-        isOpen &&
-        (item?.children || []).map((child: any) => (
-          <MenuRow
-            key={child?.label || Math.random().toString()}
-            item={child}
-            depth={depth + 1}
-            navigation={navigation}
-            onSelectTab={onSelectTab}
-            searchQuery={searchQuery}
-          />
-        ))}
-    </>
+    <Pressable
+      onPress={onPress}
+      android_ripple={{ color: colors.primary + '12' }}
+      style={({ pressed }) => [
+        styles.row,
+        pressed && Platform.OS === 'ios' && { backgroundColor: colors.primary + '12' },
+      ]}>
+      <Icon source={item.icon} size={21} color={colors.text} />
+      <Text style={[styles.label, { color: colors.text }]}>{t(item.label)}</Text>
+      {!!badge && badge > 0 && (
+        <View style={[styles.badge, { backgroundColor: colors.primary }]}>
+          <Text style={[styles.badgeText, { color: colors.onPrimary }]}>{badge > 99 ? '99+' : badge}</Text>
+        </View>
+      )}
+    </Pressable>
   );
 }
 
-export default function SettingsScreen({ navigation, onLogout, onSelectTab }: any) {
+export default function SettingsScreen({ navigation, onLogout }: any) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
   const [confirmLogout, setConfirmLogout] = useState(false);
+  const [unreadEnquiries, setUnreadEnquiries] = useState(0);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => AuthService.getCachedUser());
 
-  const query = (search || '').trim().toLowerCase();
-  const menu = query
-    ? (MENU || []).filter(
-        item =>
-          item?.label?.toLowerCase()?.includes(query) ||
-          item?.children?.some((c: any) => c?.label?.toLowerCase()?.includes(query)),
-      )
-    : (MENU || []);
+  // Read the stored user again each time the screen is shown, so a new photo or name appears at once
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      AuthService.getStoredUser().then(user => {
+        if (alive && user) setCurrentUser(user);
+      });
+      // Same count as the web Enquiries badge; a failed request keeps the last number
+      fetchSellerQueryStatsApi()
+        .then(stats => {
+          if (alive) setUnreadEnquiries(stats.unread);
+        })
+        .catch(() => {});
+    };
+    load();
+    const unsubscribe = navigation?.addListener?.('focus', load);
+    return () => {
+      alive = false;
+      unsubscribe?.();
+    };
+  }, [navigation]);
+
+  const query = lower((search || '').trim());
+  const menu = query ? MENU.filter(item => lower(t(item.label)).includes(query)) : MENU;
+
+  const photo = currentUser?.avatar || currentUser?.profileImage;
+  const avatarSource = photo ? { uri: photo } : dummyProfileExtra;
 
   return (
     <View
@@ -208,7 +164,7 @@ export default function SettingsScreen({ navigation, onLogout, onSelectTab }: an
         <TextInput
           value={search}
           onChangeText={setSearch}
-          placeholder="Search settings"
+          placeholder={t('settings.searchSettings')}
           placeholderTextColor={colors.textMuted}
           style={[styles.searchInput, { color: colors.text }]}
         />
@@ -221,8 +177,7 @@ export default function SettingsScreen({ navigation, onLogout, onSelectTab }: an
             <MenuRow
               item={item}
               navigation={navigation}
-              onSelectTab={onSelectTab}
-              searchQuery={query}
+              badge={item.tab === 'Enquiries' ? unreadEnquiries : 0}
             />
           </FadeUp>
         ))}
@@ -236,13 +191,17 @@ export default function SettingsScreen({ navigation, onLogout, onSelectTab }: an
           onPress={() => navigation?.navigate('Profile')}
           style={styles.profileBtn}>
           <Image
-            source={dummyProfileExtra}
+            source={avatarSource}
             style={[styles.avatar, { borderColor: colors.avatarBorder }]}
           />
 
           <View style={styles.profileText}>
-            <Text style={[styles.name, { color: colors.text }]}>Hammad Raza</Text>
-            <Text style={[styles.role, { color: colors.primary }]}>Seller</Text>
+            <Text style={[styles.name, { color: colors.text }]} numberOfLines={1}>
+              {currentUser?.name || t('glossary.seller')}
+            </Text>
+            <Text style={[styles.role, { color: colors.primary }]} numberOfLines={1}>
+              {currentUser?.businessName || t('glossary.seller')}
+            </Text>
           </View>
         </TouchableOpacity>
 
@@ -253,10 +212,10 @@ export default function SettingsScreen({ navigation, onLogout, onSelectTab }: an
 
       <ConfirmModal
         visible={confirmLogout}
-        title="Logout"
-        message="Are you sure you want to logout?"
-        cancelText="Not now"
-        confirmText="Logout"
+        title={t('settings.logout')}
+        message={t('settings.logoutConfirm')}
+        cancelText={t('settings.notNow')}
+        confirmText={t('settings.logout')}
         danger
         onCancel={() => setConfirmLogout(false)}
         onConfirm={() => {
@@ -308,7 +267,16 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     overflow: 'hidden',
   },
-  label: { flex: 1 },
+  badge: {
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 6,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badgeText: { fontFamily: fonts.bold, fontSize: 11 },
+  label: { flex: 1, fontFamily: fonts.regular, fontSize: 16 },
   profile: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -3,17 +3,19 @@ import { StyleSheet, Text, View } from 'react-native';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { passwordScore } from '@/utils/validators';
+import { useTranslation } from 'react-i18next';
 
 const LEVELS = [
-  { label: '', color: null },
-  { label: 'Weak', color: '#FB2C36' },
-  { label: 'Fair', color: '#FF820A' },
-  { label: 'Good', color: '#1592FD' },
-  { label: 'Strong', color: '#00A63E' },
-];
+  { key: null, color: null },
+  { key: 'weak', color: '#FB2C36' },
+  { key: 'fair', color: '#FF820A' },
+  { key: 'good', color: '#1592FD' },
+  { key: 'strong', color: '#00A63E' },
+] as const;
 
 export default function PasswordStrength({ value, style = null }) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const score = passwordScore(value);
 
   if (!value) return null;
@@ -34,7 +36,7 @@ export default function PasswordStrength({ value, style = null }) {
         ))}
       </View>
 
-      <Text style={[styles.label, { color: level.color ?? colors.textMuted }]}>{level.label}</Text>
+      <Text style={[styles.label, { color: level.color ?? colors.textMuted }]}>{level.key ? t(`common.passwordStrength.${level.key}`) : ''}</Text>
     </View>
   );
 }

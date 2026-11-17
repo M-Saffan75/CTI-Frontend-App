@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { formatMoney } from '@/utils/money';
 import {
   Image,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -22,6 +24,7 @@ import {
   heartExtra,
   heartFilled,
   menuBold,
+  searchBold,
   shoppingCartExtra,
 } from '@/assets/icons';
 import { ctiLogo } from '@/assets/images';
@@ -29,9 +32,21 @@ import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { useWishlist } from '../../../context/WishlistContext';
 import { useCart } from '../../../context/CartContext';
-import { getEcomProducts, MobileEcomProduct } from '../services/ecomApi';
+import { fetchEcomProductsPage, MobileEcomProduct } from '../services/ecomApi';
+import { normalizeApiError } from '@/services/apiError';
+import {
+  DEFAULT_FILTERS,
+  PRICE_MAX,
+  ProductFilters,
+  subscribeProductFilters,
+} from '../utils/productFilters';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
+
+const PAGE_SIZE = 12;
 
 function ProductCard({ product, navigation }: { product: MobileEcomProduct; navigation: any }) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const { isSaved, toggle } = useWishlist();
   const saved = isSaved(product.id);
@@ -67,16 +82,16 @@ function ProductCard({ product, navigation }: { product: MobileEcomProduct; navi
 
       <View style={styles.cardBody}>
         <Text style={[styles.brand, { color: colors.textMuted }]} numberOfLines={1}>
-          {typeof product.brand === 'string' ? product.brand : (product.brand as any)?.title || (product.brand as any)?.name || 'CTI Store'}
+          {typeof product.brand === 'string' ? product.brand : (product.brand as any)?.title || (product.brand as any)?.name || t('customer.ctiStore')}
         </Text>
         <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
-          {typeof product.title === 'string' ? product.title : (product.title as any)?.title || (product.title as any)?.name || 'Product'}
+          {typeof product.title === 'string' ? product.title : (product.title as any)?.title || (product.title as any)?.name || t('tabs.product')}
         </Text>
         <Text style={[styles.description, { color: colors.textMuted }]} numberOfLines={2}>
           {typeof product.description === 'string' ? product.description : ''}
         </Text>
         <Text style={[styles.reviews, { color: colors.textMuted }]}>
-          {product.reviewCount ? `${product.reviewCount} Reviews` : 'No Reviews'}
+          {product.reviewCount ? t(product.reviewCount === 1 ? 'customerMsg.reviewsOne' : 'customerMsg.reviewsMany', { count: product.reviewCount }) : t('customer.noReviews')}
         </Text>
 
         <View style={styles.priceRow}>
@@ -85,14 +100,14 @@ function ProductCard({ product, navigation }: { product: MobileEcomProduct; navi
               <Text style={styles.discountText}>-{product.discountPercent}%</Text>
             </View>
           )}
-          <Text style={[styles.price, { color: colors.text }]}>${Number(product.price || 0).toFixed(2)}</Text>
+          <Text style={[styles.price, { color: colors.text }]}>{formatMoney(product.price)}</Text>
           {!!product.originalPrice && product.originalPrice > product.price && (
             <Text style={[styles.originalPrice, { color: colors.textMuted }]}>
-              ${Number(product.originalPrice).toFixed(2)}
+              {formatMoney(product.originalPrice)}
             </Text>
           )}
           <Text style={[styles.stock, { color: product.inStock ? colors.success : colors.error }]}>
-            {product.inStock ? 'In stock' : 'Out of stock'}
+            {product.inStock ? t('customer.inStock') : t('customer.outOfStock')}
           </Text>
         </View>
       </View>
@@ -100,36 +115,23 @@ function ProductCard({ product, navigation }: { product: MobileEcomProduct; navi
   );
 }
 
-interface ProductFilters {
-  categoryIds: string[];
-  categories: string[];
-  color: string | null;
-  storage: string | null;
-  minPrice: number;
-  maxPrice: number;
-  minRating: number;
-}
-
-const DEFAULT_FILTERS: ProductFilters = {
-  categoryIds: [],
-  categories: [],
-  color: null,
-  storage: null,
-  minPrice: 0,
-  maxPrice: 2000,
-  minRating: 0,
-};
-
 export default function ProductScreen({ navigation }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { ids } = useWishlist();
 
   const [filters, setFilters] = useState<ProductFilters>(DEFAULT_FILTERS);
-  const [allProducts, setAllProducts] = useState<MobileEcomProduct[]>([]);
+  const [search, setSearch] = useState('');
+  const [products, setProducts] = useState<MobileEcomProduct[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
   const { cartCount, refreshCart } = useCart();
+  const requestId = useRef(0);
 
   // AlertModal state
   const [modal, setModal] = useState<{
@@ -144,97 +146,113 @@ export default function ProductScreen({ navigation }: any) {
     message: '',
   });
 
-  const loadData = async (isRefresh = false, currentFilters = filters) => {
+  // Every filter is applied by the backend, so the list, the page count and the filters always agree
+  const buildQuery = (currentFilters: ProductFilters, text: string, pageNo: number) => {
+    const query: Record<string, any> = { page: pageNo, limit: PAGE_SIZE };
+    if (text.trim()) query.q = text.trim();
+    if (currentFilters.categoryIds.length > 0) query.categoryIds = currentFilters.categoryIds.join(',');
+    if (currentFilters.color) query.colors = currentFilters.color;
+    if (currentFilters.storage) query.dynamicFilters = JSON.stringify({ Storage: [currentFilters.storage] });
+    if (currentFilters.minPrice > 0) query.minPrice = currentFilters.minPrice;
+    if (currentFilters.maxPrice < PRICE_MAX) query.maxPrice = currentFilters.maxPrice;
+    if (currentFilters.minRating > 0) query.rating = currentFilters.minRating;
+    return query;
+  };
+
+  // A slow answer for an old filter is ignored (requestId), so the list always matches the filters shown
+  const loadData = async (
+    isRefresh = false,
+    currentFilters: ProductFilters = filters,
+    text: string = search,
+  ) => {
+    const myRequest = ++requestId.current;
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
+    setLoadError('');
 
     try {
-      const queryParams: Record<string, any> = {};
-      if (currentFilters.categoryIds && currentFilters.categoryIds.length > 0) {
-        queryParams.categoryIds = currentFilters.categoryIds.join(',');
-      }
-      if (currentFilters.color) {
-        queryParams.colors = currentFilters.color;
-      }
-      if (currentFilters.storage) {
-        queryParams.dynamicFilters = JSON.stringify({ Storage: [currentFilters.storage] });
-      }
-      if (currentFilters.minPrice > 0) {
-        queryParams.minPrice = currentFilters.minPrice;
-      }
-      if (currentFilters.maxPrice < 2000) {
-        queryParams.maxPrice = currentFilters.maxPrice;
-      }
-      if (currentFilters.minRating > 0) {
-        queryParams.rating = currentFilters.minRating;
-      }
-
-      const [fetchedProducts] = await Promise.all([
-        getEcomProducts(queryParams),
-        refreshCart(),
-      ]);
-      setAllProducts(fetchedProducts || []);
-    } catch (err: any) {
-      setAllProducts([]);
-      setModal({
-        visible: true,
-        type: 'error',
-        title: 'Error Loading Store',
-        message: err?.message || 'Could not load products.',
-      });
+      const result = await fetchEcomProductsPage(buildQuery(currentFilters, text, 1));
+      if (myRequest !== requestId.current) return;
+      setProducts(result.products);
+      setPage(1);
+      setPages(result.pages);
+    } catch (err) {
+      if (myRequest !== requestId.current) return;
+      // never show "no products" when the request failed
+      setProducts([]);
+      setLoadError(normalizeApiError(err).message);
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (myRequest === requestId.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   };
 
+  const loadMore = async () => {
+    if (loadingMore || loading || loadError || page >= pages) return;
+    const myRequest = requestId.current;
+    setLoadingMore(true);
+    try {
+      const result = await fetchEcomProductsPage(buildQuery(filters, search, page + 1));
+      if (myRequest !== requestId.current) return;
+      setProducts(prev => {
+        const seen = new Set(prev.map(p => p.id));
+        return [...prev, ...result.products.filter(p => !seen.has(p.id))];
+      });
+      setPage(page + 1);
+      setPages(result.pages);
+    } catch (err) {
+      setModal({
+        visible: true,
+        type: 'error',
+        title: i18n.t('customer.couldNotLoadMoreProducts'),
+        message: normalizeApiError(err).message,
+      });
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  // Runs on mount and when the cart refresher changes; always calls the latest loadData
+  const loadDataRef = useRef(loadData);
+  loadDataRef.current = loadData;
+
   useEffect(() => {
-    loadData();
+    loadDataRef.current();
     const unsubscribe = navigation.addListener?.('focus', () => {
-      refreshCart();
+      refreshCart({ silent: true });
     });
     return unsubscribe;
   }, [navigation, refreshCart]);
+
+  // The filter screen applies its result here
+  useEffect(
+    () =>
+      subscribeProductFilters(applied => {
+        setFilters(applied);
+        loadDataRef.current(false, applied);
+      }),
+    [],
+  );
+
+  // Typing in the search box waits a moment, then asks the backend
+  const firstSearch = useRef(true);
+  useEffect(() => {
+    if (firstSearch.current) {
+      firstSearch.current = false;
+      return;
+    }
+    const timer = setTimeout(() => loadDataRef.current(false, filters, search), 450);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
 
   const onRefresh = () => {
     loadData(true);
   };
 
-  const filteredProducts = allProducts.filter(p => {
-    const price = Number(p.price || 0);
-    if (filters.minPrice > 0 && price < filters.minPrice) return false;
-    if (filters.maxPrice < 2000 && price > filters.maxPrice) return false;
-    if (filters.minRating > 0 && Number(p.rating || 0) < filters.minRating) return false;
-
-    if (filters.categoryIds.length > 0 || filters.categories.length > 0) {
-      const idMatch = p.categoryId && filters.categoryIds.includes(p.categoryId);
-      const catLower = (p.category || '').toLowerCase();
-      const titleMatch = filters.categories.some(c => catLower.includes(c.toLowerCase()));
-      if (!idMatch && !titleMatch) return false;
-    }
-
-    if (filters.color) {
-      const colorLower = filters.color.toLowerCase();
-      const hasColor = (p.colors || []).some(
-        c => c.name.toLowerCase().includes(colorLower) || (c.hex && c.hex.toLowerCase() === colorLower)
-      );
-      if (!hasColor) return false;
-    }
-
-    if (filters.storage) {
-      const titleLower = (p.title || '').toLowerCase();
-      const storageLower = (p.storage || '').toLowerCase();
-      const target = filters.storage.toLowerCase();
-      const inSpecs = Object.values(p.attrOptions || {}).some(opts =>
-        opts.some(o => o.value.toLowerCase() === target)
-      );
-      if (!titleLower.includes(target) && !storageLower.includes(target) && !inSpecs) {
-        return false;
-      }
-    }
-
-    return true;
-  });
+  const filteredProducts = products;
 
   const hasActiveFilters =
     filters.categories.length > 0 ||
@@ -242,7 +260,7 @@ export default function ProductScreen({ navigation }: any) {
     filters.color !== null ||
     filters.storage !== null ||
     filters.minPrice > 0 ||
-    filters.maxPrice < 2000 ||
+    filters.maxPrice < PRICE_MAX ||
     filters.minRating > 0;
 
   let activeFilterCount = 0;
@@ -250,17 +268,11 @@ export default function ProductScreen({ navigation }: any) {
   else if (filters.categoryIds.length > 0) activeFilterCount += filters.categoryIds.length;
   if (filters.color) activeFilterCount += 1;
   if (filters.storage) activeFilterCount += 1;
-  if (filters.minPrice > 0 || filters.maxPrice < 2000) activeFilterCount += 1;
+  if (filters.minPrice > 0 || filters.maxPrice < PRICE_MAX) activeFilterCount += 1;
   if (filters.minRating > 0) activeFilterCount += 1;
 
   const openFilterScreen = () => {
-    navigation.navigate('ProductFilter', {
-      currentFilters: filters,
-      onApply: (appliedFilters: ProductFilters) => {
-        setFilters(appliedFilters);
-        loadData(false, appliedFilters);
-      },
-    });
+    navigation.navigate('ProductFilter', { currentFilters: filters });
   };
 
   const removeCategory = (cat: string) => {
@@ -279,7 +291,7 @@ export default function ProductScreen({ navigation }: any) {
   };
 
   const resetPrice = () => {
-    const next = { ...filters, minPrice: 0, maxPrice: 2000 };
+    const next = { ...filters, minPrice: 0, maxPrice: PRICE_MAX };
     setFilters(next);
     loadData(false, next);
   };
@@ -345,6 +357,18 @@ export default function ProductScreen({ navigation }: any) {
         </View>
       </View>
 
+      <View style={[styles.searchBox, { borderColor: colors.border, backgroundColor: colors.surfaceAlt }]}>
+        <Icon source={searchBold} size={18} color={colors.textMuted} />
+        <TextInput
+          value={search}
+          onChangeText={setSearch}
+          placeholder={t('customer.searchProducts')}
+          placeholderTextColor={colors.textMuted}
+          returnKeyType="search"
+          style={[styles.searchInput, { color: colors.text }]}
+        />
+      </View>
+
       {hasActiveFilters && (
         <View style={styles.activeFiltersBar}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.activeFiltersScroll}>
@@ -356,9 +380,9 @@ export default function ProductScreen({ navigation }: any) {
                 </TouchableOpacity>
               </View>
             ))}
-            {(filters.minPrice > 0 || filters.maxPrice < 2000) && (
+            {(filters.minPrice > 0 || filters.maxPrice < PRICE_MAX) && (
               <View style={[styles.filterChip, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                <Text style={[styles.filterChipText, { color: colors.text }]}>${filters.minPrice} - ${filters.maxPrice}</Text>
+                <Text style={[styles.filterChipText, { color: colors.text }]}>{formatMoney(filters.minPrice)} - {formatMoney(filters.maxPrice)}</Text>
                 <TouchableOpacity onPress={resetPrice} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                   <Icon source={closeIcon} size={11} color={colors.textMuted} />
                 </TouchableOpacity>
@@ -366,7 +390,7 @@ export default function ProductScreen({ navigation }: any) {
             )}
             {filters.minRating > 0 && (
               <View style={[styles.filterChip, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                <Text style={[styles.filterChipText, { color: colors.text }]}>{filters.minRating}+ Stars</Text>
+                <Text style={[styles.filterChipText, { color: colors.text }]}>{t('customerMsg.minStars', { rating: filters.minRating })}</Text>
                 <TouchableOpacity onPress={resetRating} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                   <Icon source={closeIcon} size={11} color={colors.textMuted} />
                 </TouchableOpacity>
@@ -389,7 +413,7 @@ export default function ProductScreen({ navigation }: any) {
               </View>
             )}
             <TouchableOpacity onPress={clearAllFilters} style={styles.clearAllBtn}>
-              <Text style={[styles.clearAllText, { color: colors.error }]}>Clear All</Text>
+              <Text style={[styles.clearAllText, { color: colors.error }]}>{t('customer.clearAll')}</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>
@@ -398,6 +422,12 @@ export default function ProductScreen({ navigation }: any) {
       <ScrollView
         contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        scrollEventThrottle={200}
+        onScroll={({ nativeEvent }) => {
+          const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+          if (layoutMeasurement.height + contentOffset.y >= contentSize.height - 400) loadMore();
+        }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -409,16 +439,24 @@ export default function ProductScreen({ navigation }: any) {
         {loading && !refreshing ? (
           <CtiLoader
             size="md"
-            text="Loading marketplace products..."
+            text={t('customer.loadingMarketplaceProducts')}
             style={{ paddingVertical: 45 }}
           />
+        ) : loadError ? (
+          <View style={{ paddingVertical: 50, alignItems: 'center', gap: 12 }}>
+            <Text style={{ color: colors.text, fontFamily: fonts.bold, fontSize: 16 }}>{t('customer.couldNotLoadProducts')}</Text>
+            <Text style={{ color: colors.textMuted, fontFamily: fonts.regular, fontSize: 14, textAlign: 'center' }}>
+              {loadError}
+            </Text>
+            <Button title={t('customer.tryAgain')} size="sm" onPress={() => loadData()} />
+          </View>
         ) : filteredProducts.length === 0 ? (
           <View style={{ paddingVertical: 50, alignItems: 'center', gap: 12 }}>
             <Text style={{ color: colors.textMuted, fontFamily: fonts.regular, fontSize: 14 }}>
-              {hasActiveFilters ? 'No products match the selected filters.' : 'No products available right now.'}
+              {hasActiveFilters || search.trim() ? t('customer.noProductsMatchYourSearch') : t('customer.noProductsAvailableRightNow')}
             </Text>
             {hasActiveFilters && (
-              <Button title="Reset Filters" variant="soft" size="sm" onPress={clearAllFilters} />
+              <Button title={t('customer.resetFilters')} variant="soft" size="sm" onPress={clearAllFilters} />
             )}
           </View>
         ) : (
@@ -434,6 +472,9 @@ export default function ProductScreen({ navigation }: any) {
             ))}
           </View>
         )}
+        {loadingMore ? (
+          <CtiLoader size="sm" text={t('customer.loadingMoreProducts')} style={{ paddingVertical: 20 }} />
+        ) : null}
       </ScrollView>
 
       <AlertModal
@@ -458,6 +499,18 @@ const styles = StyleSheet.create({
   },
   logo: { width: 110, height: 59 },
   headerIcons: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    height: 46,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    marginHorizontal: 20,
+    marginBottom: 10,
+  },
+  searchInput: { flex: 1, fontFamily: fonts.regular, fontSize: 14, padding: 0 },
   badge: {
     position: 'absolute',
     top: -5,
@@ -492,6 +545,7 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   filterChipText: {
+    flexShrink: 1,
     fontFamily: fonts.bold,
     fontSize: 11,
   },

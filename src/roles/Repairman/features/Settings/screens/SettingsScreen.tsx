@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   Image,
   Platform,
@@ -10,12 +10,16 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
+import AlertModal from '@/components/AlertModal';
 import ConfirmModal from '@/components/ConfirmModal';
 import Squeeze from '@/components/Squeeze';
 import ThemePicker from '@/components/ThemePicker';
+import { useLanguage } from '@/i18n/LanguageContext';
+import { lower } from '@/i18n/locale';
 import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
@@ -26,89 +30,88 @@ import {
   commentDotsBold,
   desktopBold,
   dummyProfileExtra,
+  exclamationCircleBold,
   fileBold,
-  headphonesBold,
+  globeBold,
   homeBold,
   infoCircleBold,
   lockBold,
   logOutBold,
-  mobileBold,
   packageBold,
-  phoneBold,
   searchBold,
   shieldBold,
   shoppingBasketBold,
-  storeBold,
   tabletBold,
   tagBold,
-  usersThreeBold,
+  toolExtra,
 } from '@/assets/icons';
+import { getWebRepairmanAdsUrl } from '@/constants/config';
+import AuthService from '@/services/authService';
+import { openWebsite } from '@/roles/Seller/utils/sellerUtils';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import { useTranslation } from 'react-i18next';
 
-// Same list as the Customer settings menu — the repairman gets the same pages.
-// "Home" lands on the Dashboard tab; the rest are shared screens.
+// Only pages that apply to a repairman. "Home" lands on the Dashboard tab; the shop and info pages are shared screens.
 const MENU = [
-  { label: 'Home', icon: homeBold, tab: 'DashboardTab' },
-  { label: 'Top expert repairman', icon: usersThreeBold, screen: 'ExpertRepairmen' },
-  { label: 'About', icon: infoCircleBold, screen: 'About' },
-  { label: 'Academy', icon: bookmarkBold, screen: 'Academy' },
-  { label: 'Blogs', icon: blogExtra, screen: 'Blogs' },
-  { label: 'Support', icon: headphonesBold },
-  { label: 'My Order', icon: packageBold, screen: 'Orders' },
-  { label: 'My Messages', icon: commentDotsBold, screen: 'ChatList' },
-  { label: 'My Sell Request', icon: tagBold, screen: 'MySellRequests' },
+  { label: 'settings.menu.home', icon: homeBold, tab: 'DashboardTab' },
+  { label: 'settings.menu.serviceCatalog', icon: toolExtra, screen: 'ServiceCatalog' },
+  { label: 'settings.menu.disputes', icon: exclamationCircleBold, screen: 'Disputes' },
+  { label: 'settings.menu.advertisements', icon: tagBold, url: getWebRepairmanAdsUrl },
+  { label: 'settings.menu.shopProducts', icon: shoppingBasketBold, screen: 'Products' },
+  { label: 'settings.menu.about', icon: infoCircleBold, screen: 'About' },
+  { label: 'settings.menu.academy', icon: bookmarkBold, screen: 'Academy' },
+  { label: 'settings.menu.blogs', icon: blogExtra, screen: 'Blogs' },
+  { label: 'settings.menu.myOrder', icon: packageBold, screen: 'Orders' },
+  { label: 'settings.menu.myMessages', icon: commentDotsBold, screen: 'ChatList' },
   {
-    label: 'Refurbished devices',
-    icon: mobileBold,
-    children: [
-      { label: 'Sell gadgets', icon: storeBold, screen: 'SellRefurbished', params: { mode: 'gadget' } },
-      { label: 'Sell  phone', icon: phoneBold, screen: 'SellRefurbished', params: { mode: 'phone' } },
-    ],
-  },
-  {
-    label: 'Buy refurbished devices',
+    label: 'settings.menu.buyRefurbishedDevices',
     icon: shoppingBasketBold,
     children: [
-      { label: 'Browse Refurbished Store', icon: shoppingBasketBold, screen: 'BuyRefurbished' },
       {
-        label: 'refurbished Smart watch',
+        label: 'settings.menu.browseStore',
+        icon: shoppingBasketBold,
+        screen: 'BuyRefurbished',
+      },
+      {
+        label: 'settings.menu.smartWatch',
         icon: clockBold,
         screen: 'AllGadgets',
         params: { initialCategory: 'Smart watches' },
       },
       {
-        label: 'refurbished Tablet',
+        label: 'settings.menu.tablet',
         icon: tabletBold,
         screen: 'AllGadgets',
         params: { initialCategory: 'Tablets' },
       },
       {
-        label: 'refurbished Gaming consolt',
+        label: 'settings.menu.gamingConsole',
         icon: desktopBold,
         screen: 'AllGadgets',
         params: { initialCategory: 'Gaming Console' },
       },
     ],
   },
-  { label: 'Change Password', icon: lockBold, screen: 'ChangePassword' },
-  { label: 'Privacy Policy', icon: shieldBold, screen: 'PrivacyPolicy' },
-  { label: 'Terms & Conditions', icon: fileBold, screen: 'Terms' },
+  { label: 'settings.menu.changePassword', icon: lockBold, screen: 'ChangePassword' },
+  { label: 'settings.menu.privacyPolicy', icon: shieldBold, screen: 'PrivacyPolicy' },
+  { label: 'settings.menu.language', icon: globeBold, action: 'language' },
+  { label: 'settings.menu.terms', icon: fileBold, screen: 'Terms' },
 ];
 
-function MenuRow({ item, depth = 0, navigation }) {
+function MenuRow({ item, depth = 0, navigation, onOpenUrl }) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const hasChildren = Boolean(item.children);
+  const { openLanguageModal } = useLanguage();
 
   const onPress = () => {
-    try {
-      if (hasChildren) setOpen(!open);
-      else if (item?.tab) navigation?.navigate('Home', { screen: item.tab });
-      else if (item?.screen) navigation?.navigate(item.screen, item.params);
-    } catch (e) {
-      console.warn('Navigation error:', e);
-    }
+    if (item?.action === 'language') openLanguageModal();
+    else if (hasChildren) setOpen(!open);
+    else if (item?.tab) navigation?.navigate('Home', { screen: item.tab });
+    else if (item?.url) onOpenUrl(item.url());
+    else if (item?.screen) navigation?.navigate(item.screen, item.params);
   };
 
   return (
@@ -120,8 +123,10 @@ function MenuRow({ item, depth = 0, navigation }) {
           styles.row,
           { paddingLeft: 10 + depth * 14 },
           // Android draws its own ripple; this is the iOS equivalent.
-          pressed && Platform.OS === 'ios' && { backgroundColor: colors.primary + '12' },
-        ]}>
+          pressed &&
+            Platform.OS === 'ios' && { backgroundColor: colors.primary + '12' },
+        ]}
+      >
         <Icon source={item.icon} size={depth ? 18 : 21} color={colors.text} />
 
         <Text
@@ -132,17 +137,26 @@ function MenuRow({ item, depth = 0, navigation }) {
               fontFamily: hasChildren ? fonts.bold : fonts.regular,
               fontSize: depth ? 14 : 16,
             },
-          ]}>
-          {item.label}
+          ]}
+        >
+          {t(item.label)}
         </Text>
 
-        {hasChildren && <Icon source={chevronDownBold} size={16} color={colors.text} />}
+        {hasChildren && (
+          <Icon source={chevronDownBold} size={16} color={colors.text} />
+        )}
       </Pressable>
 
       {hasChildren &&
         open &&
         (item?.children || []).map(child => (
-          <MenuRow key={child?.label || Math.random().toString()} item={child} depth={depth + 1} navigation={navigation} />
+          <MenuRow
+            key={child.label}
+            item={child}
+            depth={depth + 1}
+            navigation={navigation}
+            onOpenUrl={onOpenUrl}
+          />
         ))}
     </>
   );
@@ -150,22 +164,41 @@ function MenuRow({ item, depth = 0, navigation }) {
 
 export default function SettingsScreen({ navigation, onLogout }) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
   const [confirmLogout, setConfirmLogout] = useState(false);
+  const [user, setUser] = useState(AuthService.getCachedUser());
+  const [linkFailed, setLinkFailed] = useState('');
 
-  const query = (search || '').trim().toLowerCase();
+  useFocusEffect(
+    useCallback(() => {
+      setUser(AuthService.getCachedUser());
+    }, []),
+  );
+
+  const openUrl = async (url: string) => {
+    if (!(await openWebsite(url))) setLinkFailed(url);
+  };
+
+  const query = lower((search || '').trim());
   const menu = query
     ? (MENU || []).filter(
         item =>
-          item?.label?.toLowerCase()?.includes(query) ||
-          item?.children?.some((c: any) => c?.label?.toLowerCase()?.includes(query)),
+          lower(t(item?.label)).includes(query) ||
+          item?.children?.some((c: any) =>
+            lower(t(c?.label)).includes(query),
+          ),
       )
-    : (MENU || []);
+    : MENU || [];
 
   return (
     <View
-      style={[styles.screen, { backgroundColor: colors.background, paddingTop: insets.top + 12 }]}>
+      style={[
+        styles.screen,
+        { backgroundColor: colors.background, paddingTop: insets.top + 12 },
+      ]}
+    >
       <View style={styles.topRow}>
         <Squeeze onPress={() => navigation?.goBack()} scale={0.9}>
           <View style={[styles.back, { backgroundColor: colors.primary }]}>
@@ -181,34 +214,53 @@ export default function SettingsScreen({ navigation, onLogout }) {
         <TextInput
           value={search}
           onChangeText={setSearch}
-          placeholder="Search settings"
+          placeholder={t('settings.searchSettings')}
           placeholderTextColor={colors.textMuted}
           style={[styles.searchInput, { color: colors.text }]}
         />
       </View>
 
-      <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.list}
+        showsVerticalScrollIndicator={false}
+      >
         {menu.map((item, index) => (
           <FadeUp key={item.label} delay={15 + index * 12} duration={280}>
-            <MenuRow item={item} navigation={navigation} />
+            <MenuRow item={item} navigation={navigation} onOpenUrl={openUrl} />
           </FadeUp>
         ))}
       </ScrollView>
 
       <View
-        style={[styles.profile, { borderColor: colors.border, marginBottom: insets.bottom + 12 }]}>
+        style={[
+          styles.profile,
+          { borderColor: colors.border, marginBottom: insets.bottom + 12 },
+        ]}
+      >
         <TouchableOpacity
           activeOpacity={0.7}
           onPress={() => navigation?.navigate('Profile')}
-          style={styles.profileBtn}>
+          style={styles.profileBtn}
+        >
           <Image
-            source={dummyProfileExtra}
+            source={
+              user?.profileImage || user?.avatar
+                ? { uri: user.profileImage || user.avatar }
+                : dummyProfileExtra
+            }
             style={[styles.avatar, { borderColor: colors.avatarBorder }]}
           />
 
           <View style={styles.profileText}>
-            <Text style={[styles.name, { color: colors.text }]}>Hammad Raza</Text>
-            <Text style={[styles.role, { color: colors.primary }]}>Repairman</Text>
+            <Text
+              style={[styles.name, { color: colors.text }]}
+              numberOfLines={1}
+            >
+              {user?.name || t('glossary.repairman')}
+            </Text>
+            <Text style={[styles.role, { color: colors.primary }]}>
+              {t('glossary.repairman')}
+            </Text>
           </View>
         </TouchableOpacity>
 
@@ -217,12 +269,20 @@ export default function SettingsScreen({ navigation, onLogout }) {
         </Squeeze>
       </View>
 
+      <AlertModal
+        visible={Boolean(linkFailed)}
+        type="info"
+        title={t('settings.openWebsite')}
+        message={t('settings.openAddress', { url: linkFailed })}
+        onClose={() => setLinkFailed('')}
+      />
+
       <ConfirmModal
         visible={confirmLogout}
-        title="Logout"
-        message="Are you sure you want to logout?"
-        cancelText="Not now"
-        confirmText="Logout"
+        title={t('settings.logout')}
+        message={t('settings.logoutConfirm')}
+        cancelText={t('settings.notNow')}
+        confirmText={t('settings.logout')}
         danger
         onCancel={() => setConfirmLogout(false)}
         onConfirm={() => {

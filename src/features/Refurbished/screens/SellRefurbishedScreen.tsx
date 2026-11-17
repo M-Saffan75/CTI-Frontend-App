@@ -18,15 +18,9 @@ import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
   arrowRightBold,
-  calendarBold,
   checkCircleBold,
-  creditCardBold,
-  fileBold,
   packageBold,
   searchBold,
-  shieldBold,
-  starBold,
-  tagBold,
   chevronDownBold,
   chevronUpBold,
   phoneBold,
@@ -35,23 +29,26 @@ import {
 import { demoProductPhoto } from '@/assets/images';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import SellWebSections from '../components/SellWebSections';
+import LoadErrorBox from '../components/LoadErrorBox';
+import { normalizeApiError } from '@/services/apiError';
 import RefurbishedHeader from '../components/RefurbishedHeader';
 import {
-  HOW_IT_WORKS_STEPS,
-  REFURBISHED_TESTIMONIALS,
-  WHY_SELL_WITH_US,
 } from '../data/refurbishedData';
 import {
   getAllSellBrands,
   getSellHeaderData,
   getAllSellModels,
 } from '../services/refurbishedApi';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const BRAND_CARD_WIDTH = (SCREEN_WIDTH - 52) / 3;
 const GADGET_CARD_WIDTH = (SCREEN_WIDTH - 44) / 2;
 
 export default function SellRefurbishedScreen({ navigation, route }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -59,7 +56,9 @@ export default function SellRefurbishedScreen({ navigation, route }: any) {
   const [activeTab, setActiveTab] = useState<'phone' | 'gadget'>(initialMode);
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedBrand, setSelectedBrand] = useState('Apple');
+  const [selectedBrand, setSelectedBrand] = useState('');
+  const [loadError, setLoadError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
   const [brandsList, setBrandsList] = useState<any[]>([]);
   const [gadgetCategories, setGadgetCategories] = useState<any[]>([]);
   const [allModels, setAllModels] = useState<any[]>([]);
@@ -68,6 +67,7 @@ export default function SellRefurbishedScreen({ navigation, route }: any) {
 
   useEffect(() => {
     setLoading(true);
+    setLoadError('');
     Promise.all([
       getAllSellBrands(),
       getSellHeaderData(),
@@ -76,7 +76,7 @@ export default function SellRefurbishedScreen({ navigation, route }: any) {
       .then(([brands, headerData, models]) => {
         if (Array.isArray(brands) && brands.length > 0) {
           setBrandsList(brands);
-          setSelectedBrand(brands[0].name || 'Apple');
+          setSelectedBrand(brands[0].name || '');
         }
         if (headerData?.sellGadgets && Array.isArray(headerData.sellGadgets)) {
           setGadgetCategories(headerData.sellGadgets);
@@ -86,10 +86,10 @@ export default function SellRefurbishedScreen({ navigation, route }: any) {
         }
       })
       .catch(err => {
-        console.warn('Error loading sell device data:', err);
+        setLoadError(normalizeApiError(err).message);
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [reloadKey]);
 
   // Filter models for instant search autocomplete
   const filteredSuggestions = searchQuery.trim()
@@ -116,7 +116,7 @@ export default function SellRefurbishedScreen({ navigation, route }: any) {
   const handleSuggestionSelect = (item: any) => {
     setSearchQuery('');
     navigation.navigate('SelectVariant', {
-      brand: item.brandName || 'Device',
+      brand: item.brandName || i18n.t('customerMsg.device'),
       brandSlug: item.brandSlug || 'device',
       brandId: item.brandId?._id || item.brandId,
       model: item.name,
@@ -139,29 +139,10 @@ export default function SellRefurbishedScreen({ navigation, route }: any) {
       });
     } else {
       navigation.navigate('SelectModel', {
-        brand: category.name || 'All',
+        brand: category.name || t('customerMsg.all'),
         brandSlug: 'all',
         categorySlug: catSlug,
       });
-    }
-  };
-
-  const renderWhyUsIcon = (type: string) => {
-    switch (type) {
-      case 'tag':
-        return <Icon source={tagBold} size={22} color={colors.primary} />;
-      case 'card':
-        return <Icon source={creditCardBold} size={22} color={colors.primary} />;
-      case 'sparkle':
-        return <Icon source={starBold} size={22} color={colors.primary} />;
-      case 'truck':
-        return <Icon source={packageBold} size={22} color={colors.primary} />;
-      case 'shield':
-        return <Icon source={shieldBold} size={22} color={colors.primary} />;
-      case 'invoice':
-        return <Icon source={fileBold} size={22} color={colors.primary} />;
-      default:
-        return <Icon source={checkCircleBold} size={22} color={colors.primary} />;
     }
   };
 
@@ -199,7 +180,7 @@ export default function SellRefurbishedScreen({ navigation, route }: any) {
           scale={0.9}
           style={styles.backWrap}>
           <View style={[styles.back, { backgroundColor: colors.primary }]}>
-            <Icon source={arrowLeftBold} size={20} color="#FFFFFF" />
+            <Icon source={arrowLeftBold} size={20} color={colors.onPrimary} />
           </View>
         </Squeeze>
 
@@ -221,7 +202,7 @@ export default function SellRefurbishedScreen({ navigation, route }: any) {
                 styles.tabBtnText,
                 { color: activeTab === 'phone' ? '#FFFFFF' : colors.text },
               ]}>
-              Sell Phone
+              {t('settings.menu.sellPhone')}
             </Text>
           </TouchableOpacity>
 
@@ -241,7 +222,7 @@ export default function SellRefurbishedScreen({ navigation, route }: any) {
                 styles.tabBtnText,
                 { color: activeTab === 'gadget' ? '#FFFFFF' : colors.text },
               ]}>
-              Sell Gadgets
+              {t('settings.menu.sellGadgets')}
             </Text>
           </TouchableOpacity>
         </View>
@@ -257,7 +238,7 @@ export default function SellRefurbishedScreen({ navigation, route }: any) {
             <TextInput
               value={searchQuery}
               onChangeText={setSearchQuery}
-              placeholder={activeTab === 'phone' ? 'Search phone model (e.g. 12 pro max)' : 'Search gadget model (e.g. Galaxy Tab, PS5)'}
+              placeholder={activeTab === 'phone' ? t('customer.searchPhoneModelEG') : t('customer.searchGadgetModelEG')}
               placeholderTextColor={colors.textMuted + '88'}
               style={[styles.searchInput, { color: colors.text }]}
             />
@@ -308,12 +289,7 @@ export default function SellRefurbishedScreen({ navigation, route }: any) {
           <View style={styles.heroBanner}>
             <View style={styles.heroTextCol}>
               <Text style={styles.heroHeadline}>
-                {activeTab === 'phone'
-                  ? 'Sell Your Phone for Instant Cash'
-                  : 'Sell Your Gadgets for Instant Cash'}
-              </Text>
-              <Text style={styles.heroSub}>
-                Get real-time device valuation & guaranteed doorstep pickup within 24h.
+                {activeTab === 'phone' ? t('customer.sellOldMobilePhoneFor') : t('customer.sellYourGadgetsForInstant')}
               </Text>
               <Squeeze
                 onPress={() => {
@@ -325,7 +301,7 @@ export default function SellRefurbishedScreen({ navigation, route }: any) {
                 }}
                 style={styles.heroActionBtn}>
                 <View style={styles.heroActionRow}>
-                  <Text style={styles.heroActionBtnText}>Sell Now</Text>
+                  <Text style={styles.heroActionBtnText}>{t('customer.sellNow')}</Text>
                   <Icon source={arrowRightBold} size={14} color="#FFFFFF" style={{ marginLeft: 6 }} />
                 </View>
               </Squeeze>
@@ -351,7 +327,7 @@ export default function SellRefurbishedScreen({ navigation, route }: any) {
             ]}>
             <Icon source={checkCircleBold} size={14} color={colors.primary} />
             <Text style={[styles.trustBadgeText, { color: colors.text }]}>
-              Free Doorstep Pickup
+              {t('customer.freeDoorstepPickup')}
             </Text>
           </View>
 
@@ -361,7 +337,7 @@ export default function SellRefurbishedScreen({ navigation, route }: any) {
               { backgroundColor: colors.surfaceAlt, borderColor: colors.border + '33' },
             ]}>
             <Icon source={checkCircleBold} size={14} color={colors.primary} />
-            <Text style={[styles.trustBadgeText, { color: colors.text }]}>Maximum Value</Text>
+            <Text style={[styles.trustBadgeText, { color: colors.text }]}>{t('customer.maximumValue')}</Text>
           </View>
 
           <View
@@ -371,7 +347,7 @@ export default function SellRefurbishedScreen({ navigation, route }: any) {
             ]}>
             <Icon source={packageBold} size={14} color={colors.primary} />
             <Text style={[styles.trustBadgeText, { color: colors.text }]}>
-              Safe & Hassle-Free
+              {t('customer.safeAndHassleFree')}
             </Text>
           </View>
         </ScrollView>
@@ -382,10 +358,10 @@ export default function SellRefurbishedScreen({ navigation, route }: any) {
           <View style={styles.sectionBlock}>
             <View style={styles.sectionHeaderRow}>
               <Text style={[styles.sectionHeading, { color: colors.text }]}>
-                Popular Gadgets
+                {t('customer.popularGadgets')}
               </Text>
               <Text style={[styles.sectionSubBadge, { color: colors.textMuted }]}>
-                {gadgetCategories.length} Categories
+                {t('customerMsg.categoriesCount', { count: gadgetCategories.length })}
               </Text>
             </View>
 
@@ -393,6 +369,8 @@ export default function SellRefurbishedScreen({ navigation, route }: any) {
               <View style={styles.loaderBox}>
                 <CtiLoader size="md" />
               </View>
+            ) : loadError ? (
+              <LoadErrorBox title={t('customer.couldNotLoadTheDevice')} message={loadError} onRetry={() => setReloadKey(k => k + 1)} />
             ) : (
               <View style={styles.gadgetsGrid}>
                 {gadgetCategories.map((cat, idx) => {
@@ -443,7 +421,7 @@ export default function SellRefurbishedScreen({ navigation, route }: any) {
           <View style={styles.dividerRow}>
             <View style={[styles.dividerLine, { backgroundColor: colors.border + '44' }]} />
             <Text style={[styles.dividerText, { color: colors.textMuted }]}>
-              OR CHOOSE A BRAND
+              {t('customer.orChooseABrand')}
             </Text>
             <View style={[styles.dividerLine, { backgroundColor: colors.border + '44' }]} />
           </View>
@@ -454,7 +432,7 @@ export default function SellRefurbishedScreen({ navigation, route }: any) {
               <View style={styles.loaderBox}>
                 <CtiLoader size="sm" />
               </View>
-            ) : (
+            ) : loadError ? null : (
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -496,7 +474,7 @@ export default function SellRefurbishedScreen({ navigation, route }: any) {
                     },
                   ]}>
                   <Text style={[styles.brandSelectText, { color: colors.primary }]}>
-                    {showAllBrands ? 'Hide Brands' : 'More Brands'}
+                    {showAllBrands ? t('customer.hideBrands') : t('customer.moreBrands')}
                   </Text>
                   <Icon
                     source={showAllBrands ? chevronUpBold : chevronDownBold}
@@ -519,11 +497,11 @@ export default function SellRefurbishedScreen({ navigation, route }: any) {
                 ]}>
                 <View style={styles.allBrandsHeader}>
                   <Text style={[styles.allBrandsTitle, { color: colors.text }]}>
-                    All Available Brands
+                    {t('customer.allAvailableBrands')}
                   </Text>
                   <TouchableOpacity onPress={() => navigation.navigate('SelectModel', { brand: 'All', brandSlug: 'all' })}>
                     <Text style={[styles.viewAllModelsText, { color: colors.primary }]}>
-                      View All Models →
+                      {t('customer.viewAllModels')}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -563,109 +541,8 @@ export default function SellRefurbishedScreen({ navigation, route }: any) {
           )}
         </View>
 
-        {/* How It Works Section */}
-        <View style={styles.sectionBlock}>
-          <Text style={[styles.sectionHeading, { color: colors.text }]}>How It Works</Text>
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.howItWorksScroll}>
-            {(HOW_IT_WORKS_STEPS || []).map(step => (
-              <View
-                key={step.step}
-                style={[
-                  styles.stepCard,
-                  { backgroundColor: colors.surface, borderColor: colors.border + '44' },
-                ]}>
-                <View
-                  style={[
-                    styles.stepIconCircle,
-                    { backgroundColor: colors.primary + '18' },
-                  ]}>
-                  <Icon source={calendarBold} size={22} color={colors.primary} />
-                </View>
-                <Text style={[styles.stepTitle, { color: colors.text }]}>{step.title}</Text>
-                <Text style={[styles.stepDescription, { color: colors.textMuted }]}>
-                  {step.description}
-                </Text>
-              </View>
-            ))}
-          </ScrollView>
-        </View>
-
-        {/* Why Us Section */}
-        <View style={styles.sectionBlock}>
-          <Text style={[styles.sectionHeading, { color: colors.text }]}>Why Us</Text>
-
-          <View style={styles.whyUsList}>
-            {(WHY_SELL_WITH_US || []).map((item, idx) => (
-              <FadeUp key={item.id} delay={idx * 40}>
-                <View
-                  style={[
-                    styles.whyUsCard,
-                    { backgroundColor: colors.surface, borderColor: colors.border + '44' },
-                  ]}>
-                  <View
-                    style={[
-                      styles.whyUsIconBox,
-                      { backgroundColor: colors.primary + '14' },
-                    ]}>
-                    {renderWhyUsIcon(item.iconType)}
-                  </View>
-                  <View style={styles.whyUsInfo}>
-                    <Text style={[styles.whyUsTitle, { color: colors.text }]}>{item.title}</Text>
-                    <Text style={[styles.whyUsDesc, { color: colors.textMuted }]}>
-                      {item.description}
-                    </Text>
-                  </View>
-                </View>
-              </FadeUp>
-            ))}
-          </View>
-        </View>
-
-        {/* Testimonials */}
-        <View style={styles.sectionBlock}>
-          <Text style={[styles.sectionHeading, { color: colors.text }]}>What Customers Say</Text>
-
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.testimonialsScroll}>
-            {(REFURBISHED_TESTIMONIALS || []).map(item => (
-              <View
-                key={item.id}
-                style={[
-                  styles.testimonialCard,
-                  { backgroundColor: colors.surface, borderColor: colors.border + '44' },
-                ]}>
-                <Text style={[styles.quoteMark, { color: colors.primary }]}>“</Text>
-                <Text style={[styles.testimonialFeedback, { color: colors.text }]}>
-                  {item.feedback}
-                </Text>
-                <View style={styles.testimonialUserRow}>
-                  <View
-                    style={[
-                      styles.avatarCircle,
-                      {
-                        backgroundColor: colors.primary + '18',
-                        borderWidth: 1,
-                        borderColor: colors.avatarBorder,
-                      },
-                    ]}>
-                    <Text style={[styles.avatarText, { color: colors.primary }]}>
-                      {(item.name || 'C')[0]}
-                    </Text>
-                  </View>
-                  <Text style={[styles.testimonialUserName, { color: colors.text }]}>
-                    {item.name}
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </ScrollView>
-        </View>
+        <SellWebSections />
       </ScrollView>
     </View>
   );
@@ -709,6 +586,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   tabBtnText: {
+    flexShrink: 1,
     fontSize: 14,
     fontFamily: fonts.bold,
   },
@@ -815,6 +693,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   heroActionBtnText: {
+    flexShrink: 1,
     color: '#FFFFFF',
     fontSize: 13,
     fontFamily: fonts.bold,
@@ -838,6 +717,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   trustBadgeText: {
+    flexShrink: 1,
     fontSize: 12,
     fontFamily: fonts.medium,
   },
@@ -852,6 +732,7 @@ const styles = StyleSheet.create({
     height: 1,
   },
   dividerText: {
+    flexShrink: 1,
     marginHorizontal: 12,
     fontSize: 11,
     fontFamily: fonts.bold,
@@ -891,6 +772,7 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   allBrandsTitle: {
+    flexShrink: 1,
     fontSize: 15,
     fontFamily: fonts.bold,
   },
@@ -939,12 +821,14 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   sectionHeading: {
+    flexShrink: 1,
     fontSize: 18,
     fontFamily: fonts.bold,
     paddingHorizontal: 16,
     marginBottom: 14,
   },
   sectionSubBadge: {
+    flexShrink: 1,
     fontSize: 12,
     fontFamily: fonts.medium,
   },

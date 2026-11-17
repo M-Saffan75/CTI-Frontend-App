@@ -15,12 +15,21 @@ export function ThemeProvider({ children }) {
   const [themeName, setName] = useState(DEFAULT_THEME);
   const [ready, setReady] = useState(false);
   const [reveal, setReveal] = useState(null);
+  const snapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (snapTimer.current) clearTimeout(snapTimer.current);
+    },
+    [],
+  );
   const root = useRef(null);
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY)
       .then(saved => {
         if (saved && themes[saved]) setName(saved);
+        // a theme that no longer exists (old Forest / Ocean) falls back to the default
+        else if (saved) AsyncStorage.removeItem(STORAGE_KEY).catch(() => {});
       })
       .catch(() => {})
       .finally(() => setReady(true));
@@ -62,7 +71,7 @@ export function ThemeProvider({ children }) {
     if (!reveal?.next) return;
     apply(reveal.next);
 
-    setTimeout(async () => {
+    snapTimer.current = setTimeout(async () => {
       try {
         const newUri = await snap();
         setReveal(current => current && { ...current, newUri });

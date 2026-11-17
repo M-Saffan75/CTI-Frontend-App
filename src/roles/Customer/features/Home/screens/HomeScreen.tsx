@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -15,13 +15,14 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
+import NotificationBell from '@/components/NotificationBell';
 import Button from '@/components/Button';
 import Squeeze from '@/components/Squeeze';
+import KeyboardSafeView from '@/components/KeyboardSafeView';
 import CtiLoader from '@/components/CtiLoader';
 import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import {
-  bellBold,
   checkCircleBold,
   chevronDownBold,
   closeIcon,
@@ -37,7 +38,7 @@ import {
   mobileBold,
   searchBold,
   shoppingCartExtra,
-  starExtra,
+  starFilled,
   tagBold,
   twitterIcon,
   usersThreeBold,
@@ -51,19 +52,39 @@ import { mapBackendToBlog } from '@/services/blogApi';
 import homeApi, { HomeData } from '@/services/homeApi';
 import { fetchUnreadChatCount, startChat } from '@/services/chatApi';
 import socketService from '@/services/socketService';
+import PromoStrip from '../components/PromoStrip';
 import {
   DeviceBrand,
   DeviceModel,
   fetchModelsByBrand,
   fetchPublicBrands,
 } from '@/services/deviceBrandApi';
+import { getLocaleTag } from '@/i18n/locale';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
-const SERVICE_ICONS = {
-  'Mobile Repair': mobileBold,
-  'Laptop Repair': desktopBold,
-  Accessories: headphonesBold,
-  'Sell Device': tagBold,
-};
+// A service is recognised by its slug (a fixed identifier from the backend), never by the name shown to the
+// customer, so translated names keep working.
+function serviceIcon(slug: string) {
+  const key = String(slug || '').toLowerCase();
+  if (key.includes('laptop') || key.includes('computer')) return desktopBold;
+  if (key.includes('accessor')) return headphonesBold;
+  if (key.includes('sell')) return tagBold;
+  return mobileBold;
+}
+
+// A banner opens the page its link (ctaLink, a web path) points to.
+function openBanner(banner: any, navigation: any) {
+  const link = String(banner?.ctaLink || '').trim();
+  const path = link.toLowerCase();
+  if (!path) return;
+  if (path.includes('academy')) navigation?.navigate('Academy');
+  else if (path.includes('repair')) navigation?.navigate('ExpertRepairmen');
+  else if (path.includes('sell')) navigation?.navigate('SellRefurbished', { mode: path.includes('phone') ? 'phone' : 'gadget' });
+  else if (path.includes('refurbish')) navigation?.navigate('BuyRefurbished');
+  else if (path.includes('product') || path.includes('store')) navigation?.navigate('ProductTab');
+  else if (/^https?:\/\//.test(path)) Linking.openURL(link).catch(() => {});
+}
 
 function Badge({ label }) {
   const { colors } = useTheme();
@@ -76,6 +97,7 @@ function Badge({ label }) {
 }
 
 function Header({ navigation }) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
@@ -139,9 +161,7 @@ function Header({ navigation }) {
               )}
             </View>
           </Squeeze>
-          <Squeeze onPress={() => navigation.navigate('Notifications')} scale={0.85}>
-            <Icon source={bellBold} size={22} color={colors.text} />
-          </Squeeze>
+          <NotificationBell navigation={navigation} />
           <Squeeze onPress={() => navigation.navigate('ChatList')} scale={0.85}>
             <View>
               <Icon source={commentDotsBold} size={22} color={colors.text} />
@@ -167,7 +187,7 @@ function Header({ navigation }) {
           onChangeText={setSearch}
           onSubmitEditing={() => search.trim() && navigation?.navigate('ExpertRepairmen', { query: search.trim() })}
           returnKeyType="search"
-          placeholder="Search order custom product"
+          placeholder={t('customer.searchRepairmen')}
           placeholderTextColor={colors.textMuted}
           style={[styles.searchInput, { color: colors.text }]}
         />
@@ -189,19 +209,7 @@ function Hero({ banners, navigation }: { banners?: any[]; navigation?: any }) {
     setIndex(Math.round(event.nativeEvent.contentOffset.x / width));
   };
 
-  const handleBannerPress = (banner: any) => {
-    const label = (banner.label || '').toLowerCase();
-    const title = (banner.title || '').toLowerCase();
-    if (label.includes('academy') || title.includes('academy') || title.includes('learn')) {
-      navigation?.navigate('Academy');
-    } else if (label.includes('repair') || title.includes('repair')) {
-      navigation?.navigate('ExpertRepairmen');
-    } else if (label.includes('marketplace') || label.includes('seller') || title.includes('seller')) {
-      navigation?.navigate('ProductTab');
-    } else {
-      navigation?.navigate('BuyRefurbished');
-    }
-  };
+  const handleBannerPress = (banner: any) => openBanner(banner, navigation);
 
   return (
     <View style={styles.heroWrap} onLayout={e => setWidth(e.nativeEvent.layout.width)}>
@@ -227,7 +235,7 @@ function Hero({ banners, navigation }: { banners?: any[]; navigation?: any }) {
                 </Text>
               )}
               <Button
-                title="Explore Now"
+                title={i18n.t('customer.exploreNow')}
                 size="lg"
                 onPress={() => handleBannerPress(banner)}
                 style={styles.heroButton}
@@ -254,6 +262,7 @@ function Hero({ banners, navigation }: { banners?: any[]; navigation?: any }) {
 }
 
 function ServiceFinder({ navigation }: { navigation?: any }) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
 
   const [brands, setBrands] = useState<DeviceBrand[]>([]);
@@ -320,7 +329,7 @@ function ServiceFinder({ navigation }: { navigation?: any }) {
   };
 
   const handleFindService = () => {
-    if (!selectedBrand || !selectedModel || !selectedColor) return;
+    if (!selectedBrand || !selectedModel || (colorsList.length > 0 && !selectedColor)) return;
     const query = `${selectedBrand?.name || ''} ${selectedModel?.name || ''}`.trim();
     navigation?.navigate('ExpertRepairmen', { query });
   };
@@ -336,21 +345,18 @@ function ServiceFinder({ navigation }: { navigation?: any }) {
     (c || '').toLowerCase().includes(pickerSearch.toLowerCase())
   );
 
-  const isFormComplete = Boolean(selectedBrand && selectedModel && selectedColor);
+  // A model without colours can be searched without choosing one
+  const isFormComplete = Boolean(selectedBrand && selectedModel && (colorsList.length === 0 || selectedColor));
 
   return (
     <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-      <Badge label="Service Finder" />
-      <Text style={[styles.cardTitle, { color: colors.text }]}>Quick  Service Finder</Text>
-      <Text style={[styles.cardSubtitle, { color: colors.textMuted }]}>
-        Select your device brand, model, color and connect with verified professionals near you.
-      </Text>
-
+      <Badge label={t('customer.serviceFinder')} />
+      <Text style={[styles.cardTitle, { color: colors.text }]}>{t('customer.quickServiceFinder')}</Text>
       <View style={styles.selectRow}>
         <SelectField
-          label="Brand"
+          label={t('customer.brand2')}
           value={selectedBrand?.name}
-          placeholder={loadingBrands ? 'Loading...' : brands.length ? 'Select Brand' : 'Not Found'}
+          placeholder={loadingBrands ? t('common.loading') : brands.length ? t('customer.selectBrand') : t('customer.notFound')}
           loading={loadingBrands}
           onPress={() => {
             setPickerSearch('');
@@ -359,16 +365,16 @@ function ServiceFinder({ navigation }: { navigation?: any }) {
           style={styles.selectHalf}
         />
         <SelectField
-          label="Model"
+          label={t('customer.model')}
           value={selectedModel?.name}
           placeholder={
             !selectedBrand
-              ? 'Select Brand'
+              ? t('customer.selectBrand')
               : loadingModels
-                ? 'Loading...'
+                ? t('common.loading')
                 : models.length
-                  ? 'Select Model'
-                  : 'Not Found'
+                  ? t('customer.selectModel')
+                  : t('customer.notFound')
           }
           disabled={!selectedBrand || loadingModels || !models.length}
           loading={loadingModels}
@@ -381,14 +387,14 @@ function ServiceFinder({ navigation }: { navigation?: any }) {
       </View>
 
       <SelectField
-        label="Color"
+        label={t('customer.color')}
         value={selectedColor || undefined}
         placeholder={
           !selectedModel
-            ? 'Select Model First'
+            ? t('customer.selectModelFirst')
             : colorsList.length
-              ? 'Select Color'
-              : 'No Colors Available'
+              ? t('customer.selectColor')
+              : t('customer.noColorsAvailable')
         }
         disabled={!selectedModel || !colorsList.length}
         onPress={() => {
@@ -398,7 +404,7 @@ function ServiceFinder({ navigation }: { navigation?: any }) {
       />
 
       <Button
-        title="Find Service"
+        title={t('customer.findService')}
         size="lg"
         disabled={!isFormComplete}
         onPress={handleFindService}
@@ -415,13 +421,14 @@ function ServiceFinder({ navigation }: { navigation?: any }) {
         transparent
         onRequestClose={() => setPickerType(null)}>
         <View style={styles.modalOverlay}>
+          <KeyboardSafeView style={styles.pickerKeyboard}>
           <View style={[styles.pickerModalContent, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             {/* Header */}
             <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
               <Text style={[styles.modalTitle, { color: colors.text }]}>
-                {pickerType === 'brand' && 'Select Device Brand'}
-                {pickerType === 'model' && `Select ${selectedBrand?.name || ''} Model`}
-                {pickerType === 'color' && `Select ${selectedModel?.name || ''} Color`}
+                {pickerType === 'brand' && t('customer.selectDeviceBrand')}
+                {pickerType === 'model' && t('customerMsg.selectModel', { brand: selectedBrand?.name || '' })}
+                {pickerType === 'color' && t('customerMsg.selectColor', { model: selectedModel?.name || '' })}
               </Text>
               <TouchableOpacity
                 onPress={() => setPickerType(null)}
@@ -437,7 +444,7 @@ function ServiceFinder({ navigation }: { navigation?: any }) {
                 <TextInput
                   value={pickerSearch}
                   onChangeText={setPickerSearch}
-                  placeholder={`Search ${pickerType}...`}
+                  placeholder={pickerType === 'brand' ? t('customerMsg.searchBrand') : t('customerMsg.searchModel')}
                   placeholderTextColor={colors.textMuted}
                   style={[styles.pickerSearchInput, { color: colors.text }]}
                 />
@@ -448,7 +455,7 @@ function ServiceFinder({ navigation }: { navigation?: any }) {
             <ScrollView style={styles.pickerList} showsVerticalScrollIndicator={false}>
               {pickerType === 'brand' && (
                 filteredBrands.length === 0 ? (
-                  <Text style={[styles.emptyListText, { color: colors.textMuted }]}>No brands found</Text>
+                  <Text style={[styles.emptyListText, { color: colors.textMuted }]}>{t('customer.noBrandsFound')}</Text>
                 ) : (
                   filteredBrands.map(item => {
                     const isSelected = selectedBrand?._id === item._id;
@@ -491,7 +498,7 @@ function ServiceFinder({ navigation }: { navigation?: any }) {
 
               {pickerType === 'model' && (
                 filteredModels.length === 0 ? (
-                  <Text style={[styles.emptyListText, { color: colors.textMuted }]}>No models found</Text>
+                  <Text style={[styles.emptyListText, { color: colors.textMuted }]}>{t('customer.noModelsFound2')}</Text>
                 ) : (
                   filteredModels.map(item => {
                     const isSelected = selectedModel?._id === item._id;
@@ -526,7 +533,7 @@ function ServiceFinder({ navigation }: { navigation?: any }) {
 
               {pickerType === 'color' && (
                 filteredColors.length === 0 ? (
-                  <Text style={[styles.emptyListText, { color: colors.textMuted }]}>No colors available</Text>
+                  <Text style={[styles.emptyListText, { color: colors.textMuted }]}>{t('customer.noColorsAvailable2')}</Text>
                 ) : (
                   filteredColors.map((color, index) => {
                     const isSelected = selectedColor === color;
@@ -544,7 +551,7 @@ function ServiceFinder({ navigation }: { navigation?: any }) {
                         ]}>
                         <View style={styles.pickerItemLeft}>
                           <View style={[styles.colorDotPreview, { backgroundColor: colors.primary }]}>
-                            <Icon source={colorPaletteIcon} size={14} color="#FFF" />
+                            <Icon source={colorPaletteIcon} size={14} color={colors.onPrimary} />
                           </View>
                           <Text style={[styles.pickerItemText, { color: colors.text, fontFamily: isSelected ? fonts.bold : fonts.medium }]}>
                             {color}
@@ -560,6 +567,7 @@ function ServiceFinder({ navigation }: { navigation?: any }) {
               )}
             </ScrollView>
           </View>
+          </KeyboardSafeView>
         </View>
       </Modal>
     </View>
@@ -584,7 +592,7 @@ function SelectField({
   loading?: boolean;
 }) {
   const { colors } = useTheme();
-  const displayValue = value || placeholder || 'Select';
+  const displayValue = value || placeholder || i18n.t('common.select');
   const isPlaceholder = !value;
 
   return (
@@ -622,36 +630,37 @@ function SelectField({
 }
 
 function OurServices({ liveServices, navigation }: { liveServices?: any[]; navigation?: any }) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   if (!liveServices || liveServices.length === 0) return null;
 
   const servicesList = liveServices.map((s, idx) => ({
     id: s._id || String(idx),
-    label: s.name || s.title || 'Service',
+    slug: String(s.slug || ''),
+    label: s.name || s.title || '',
     icon: s.icon,
   }));
 
   const handleServicePress = (service: any) => {
-    const rawLabel = service.label || service.name || '';
-    const label = rawLabel.toLowerCase();
-    if (label.includes('sell') && label.includes('gadget')) {
+    const slug = String(service.slug || '').toLowerCase();
+    if (slug.includes('sell') && slug.includes('gadget')) {
       navigation?.navigate('SellRefurbished', { mode: 'gadget' });
-    } else if (label.includes('sell')) {
+    } else if (slug.includes('sell')) {
       navigation?.navigate('SellRefurbished', { mode: 'phone' });
-    } else if (label.includes('accessori') || label.includes('refurbish')) {
+    } else if (slug.includes('accessori') || slug.includes('refurbish')) {
       navigation?.navigate('BuyRefurbished');
     } else {
-      // Clean query mapping for ExpertRepairmen search
-      let displayQuery = rawLabel;
-      if (label.includes('mobile') || label.includes('phone')) {
+      // The repairmen search matches their specializations, which are data (not screen text)
+      let displayQuery = service.label || '';
+      if (slug.includes('mobile') || slug.includes('phone')) {
         displayQuery = 'Mobile Repair';
-      } else if (label.includes('laptop')) {
+      } else if (slug.includes('laptop')) {
         displayQuery = 'Laptop Repair';
-      } else if (label.includes('mother')) {
+      } else if (slug.includes('mother')) {
         displayQuery = 'Motherboard';
-      } else if (label.includes('panel') || label.includes('screen')) {
+      } else if (slug.includes('panel') || slug.includes('screen')) {
         displayQuery = 'Panel / Screen';
-      } else if (label.includes('software')) {
+      } else if (slug.includes('software')) {
         displayQuery = 'Software';
       }
       navigation?.navigate('ExpertRepairmen', {
@@ -663,8 +672,8 @@ function OurServices({ liveServices, navigation }: { liveServices?: any[]; navig
 
   return (
     <View style={styles.section}>
-      <Badge label="Our Services" />
-      <Text style={[styles.sectionTitle, { color: colors.text }]}>Our Services</Text>
+      <Badge label={t('customer.ourServices')} />
+      <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('customer.ourServices')}</Text>
 
       <ScrollView
         horizontal
@@ -678,7 +687,7 @@ function OurServices({ liveServices, navigation }: { liveServices?: any[]; navig
                 {service.icon?.startsWith('http') ? (
                   <Image source={{ uri: service.icon }} style={{ width: 30, height: 30, borderRadius: 6 }} resizeMode="contain" />
                 ) : (
-                  <Icon source={SERVICE_ICONS[service.label] || mobileBold} size={26} color={colors.primary} />
+                  <Icon source={serviceIcon(service.slug)} size={26} color={colors.primary} />
                 )}
               </View>
               <Text style={[styles.serviceLabel, { color: colors.text }]} numberOfLines={1}>
@@ -693,30 +702,40 @@ function OurServices({ liveServices, navigation }: { liveServices?: any[]; navig
 }
 
 function SpecialistCard({ repairman, navigation }: { repairman: any; navigation?: any }) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const displayName =
     repairman.repairmanProfile?.fullName ||
     repairman.name ||
     repairman.repairmanProfile?.shopName ||
-    'Verified Professional';
+    t('customer.verifiedProfessional');
 
   const specialty =
     repairman.repairmanProfile?.specialization ||
     (Array.isArray(repairman.repairmanProfile?.specializations) && repairman.repairmanProfile.specializations[0]) ||
-    (repairman.role && repairman.role !== 'repairman' ? repairman.role : 'Repair Specialist');
+    (repairman.role && repairman.role !== 'repairman' ? repairman.role : i18n.t('customerMsg.repairSpecialist'));
 
   const photo = repairman.photo || repairman.repairmanProfile?.profilePhoto || repairman.profileImage || null;
   const location = repairman.shortLocation || repairman.city?.name || repairman.repairmanProfile?.city?.name || '';
   const description = repairman.description || repairman.repairmanProfile?.description || '';
 
+  const [chatNotice, setChatNotice] = useState('');
+  const [openingChat, setOpeningChat] = useState(false);
+
   const handleOpenChat = async () => {
+    if (openingChat) return;
     const repairmanId = repairman._id || repairman.id;
     if (!repairmanId) {
-      navigation?.navigate('ChatList');
+      setChatNotice(i18n.t('customer.thisSpecialistCannotBeMessaged'));
       return;
     }
+    setOpeningChat(true);
     try {
       const res = await startChat({ repairmanId });
+      if (!res.success || !res.chat) {
+        setChatNotice(res.message || i18n.t('customer.couldNotOpenTheChat'));
+        return;
+      }
       const targetName = res.chat?.user?.name || res.chat?.repairman?.name || displayName;
       const targetAvatar = res.chat?.user?.avatar || res.chat?.repairman?.avatar || photo;
 
@@ -726,8 +745,10 @@ function SpecialistCard({ repairman, navigation }: { repairman: any; navigation?
         participantName: targetName,
         participantAvatar: targetAvatar,
       });
-    } catch {
-      navigation?.navigate('ChatList');
+    } catch (err: any) {
+      setChatNotice(err?.message || i18n.t('customer.couldNotOpenTheChat'));
+    } finally {
+      setOpeningChat(false);
     }
   };
 
@@ -762,30 +783,46 @@ function SpecialistCard({ repairman, navigation }: { repairman: any; navigation?
           </Text>
         )}
 
-        <View style={styles.socialRow}>
-          <Squeeze onPress={() => repairman.social?.facebook && Linking.openURL(repairman.social.facebook)} scale={0.85}>
-            <Icon source={facebookIcon} size={22} />
-          </Squeeze>
-          <Squeeze onPress={() => repairman.social?.twitter && Linking.openURL(repairman.social.twitter)} scale={0.85}>
-            <Icon source={twitterIcon} size={22} />
-          </Squeeze>
-          <Squeeze onPress={() => repairman.social?.linkedin && Linking.openURL(repairman.social.linkedin)} scale={0.85}>
-            <Icon source={linkedinIcon} size={22} />
-          </Squeeze>
-        </View>
+        {repairman.social?.facebook || repairman.social?.twitter || repairman.social?.linkedin ? (
+          <View style={styles.socialRow}>
+            {repairman.social?.facebook ? (
+              <Squeeze onPress={() => Linking.openURL(repairman.social.facebook).catch(() => {})} scale={0.85}>
+                <Icon source={facebookIcon} size={22} />
+              </Squeeze>
+            ) : null}
+            {repairman.social?.twitter ? (
+              <Squeeze onPress={() => Linking.openURL(repairman.social.twitter).catch(() => {})} scale={0.85}>
+                <Icon source={twitterIcon} size={22} />
+              </Squeeze>
+            ) : null}
+            {repairman.social?.linkedin ? (
+              <Squeeze onPress={() => Linking.openURL(repairman.social.linkedin).catch(() => {})} scale={0.85}>
+                <Icon source={linkedinIcon} size={22} />
+              </Squeeze>
+            ) : null}
+          </View>
+        ) : null}
 
         <View style={styles.specialistActions}>
-          <Button title="Book Appointment" onPress={handleOpenChat} style={styles.bookButton} />
+          <Button title={t('customer.message')} onPress={handleOpenChat} loading={openingChat} style={styles.bookButton} />
           <Squeeze onPress={handleOpenChat} style={[styles.chatButton, { borderColor: colors.border }]}>
             <Icon source={commentDotsBold} size={20} color={colors.text} />
           </Squeeze>
         </View>
       </View>
+      <AlertModal
+        visible={!!chatNotice}
+        type="error"
+        title={t('customer.couldNotOpenTheChat2')}
+        message={chatNotice}
+        onClose={() => setChatNotice('')}
+      />
     </View>
   );
 }
 
 function OurSpecialists({ liveRepairmen, navigation }: { liveRepairmen?: any[]; navigation?: any }) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const list = liveRepairmen || [];
   if (list.length === 0) return null;
@@ -793,19 +830,14 @@ function OurSpecialists({ liveRepairmen, navigation }: { liveRepairmen?: any[]; 
   return (
     <View style={styles.section}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Badge label="Our Specialists" />
+        <Badge label={t('customer.ourSpecialists')} />
         <Squeeze onPress={() => navigation?.navigate('ExpertRepairmen')} scale={0.95}>
           <Text style={{ fontFamily: fonts.bold, fontSize: 13, color: colors.primary }}>
-            View All →
+            {t('customer.viewAll')}
           </Text>
         </Squeeze>
       </View>
-      <Text style={[styles.sectionTitle, { color: colors.text }]}>Meet Our Verified Professional</Text>
-      <Text style={[styles.sectionSubtitle, { color: colors.textMuted }]}>
-        Our certified repair experts bring years of hands-on experience and consistently high
-        customer satisfaction.
-      </Text>
-
+      <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('customer.meetOurVerifiedProfessional')}</Text>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -826,6 +858,7 @@ function OurBlogs({
   liveBlogs?: any[];
   navigation: any;
 }) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   if (!Array.isArray(liveBlogs) || liveBlogs.length === 0) return null;
 
@@ -833,7 +866,7 @@ function OurBlogs({
 
   return (
     <View style={styles.section}>
-      <Text style={[styles.sectionTitle, { color: colors.text }]}>Our Blogs</Text>
+      <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('customer.ourBlogs')}</Text>
 
       {blogs.map(post => (
         <Squeeze
@@ -847,7 +880,7 @@ function OurBlogs({
               {post.description}
             </Text>
           ) : null}
-          <Text style={[styles.blogReadMore, { color: colors.error }]}>Readmore</Text>
+          <Text style={[styles.blogReadMore, { color: colors.error }]}>{i18n.t('customer.readMore')}</Text>
         </Squeeze>
       ))}
     </View>
@@ -855,6 +888,7 @@ function OurBlogs({
 }
 
 function RatingsSlider({ liveReviews }: { liveReviews?: any[] }) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const [width, setWidth] = useState(0);
   const [index, setIndex] = useState(0);
@@ -864,9 +898,10 @@ function RatingsSlider({ liveReviews }: { liveReviews?: any[] }) {
   const reviewsList = liveReviews.map((review, i) => ({
     id: review._id || String(i),
     photo: review.profilePhoto || review.avatar || review.image || null,
-    name: review.username || review.name || 'Verified Customer',
+    name: review.username || review.name || '',
     text: review.reviewText || review.comment || '',
-    date: review.createdAt ? new Date(review.createdAt).toLocaleDateString() : '',
+    date: review.createdAt ? new Date(review.createdAt).toLocaleDateString(getLocaleTag()) : '',
+    rating: Math.max(0, Math.min(5, Math.round(Number(review.rating) || 0))),
   }));
 
   const onScrollEnd = (event: any) => {
@@ -876,7 +911,7 @@ function RatingsSlider({ liveReviews }: { liveReviews?: any[] }) {
 
   return (
     <View style={styles.section}>
-      <Text style={[styles.sectionTitle, { color: colors.text }]}>What Our Customers Say</Text>
+      <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('customer.whatOurCustomersSay')}</Text>
 
       <View style={styles.ratingsWrap} onLayout={event => setWidth(event.nativeEvent.layout.width)}>
         <ScrollView
@@ -916,7 +951,13 @@ function RatingsSlider({ liveReviews }: { liveReviews?: any[] }) {
                 </View>
                 {!!review.text && <Text style={[styles.reviewText, { color: colors.textMuted }]}>{review.text}</Text>}
                 <View style={styles.reviewFoot}>
-                  <Icon source={starExtra} size={16} color={colors.primary} />
+                  {review.rating > 0 && (
+                    <View style={{ flexDirection: 'row', gap: 2 }}>
+                      {[1, 2, 3, 4, 5].map(n => (
+                        <Icon key={n} source={starFilled} size={14} color={n <= review.rating ? '#F59E0B' : colors.border} />
+                      ))}
+                    </View>
+                  )}
                   {!!review.date && <Text style={[styles.metaText, { color: colors.textMuted }]}>{review.date}</Text>}
                 </View>
               </View>
@@ -941,8 +982,9 @@ function RatingsSlider({ liveReviews }: { liveReviews?: any[] }) {
 }
 
 function StoreCard({ store, navigation }: { store: any; navigation?: any }) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
-  const name = store.businessName || store.name || 'Verified Store';
+  const name = store.businessName || store.name || '';
   const tagline = store.tagline || (Array.isArray(store.productCategories) && store.productCategories[0]) || '';
   const description = store.description || store.storeDescription || '';
   const address = store.address || store.city?.name || '';
@@ -958,9 +1000,6 @@ function StoreCard({ store, navigation }: { store: any; navigation?: any }) {
             <Icon source={tagBold} size={36} color={colors.textMuted} />
           </View>
         )}
-        <View style={[styles.sponsoredBadge, { backgroundColor: colors.text }]}>
-          <Text style={[styles.sponsoredBadgeText, { color: colors.background }]}>Sponsored</Text>
-        </View>
       </View>
 
       <Text style={[styles.storeName, { color: colors.text }]}>{name}</Text>
@@ -990,25 +1029,21 @@ function StoreCard({ store, navigation }: { store: any; navigation?: any }) {
             seller: store.sellerId || store.seller || store,
           });
         }}>
-        <Text style={[styles.visitStore, { color: colors.primary }]}>Visit Store  →</Text>
+        <Text style={[styles.visitStore, { color: colors.primary }]}>{t('customer.visitStore')}</Text>
       </TouchableOpacity>
     </View>
   );
 }
 
 function BestRatedStores({ liveSellers, navigation }: { liveSellers?: any[]; navigation?: any }) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const storesList = liveSellers || [];
   if (storesList.length === 0) return null;
 
   return (
     <View style={styles.section}>
-      <Badge label="Sponsored" />
-      <Text style={[styles.sectionTitle, { color: colors.text }]}>Best Rated Stores</Text>
-      <Text style={[styles.sectionSubtitle, { color: colors.textMuted }]}>
-        Discover top-rated shops handpicked for you - quality guaranteed.
-      </Text>
-
+      <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('customer.bestRatedStores')}</Text>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -1023,6 +1058,7 @@ function BestRatedStores({ liveSellers, navigation }: { liveSellers?: any[]; nav
 }
 
 export default function HomeScreen({ navigation }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [homeData, setHomeData] = useState<HomeData | null>(null);
@@ -1043,6 +1079,9 @@ export default function HomeScreen({ navigation }: any) {
     message: '',
   });
 
+  const homeDataRef = useRef<HomeData | null>(null);
+  homeDataRef.current = homeData;
+
   const loadData = useCallback(async (isUserRetry = false) => {
     if (isUserRetry) {
       setLoading(true);
@@ -1053,13 +1092,20 @@ export default function HomeScreen({ navigation }: any) {
       if (data) {
         setHomeData(data);
         setError(null);
+      } else if (homeDataRef.current) {
+        // keep what is on screen and say that the refresh did not work
+        setAlertConfig({ visible: true, type: 'error', title: i18n.t('customer.couldNotRefresh'), message: i18n.t('customer.theHomePageCouldNot') });
       } else {
         setHomeData(null);
-        setError('No data available from server.');
+        setError(i18n.t('customer.noDataAvailableFromServer'));
       }
     } catch {
-      setHomeData(null);
-      setError('Server not reachable. Please try again.');
+      if (homeDataRef.current) {
+        setAlertConfig({ visible: true, type: 'error', title: i18n.t('customer.couldNotRefresh'), message: i18n.t('customer.theHomePageCouldNot') });
+      } else {
+        setHomeData(null);
+        setError(i18n.t('customer.serverNotReachablePleaseTry'));
+      }
     } finally {
       setLoading(false);
     }
@@ -1083,7 +1129,7 @@ export default function HomeScreen({ navigation }: any) {
         <View style={styles.loaderContainer}>
           <CtiLoader
             size="lg"
-            text="Loading real-time home data..."
+            text={t('customer.loadingRealTimeHomeData')}
           />
         </View>
       ) : !homeData || error ? (
@@ -1093,13 +1139,13 @@ export default function HomeScreen({ navigation }: any) {
           <View style={[styles.errorCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <Icon source={closeIcon} size={36} color={colors.error} />
             <Text style={[styles.errorTitle, { color: colors.text }]}>
-              Data Not Available
+              {t('customer.dataNotAvailable')}
             </Text>
             <Text style={[styles.errorSubtitle, { color: colors.textMuted }]}>
-              {error || 'Server not reachable or no data returned. Please check your internet connection and try again.'}
+              {error || t('customer.serverNotReachableOrNo')}
             </Text>
             <Button
-              title="Try Again"
+              title={t('common.tryAgain')}
               size="md"
               onPress={() => loadData(true)}
               style={styles.retryButton}
@@ -1111,6 +1157,7 @@ export default function HomeScreen({ navigation }: any) {
           contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />}>
+          <PromoStrip />
           {homeData.banners && homeData.banners.length > 0 && (
             <FadeUp duration={500}>
               <Hero banners={homeData.banners} navigation={navigation} />
@@ -1361,6 +1408,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
   },
+  pickerKeyboard: { justifyContent: 'flex-end' },
   pickerModalContent: {
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,

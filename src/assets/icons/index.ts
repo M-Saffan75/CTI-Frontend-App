@@ -222,8 +222,6 @@ export const checkCircleIcon = require('./extra-icons/check-mark.png');
 export const lightSunIcon = require('./extra-icons/light-sun.png');
 export const blackMoonIcon = require('./extra-icons/black-icon.png');
 export const sandIcon = require('./extra-icons/sand-icon.png');
-export const oceanWaveIcon = require('./extra-icons/ocean-wave.png');
-export const forestIcon = require('./extra-icons/forest-icon.png');
 
 export const closeIcon = require('./extra-icons/close-icon.png');
 export const toolExtra = require('./extra-icons/tool.png');

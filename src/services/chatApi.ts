@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiClient from './apiClient';
+import i18n from '@/i18n';
 
 export interface ChatParticipant {
   id: string;
@@ -16,6 +17,7 @@ export interface ChatLastMessage {
   senderType: 'customer' | 'repairman' | 'seller';
   timestamp: string;
   messageType: string;
+  fromMe?: boolean;
 }
 
 export interface ChatItem {
@@ -43,6 +45,8 @@ export interface ChatMessageItem {
   quotationData?: any;
   isRead?: boolean;
   user?: ChatParticipant;
+  // only on messages created in the app and not yet confirmed by the server
+  localStatus?: 'sending' | 'failed';
 }
 
 const messageCache = new Map<string, ChatMessageItem[]>();
@@ -81,7 +85,7 @@ export async function fetchChatList(page = 1, limit = 30): Promise<ChatItem[]> {
             chatId: c.chatId || c._id,
             participant: {
               id: other.id || other._id || '',
-              name: other.name || 'User',
+              name: other.name || '',
               avatar: other.avatar || null,
               isOnline: Boolean(other.isOnline),
               lastSeen: other.lastSeen,
@@ -96,7 +100,8 @@ export async function fetchChatList(page = 1, limit = 30): Promise<ChatItem[]> {
         allChats = [...mappedChats];
       }
     } catch (chatErr) {
-      if (__DEV__) console.log('[chatApi] /chat/list fetch error:', chatErr);
+      // a half list would look like lost conversations, so the caller shows an error
+      throw chatErr;
     }
 
     // 2. Fetch Customer Queries with Sellers (/customer/queries?limit=50)
@@ -112,13 +117,11 @@ export async function fetchChatList(page = 1, limit = 30): Promise<ChatItem[]> {
         if (Array.isArray(queries) && queries.length > 0) {
           const queryItems: ChatItem[] = queries.map((q: any) => {
             const seller = q.sellerId || {};
-            const sellerName = seller.storeName || seller.businessName || seller.name || 'Verified Seller';
+            const sellerName = seller.storeName || seller.businessName || seller.name || '';
             const sellerAvatar = seller.profilePictureOrLogo || seller.avatar || seller.profilePhoto || seller.logo || null;
             const rawMsgs = Array.isArray(q.messages) ? q.messages : [];
             const lastMsg = q.lastMessage || rawMsgs[rawMsgs.length - 1];
-            const lastContent = lastMsg
-              ? (lastMsg.senderRole === 'seller' ? '' : 'You: ') + (lastMsg.message || lastMsg.text || lastMsg.content || '')
-              : q.subject || 'Enquiry';
+            const lastContent = lastMsg ? lastMsg.message || lastMsg.text || lastMsg.content || '' : q.subject || '';
 
             return {
               chatId: `query_${q._id}`,
@@ -135,6 +138,7 @@ export async function fetchChatList(page = 1, limit = 30): Promise<ChatItem[]> {
                 senderType: lastMsg?.senderRole === 'seller' ? 'seller' : 'customer',
                 timestamp: lastMsg?.createdAt || q.updatedAt || q.createdAt || new Date().toISOString(),
                 messageType: 'text',
+                fromMe: Boolean(lastMsg) && lastMsg.senderRole !== 'seller',
               },
               unreadCount: Number(q.customerUnread || 0),
               chatType: 'seller_query',
@@ -146,17 +150,14 @@ export async function fetchChatList(page = 1, limit = 30): Promise<ChatItem[]> {
         }
       }
     } catch (qErr) {
-      if (__DEV__) console.log('[chatApi] /customer/queries fetch error:', qErr);
+      throw qErr;
     }
 
     // Sort combined conversations by updatedAt descending
     allChats.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     return allChats;
   } catch (error) {
-    if (__DEV__) {
-      console.log('[chatApi] fetchChatList error:', error);
-    }
-    return [];
+    throw error;
   }
 }
 
@@ -193,8 +194,8 @@ export async function fetchChatMessages(
     const res = await apiClient.get(url);
 
     if (res.data?.success) {
-      const messages: ChatMessageItem[] = (res.data.messages || []).map((m: any) => ({
-        _id: m._id || m.messageId || String(Math.random()),
+      const messages: ChatMessageItem[] = (res.data.messages || []).map((m: any, idx: number) => ({
+        _id: m._id || m.messageId || `msg-${before || 'first'}-${idx}`,
         messageId: m.messageId || m._id,
         content: m.content || '',
         messageType: m.messageType || 'text',
@@ -235,12 +236,10 @@ export async function fetchChatMessages(
       };
     }
 
-    return { messages: [], hasMore: false, oldestMessageId: null };
+    throw new Error(res.data?.message || i18n.t('chat.loadMessagesFailed'));
   } catch (error) {
-    if (__DEV__) {
-      console.log('[chatApi] fetchChatMessages error:', error);
-    }
-    return { messages: [], hasMore: false, oldestMessageId: null };
+    // the screen shows an error with a retry, an empty list would look like an empty chat
+    throw error;
   }
 }
 
@@ -260,12 +259,12 @@ export async function startChat(params: {
     if (res.data?.success) {
       return { success: true, chat: res.data.chat };
     }
-    return { success: false, message: res.data?.message || 'Failed to start chat' };
+    return { success: false, message: res.data?.message || i18n.t('appMsg.startChatFailed') };
   } catch (error: any) {
     if (__DEV__) {
       console.log('[chatApi] startChat error:', error);
     }
-    const message = error?.response?.data?.message || 'Unable to start chat. Please try again.';
+    const message = error?.response?.data?.message || i18n.t('appMsg.startChatTryAgain');
     return { success: false, message };
   }
 }
@@ -278,7 +277,7 @@ export async function markChatAsRead(chatId: string): Promise<boolean> {
   try {
     const res = await apiClient.patch(`/chat/${chatId}/read`);
     return Boolean(res.data?.success);
-  } catch (error) {
+  } catch {
     return false;
   }
 }
@@ -299,7 +298,7 @@ export async function sendChatMessageHttp(
   try {
     const res = await apiClient.post(`/chat/${chatId}/send`, payload);
     return { success: Boolean(res.data?.success), message: res.data?.data };
-  } catch (error: any) {
+  } catch {
     return { success: false };
   }
 }
@@ -335,7 +334,7 @@ export async function fetchQueryMessages(
     if (res.data?.success && res.data?.data) {
       const q = res.data.data;
       const seller = q.sellerId || {};
-      const sellerName = seller.storeName || seller.businessName || seller.name || 'Verified Seller';
+      const sellerName = seller.storeName || seller.businessName || seller.name || '';
       const sellerAvatar = seller.profilePictureOrLogo || seller.avatar || seller.profilePhoto || seller.logo || null;
       const rawMsgs = Array.isArray(q.messages) ? q.messages : [];
 
@@ -373,10 +372,9 @@ export async function fetchQueryMessages(
         },
       };
     }
-    return { messages: [] };
+    throw new Error(res.data?.message || i18n.t('chat.loadMessagesFailed'));
   } catch (error: any) {
-    if (__DEV__) console.log('[chatApi] fetchQueryMessages error:', error);
-    return { messages: [] };
+    throw error;
   }
 }
 

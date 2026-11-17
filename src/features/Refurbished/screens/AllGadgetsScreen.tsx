@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { formatMoney } from '@/utils/money';
 import {
   Image,
   Modal,
@@ -19,6 +20,8 @@ import {
   arrowLeftBold,
   chevronDownBold,
   chevronRightBold,
+  heartExtra,
+  heartFilled,
   packageBold,
   starFilled,
 } from '@/assets/icons';
@@ -28,20 +31,21 @@ import { fonts } from '@/theme/fonts';
 import RefurbishedHeader from '../components/RefurbishedHeader';
 import RefurbishedFilterModal from '../components/RefurbishedFilterModal';
 import CtiLoader from '@/components/CtiLoader';
+import { useWishlist } from '@/roles/Customer/context/WishlistContext';
 import {
   RefurbishedProduct,
 } from '../data/refurbishedData';
-import { getRefurbishedProducts } from '../services/refurbishedApi';
+import { fetchAllRefurbishedProducts } from '../services/refurbishedApi';
+import LoadErrorBox from '../components/LoadErrorBox';
+import { normalizeApiError } from '@/services/apiError';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
-const SORT_OPTIONS = [
-  'Default Sorting',
-  'Price: Low to High',
-  'Price: High to Low',
-  'Highest Rated',
-  'Newest Arrivals',
-];
+// sort ids; the shown text is customerMsg.sort.<id>
+const SORT_OPTIONS = ['default', 'priceAsc', 'priceDesc', 'rated', 'newest'];
 
 export default function AllGadgetsScreen({ navigation, route }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const initialCategory =
@@ -52,18 +56,31 @@ export default function AllGadgetsScreen({ navigation, route }: any) {
 
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [activeFilters, setActiveFilters] = useState<any>(initialFilters || null);
-  const [sortOption, setSortOption] = useState('Default Sorting');
+  const [sortOption, setSortOption] = useState('default');
   const [sortMenuVisible, setSortMenuVisible] = useState(false);
   const [rawProducts, setRawProducts] = useState<RefurbishedProduct[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState(false);
+  const { ids: wishlistIds, toggle: toggleWishlistContext } = useWishlist();
+
+  // The heart flips at once and goes back by itself if the request fails.
+  const toggleWishlist = async (product: RefurbishedProduct) => {
+    try {
+      await toggleWishlistContext(product, product.defaultVariantId);
+    } catch {}
+  };
+
+  const [loadError, setLoadError] = useState('');
 
   const fetchLiveProducts = async () => {
     try {
-      const live = await getRefurbishedProducts();
-      setRawProducts(Array.isArray(live) ? live : []);
-    } catch {
+      setLoadError('');
+      const live = await fetchAllRefurbishedProducts();
+      setRawProducts(live);
+    } catch (err) {
+      // never show "no products" when the request failed
       setRawProducts([]);
+      setLoadError(normalizeApiError(err).message);
     } finally {
       setLoading(false);
     }
@@ -116,8 +133,8 @@ export default function AllGadgetsScreen({ navigation, route }: any) {
       filtered = filtered.filter(p => {
         const pCat = String(p?.category || '').toLowerCase();
         const pName = String(p?.name || '').toLowerCase();
-        return activeFilters.types.some((t: string) => {
-          const typeLower = String(t).toLowerCase();
+        return activeFilters.types.some((type: string) => {
+          const typeLower = String(type).toLowerCase();
           if (typeLower === 'watch' && (pCat.includes('watch') || pName.includes('watch'))) {
             return true;
           }
@@ -147,11 +164,11 @@ export default function AllGadgetsScreen({ navigation, route }: any) {
   }
 
   // Apply Sorting
-  if (sortOption === 'Price: Low to High') {
+  if (sortOption === 'priceAsc') {
     filtered.sort((a, b) => (a?.price ?? 0) - (b?.price ?? 0));
-  } else if (sortOption === 'Price: High to Low') {
+  } else if (sortOption === 'priceDesc') {
     filtered.sort((a, b) => (b?.price ?? 0) - (a?.price ?? 0));
-  } else if (sortOption === 'Highest Rated') {
+  } else if (sortOption === 'rated') {
     filtered.sort((a, b) => (b?.rating ?? 0) - (a?.rating ?? 0));
   }
 
@@ -205,17 +222,17 @@ export default function AllGadgetsScreen({ navigation, route }: any) {
           scale={0.9}
           style={styles.backWrap}>
           <View style={[styles.back, { backgroundColor: colors.primary }]}>
-            <Icon source={arrowLeftBold} size={20} color="#FFFFFF" />
+            <Icon source={arrowLeftBold} size={20} color={colors.onPrimary} />
           </View>
         </Squeeze>
 
         {/* Title & Subtitle matching Figma */}
         <View style={styles.titleSection}>
           <Text style={[styles.mainHeading, { color: colors.text }]}>
-            All Refurbished Gadgets
+            {t('customer.allRefurbishedGadgets')}
           </Text>
           <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-            Showing {filtered.length} premium refurbished products
+            {t('customerMsg.showingProducts', { count: filtered.length })}
           </Text>
         </View>
 
@@ -224,14 +241,14 @@ export default function AllGadgetsScreen({ navigation, route }: any) {
           <TouchableOpacity
             style={[styles.sortLabelBtn, { backgroundColor: colors.surfaceAlt }]}
             onPress={() => setSortMenuVisible(true)}>
-            <Text style={[styles.sortLabelText, { color: colors.text }]}>Sort By:</Text>
+            <Text style={[styles.sortLabelText, { color: colors.text }]}>{t('customer.sortBy')}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={[styles.sortDropdownBtn, { backgroundColor: colors.primary }]}
             onPress={() => setSortMenuVisible(true)}>
-            <Text style={styles.sortDropdownText}>{sortOption}</Text>
-            <Icon source={chevronDownBold} size={14} color="#FFFFFF" style={{ marginLeft: 6 }} />
+            <Text style={styles.sortDropdownText}>{t(`customerMsg.sort.${sortOption}`)}</Text>
+            <Icon source={chevronDownBold} size={14} color={colors.onPrimary} style={{ marginLeft: 6 }} />
           </TouchableOpacity>
         </View>
 
@@ -239,17 +256,26 @@ export default function AllGadgetsScreen({ navigation, route }: any) {
         {loading && !refreshing ? (
           <CtiLoader
             size="md"
-            text="Loading gadgets..."
+            text={t('customer.loadingGadgets')}
             style={{ paddingVertical: 45 }}
+          />
+        ) : loadError ? (
+          <LoadErrorBox
+            title={t('customer.couldNotLoadTheGadgets')}
+            message={loadError}
+            onRetry={() => {
+              setLoading(true);
+              fetchLiveProducts();
+            }}
           />
         ) : filtered.length === 0 ? (
           <View style={{ paddingVertical: 60, alignItems: 'center' }}>
             <Icon source={packageBold} size={48} color={colors.textMuted} />
             <Text style={{ color: colors.text, fontFamily: fonts.bold, fontSize: 16, marginTop: 14 }}>
-              No Products Found
+              {t('customer.noProductsFound')}
             </Text>
             <Text style={{ color: colors.textMuted, fontFamily: fonts.regular, fontSize: 13, marginTop: 6, textAlign: 'center', maxWidth: 260 }}>
-              No refurbished devices match your current selection or category.
+              {t('customer.noRefurbishedDevicesMatchYour')}
             </Text>
           </View>
         ) : (
@@ -271,14 +297,33 @@ export default function AllGadgetsScreen({ navigation, route }: any) {
                       styles.thumbBox,
                       { backgroundColor: colors.surfaceAlt, borderColor: colors.border + '33' },
                     ]}>
-                    <View style={styles.redRibbon}>
-                      <Text style={styles.redRibbonText}>{item?.discountPercent ?? 0}%</Text>
-                    </View>
+                    {Number(item?.discountPercent) > 0 ? (
+                      <View style={styles.redRibbon}>
+                        <Text style={styles.redRibbonText}>{item.discountPercent}%</Text>
+                      </View>
+                    ) : null}
                     <Image
                       source={item?.image || demoProductPhoto}
                       style={styles.thumbImage}
                       resizeMode="contain"
                     />
+                    {(() => {
+                      const isWished =
+                        wishlistIds.includes(String(item?.rawId || item?.id)) ||
+                        wishlistIds.includes(String(item?.id));
+                      return (
+                        <TouchableOpacity
+                          onPress={() => toggleWishlist(item)}
+                          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                          style={styles.heartBtn}>
+                          <Icon
+                            source={isWished ? heartFilled : heartExtra}
+                            size={18}
+                            color={isWished ? '#EF4444' : colors.textMuted}
+                          />
+                        </TouchableOpacity>
+                      );
+                    })()}
                   </View>
 
                   {/* Right Details */}
@@ -294,9 +339,10 @@ export default function AllGadgetsScreen({ navigation, route }: any) {
                         </Text>
                       </View>
 
+                      {(item?.rating ?? 0) > 0 && (
                       <View style={styles.ratingBadge}>
                         <Text style={[styles.ratingNumber, { color: colors.text }]}>
-                          {(item?.rating ?? 4.5).toFixed(1)}
+                          {(item?.rating ?? 0).toFixed(1)}
                         </Text>
                         <Icon
                           source={starFilled}
@@ -305,6 +351,7 @@ export default function AllGadgetsScreen({ navigation, route }: any) {
                           style={{ marginLeft: 3 }}
                         />
                       </View>
+                      )}
                     </View>
 
                     <Text style={[styles.cardTitle, { color: colors.primary }]} numberOfLines={1}>
@@ -313,15 +360,17 @@ export default function AllGadgetsScreen({ navigation, route }: any) {
 
                     <View style={styles.priceRow}>
                       <Text style={[styles.priceText, { color: colors.text }]}>
-                        ${item?.price ?? 0}.00
+                        {formatMoney(item?.price)}
                       </Text>
-                      <Text style={[styles.mrpText, { color: colors.textMuted }]}>
-                        ${item?.originalPrice ?? 0}.00
-                      </Text>
+                      {Number(item?.originalPrice) > Number(item?.price) ? (
+                        <Text style={[styles.mrpText, { color: colors.textMuted }]}>
+                          {formatMoney(item?.originalPrice)}
+                        </Text>
+                      ) : null}
                     </View>
 
                     <Text style={[styles.cardDesc, { color: colors.textMuted }]} numberOfLines={2}>
-                      {item?.specs?.buildAndMaterials || item?.description || ''}
+                      {item?.description || ''}
                     </Text>
                   </View>
                 </View>
@@ -331,11 +380,11 @@ export default function AllGadgetsScreen({ navigation, route }: any) {
                   onPress={() => handleProductPress(item)}
                   style={[styles.viewDetailBtn, { backgroundColor: colors.primary }]}>
                   <View style={styles.viewDetailRow}>
-                    <Text style={styles.viewDetailText}>View Detail</Text>
+                    <Text style={[styles.viewDetailText, { color: colors.onPrimary }]}>{i18n.t('customer.viewDetail')}</Text>
                     <Icon
                       source={chevronRightBold}
                       size={14}
-                      color="#FFFFFF"
+                      color={colors.onPrimary}
                       style={{ marginLeft: 6 }}
                     />
                   </View>
@@ -359,7 +408,7 @@ export default function AllGadgetsScreen({ navigation, route }: any) {
               styles.sortMenuDialog,
               { backgroundColor: colors.surface, borderColor: colors.border + '44' },
             ]}>
-            <Text style={[styles.sortMenuTitle, { color: colors.text }]}>Select Sorting</Text>
+            <Text style={[styles.sortMenuTitle, { color: colors.text }]}>{t('customer.selectSorting')}</Text>
             {SORT_OPTIONS.map(opt => (
               <TouchableOpacity
                 key={opt}
@@ -376,7 +425,7 @@ export default function AllGadgetsScreen({ navigation, route }: any) {
                     styles.sortMenuText,
                     { color: sortOption === opt ? colors.primary : colors.text },
                   ]}>
-                  {opt}
+                  {t(`customerMsg.sort.${opt}`)}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -451,6 +500,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   sortDropdownText: {
+    flexShrink: 1,
     color: '#FFFFFF',
     fontSize: 13,
     fontFamily: fonts.bold,
@@ -479,6 +529,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     position: 'relative',
     overflow: 'hidden',
+  },
+  heartBtn: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    zIndex: 2,
   },
   redRibbon: {
     position: 'absolute',
@@ -564,6 +620,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   viewDetailText: {
+    flexShrink: 1,
     color: '#FFFFFF',
     fontSize: 14,
     fontFamily: fonts.bold,

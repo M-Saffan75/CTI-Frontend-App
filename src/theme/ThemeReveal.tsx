@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Dimensions, Image, StyleSheet, View } from 'react-native';
 import MaskedView from '@react-native-masked-view/masked-view';
 import Animated, {
@@ -33,13 +33,18 @@ export default function ThemeReveal({ oldUri, newUri, x, y, onCovered, onDone })
     Math.hypot(SCREEN_W - x, SCREEN_H - y),
   );
 
+  // The effect must only restart for a new picture, so the latest onDone is read from a ref
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
+
   useEffect(() => {
     if (!newUri) return;
+    const finish = () => onDoneRef.current();
     progress.value = 0;
     progress.value = withTiming(1, { duration: DURATION, easing: EASING }, finished => {
-      if (finished) runOnJS(onDone)();
+      if (finished) runOnJS(finish)();
     });
-  }, [newUri]);
+  }, [newUri, progress]);
 
   const circle = useAnimatedStyle(() => ({ transform: [{ scale: progress.value }] }));
 

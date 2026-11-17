@@ -1,8 +1,6 @@
 import { useState } from 'react';
 import {
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -16,32 +14,29 @@ import Button from '@/components/Button';
 import { closeIcon } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
+import KeyboardSafeView from '@/components/KeyboardSafeView';
+import { useTranslation } from 'react-i18next';
 
 // Exact policy notice lines directly from Next.js web app (Disputes.jsx)
-const WEB_POLICY_NOTICE = [
-  'Payment for this booking will be held until the dispute is resolved',
-  'Our team will review your case within 24–48 hours',
-  'Both parties will be notified of the dispute status',
-  'False disputes may result in account penalties',
-];
+const WEB_POLICY_NOTICE = ['dispute.notice1', 'dispute.notice2', 'dispute.notice3', 'dispute.notice4'];
 
 export const CUSTOMER_DISPUTE_CATEGORIES = [
-  { value: 'payment_issue', label: 'Payment Issue' },
-  { value: 'quality_of_work', label: 'Quality of Work' },
-  { value: 'service_not_provided', label: 'Service Not Provided' },
-  { value: 'damaged_property', label: 'Damaged Property' },
-  { value: 'unprofessional_behavior', label: 'Unprofessional Behavior' },
-  { value: 'cancellation_issue', label: 'Cancellation Issue' },
-  { value: 'other', label: 'Other' },
+  { value: 'payment_issue', label: 'dispute.categories.payment_issue' },
+  { value: 'quality_of_work', label: 'dispute.categories.quality_of_work' },
+  { value: 'service_not_provided', label: 'dispute.categories.service_not_provided' },
+  { value: 'damaged_property', label: 'dispute.categories.damaged_property' },
+  { value: 'unprofessional_behavior', label: 'dispute.categories.unprofessional_behavior' },
+  { value: 'cancellation_issue', label: 'dispute.categories.cancellation_issue' },
+  { value: 'other', label: 'dispute.categories.other' },
 ];
 
 export const REPAIRMAN_DISPUTE_CATEGORIES = [
-  { value: 'unfair_rating', label: 'Unfair Rating' },
-  { value: 'late_payment', label: 'Late Payment' },
-  { value: 'rude_behavior', label: 'Rude Behavior' },
-  { value: 'cancellation_after_arrival', label: 'Cancellation After Arrival' },
-  { value: 'fake_request', label: 'Fake Request' },
-  { value: 'other', label: 'Other' },
+  { value: 'unfair_rating', label: 'dispute.categories.unfair_rating' },
+  { value: 'late_payment', label: 'dispute.categories.late_payment' },
+  { value: 'rude_behavior', label: 'dispute.categories.rude_behavior' },
+  { value: 'cancellation_after_arrival', label: 'dispute.categories.cancellation_after_arrival' },
+  { value: 'fake_request', label: 'dispute.categories.fake_request' },
+  { value: 'other', label: 'dispute.categories.other' },
 ];
 
 export interface CreateDisputeModalProps {
@@ -60,6 +55,7 @@ export default function CreateDisputeModal({
   isSubmitting = false,
 }: CreateDisputeModalProps) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const [category, setCategory] = useState<string>('');
   const [description, setDescription] = useState<string>('');
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
@@ -80,7 +76,7 @@ export default function CreateDisputeModal({
   };
 
   const selectedCategoryLabel =
-    categories.find(c => c.value === category)?.label || 'Select Category';
+    categories.find(c => c.value === category)?.label || 'dispute.selectCategory';
 
   const canSubmit = Boolean(category && description.trim().length >= 5 && !isSubmitting);
 
@@ -95,14 +91,13 @@ export default function CreateDisputeModal({
       transparent
       animationType="fade"
       onRequestClose={handleClose}>
-      <KeyboardAvoidingView
-        style={styles.avoiding}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardSafeView
+        style={styles.avoiding}>
         <View style={[styles.backdrop, { backgroundColor: colors.backdrop }]}>
           <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             {/* Header */}
             <View style={styles.head}>
-              <Text style={[styles.title, { color: colors.text }]}>Report a Problem</Text>
+              <Text style={[styles.title, { color: colors.text }]}>{t('dispute.reportProblem')}</Text>
               <Pressable onPress={handleClose} hitSlop={8} disabled={isSubmitting}>
                 <Icon source={closeIcon} size={16} color={colors.textMuted} />
               </Pressable>
@@ -112,7 +107,7 @@ export default function CreateDisputeModal({
             <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
               {/* Category Picker */}
               <Text style={[styles.label, styles.firstLabel, { color: colors.text }]}>
-                Dispute Category *
+                {t('dispute.category')}
               </Text>
               <Pressable
                 onPress={() => setShowCategoryDropdown(!showCategoryDropdown)}
@@ -121,12 +116,12 @@ export default function CreateDisputeModal({
                   styles.selectInput,
                   { backgroundColor: colors.surfaceAlt, borderColor: colors.border },
                 ]}>
-                <Text
+                <Text numberOfLines={1} adjustsFontSizeToFit
                   style={[
                     styles.selectText,
                     { color: category ? colors.text : colors.textMuted },
                   ]}>
-                  {selectedCategoryLabel}
+                  {t(selectedCategoryLabel)}
                 </Text>
               </Pressable>
 
@@ -157,7 +152,7 @@ export default function CreateDisputeModal({
                               fontFamily: isSelected ? fonts.bold : fonts.regular,
                             },
                           ]}>
-                          {c.label}
+                          {t(c.label)}
                         </Text>
                       </Pressable>
                     );
@@ -167,12 +162,12 @@ export default function CreateDisputeModal({
 
               {/* Description */}
               <Text style={[styles.label, { color: colors.text }]}>
-                Description (5–500 chars) *
+                {t('dispute.description')}
               </Text>
               <TextInput
                 value={description}
                 onChangeText={setDescription}
-                placeholder="Please describe your issue in detail..."
+                placeholder={t('dispute.placeholder')}
                 placeholderTextColor={colors.textMuted}
                 multiline
                 maxLength={500}
@@ -192,10 +187,10 @@ export default function CreateDisputeModal({
 
               {/* Exact Web Policy Notice */}
               <View style={[styles.notice, { backgroundColor: colors.primary + '14', borderColor: colors.primary + '30' }]}>
-                <Text style={[styles.noticeTitle, { color: colors.text }]}>Important Notice</Text>
+                <Text style={[styles.noticeTitle, { color: colors.text }]}>{t('dispute.importantNotice')}</Text>
                 {WEB_POLICY_NOTICE.map(line => (
                   <Text key={line} style={[styles.noticeLine, { color: colors.textMuted }]}>
-                    • {line}
+                    • {t(line)}
                   </Text>
                 ))}
               </View>
@@ -204,7 +199,7 @@ export default function CreateDisputeModal({
             {/* Actions */}
             <View style={styles.actions}>
               <Button
-                title={isSubmitting ? 'Submitting...' : 'Submit Dispute'}
+                title={isSubmitting ? t('dispute.submitting') : t('dispute.submit')}
                 size="md"
                 disabled={!canSubmit}
                 loading={isSubmitting}
@@ -214,7 +209,7 @@ export default function CreateDisputeModal({
                 textStyle={{ fontSize: 14 }}
               />
               <Button
-                title="Cancel"
+                title={t('common.cancel')}
                 variant="soft"
                 size="md"
                 disabled={isSubmitting}
@@ -226,7 +221,7 @@ export default function CreateDisputeModal({
             </View>
           </View>
         </View>
-      </KeyboardAvoidingView>
+      </KeyboardSafeView>
     </Modal>
   );
 }
@@ -236,7 +231,7 @@ const styles = StyleSheet.create({
   backdrop: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 20 },
   card: { width: '100%', maxHeight: '88%', borderRadius: 16, borderWidth: 1, padding: 20 },
   head: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  title: { fontFamily: fonts.bold, fontSize: 17 },
+  title: { flexShrink: 1, fontFamily: fonts.bold, fontSize: 17 },
   divider: { height: 1, marginTop: 14, marginBottom: 16 },
 
   label: { fontFamily: fonts.bold, fontSize: 13, marginBottom: 8, marginTop: 16 },

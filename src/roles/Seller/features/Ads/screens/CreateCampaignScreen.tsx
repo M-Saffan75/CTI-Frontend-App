@@ -1,778 +1,608 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Image,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { launchImageLibrary } from 'react-native-image-picker';
 
+import Button from '@/components/Button';
 import Icon from '@/components/Icon';
+import ProductThumb from '@/components/ProductThumb';
 import Squeeze from '@/components/Squeeze';
 import AlertModal, { AlertModalType } from '@/components/AlertModal';
-import { FadeUp } from '@/animations';
-import { arrowLeftBold, chevronDownBold, searchBold } from '@/assets/icons';
+import { ErrorState, LoadingState, OfflineBanner } from '@/components/states';
+import { calendarBold, checkCircleBold, imageBold, searchBold } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
-import AddCardModal from '../components/AddCardModal';
+import { getWebSellerAdsPaymentUrl } from '@/constants/config';
+import DateRangeModal from '@/roles/Seller/components/DateRangeModal';
+import SellerScreenHeader from '@/roles/Seller/components/SellerScreenHeader';
+import {
+  createSellerCampaignApi,
+  fetchSellerAdCardsApi,
+  fetchSellerAdSettingsApi,
+  fetchSellerProductsApi,
+  runSellerCampaignActionApi,
+  SellerAdCard,
+  SellerAdSettings,
+  SellerProductItem,
+} from '@/roles/Seller/services/sellerApi';
+import { formatDate, formatMoney, markAdsDirty, openSellerTab, openWebsite, toApiDate } from '@/roles/Seller/utils/sellerUtils';
+import { currencySymbol } from '@/utils/money';
+import KeyboardSafeView from '@/components/KeyboardSafeView';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
-interface ProductItem {
-  id: string;
+const MAX_BANNER_BYTES = 2 * 1024 * 1024;
+
+type CampaignType = 'sponsored_product' | 'sponsored_store';
+
+interface Banner {
+  uri: string;
+  type: string;
   name: string;
-  price: string;
-  img: string;
-  checked: boolean;
 }
 
-const INITIAL_PRODUCTS: ProductItem[] = [
-  {
-    id: 'p-1',
-    name: 'Reebok Workout Ready T-Shirt',
-    price: '$22:00',
-    img: 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=200&q=80',
-    checked: false,
-  },
-  {
-    id: 'p-2',
-    name: 'Gucci GG Marmont Leather Belt',
-    price: '$539.00',
-    img: 'https://images.unsplash.com/photo-1624222247344-550fa60583dc?w=200&q=80',
-    checked: false,
-  },
-  {
-    id: 'p-3',
-    name: 'Gucci GG Marmont Leather Belt',
-    price: '$539.00',
-    img: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=200&q=80',
-    checked: false,
-  },
-  {
-    id: 'p-4',
-    name: 'Gucci GG Marmont Leather Belt',
-    price: '$539.00',
-    img: 'https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?w=200&q=80',
-    checked: false,
-  },
-  {
-    id: 'p-5',
-    name: 'Gucci GG Marmont Leather Belt',
-    price: '$539.00',
-    img: 'https://images.unsplash.com/photo-1595950653106-6c9ebd614d3a?w=200&q=80',
-    checked: false,
-  },
-];
+interface AlertState {
+  visible: boolean;
+  type: AlertModalType;
+  title: string;
+  message: string;
+  leave?: boolean;
+}
+
+const HIDDEN_ALERT: AlertState = { visible: false, type: 'info', title: '', message: '' };
 
 export default function CreateCampaignScreen({ navigation }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
-  const [selectedRadioIndex, setSelectedRadioIndex] = useState(0);
-  const [campaignName, setCampaignName] = useState('All statuses');
+  const [type, setType] = useState<CampaignType>('sponsored_product');
+  const [name, setName] = useState('');
+  const [tagline, setTagline] = useState('');
+  const [banner, setBanner] = useState<Banner | null>(null);
   const [startDate, setStartDate] = useState('');
-  const [searchProductQuery, setSearchProductQuery] = useState('');
-  const [products, setProducts] = useState<ProductItem[]>(INITIAL_PRODUCTS);
   const [dailyBudget, setDailyBudget] = useState('');
   const [totalBudget, setTotalBudget] = useState('');
-  const [isAddCardVisible, setIsAddCardVisible] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [cardId, setCardId] = useState('');
+  const [productSearch, setProductSearch] = useState('');
+  const [dateOpen, setDateOpen] = useState(false);
 
-  const toggleProduct = (id: string) => {
-    setProducts(prev =>
-      prev.map(p => (p.id === id ? { ...p, checked: !p.checked } : p))
-    );
+  const [settings, setSettings] = useState<SellerAdSettings | null>(null);
+  const [products, setProducts] = useState<SellerProductItem[]>([]);
+  const [cards, setCards] = useState<SellerAdCard[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [checkingCards, setCheckingCards] = useState(false);
+
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [alert, setAlert] = useState<AlertState>(HIDDEN_ALERT);
+  const mounted = useRef(true);
+  // The draft is created once; if the submit step fails, a retry only submits it again
+  const draftId = useRef('');
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const [adSettings, productsPage, savedCards] = await Promise.all([
+        fetchSellerAdSettingsApi(),
+        fetchSellerProductsApi({ page: 1, limit: 200 }),
+        fetchSellerAdCardsApi(),
+      ]);
+      if (!mounted.current) return;
+      setSettings(adSettings);
+      setProducts(productsPage.products);
+      setCards(savedCards);
+      setCardId(prev => prev || (savedCards.find(c => c.isDefault) || savedCards[0])?.id || '');
+    } catch (err: any) {
+      if (mounted.current) setLoadError(err?.message || i18n.t('sellerAuto.couldNotLoadTheCampaign'));
+    } finally {
+      if (mounted.current) setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const refreshCards = async () => {
+    setCheckingCards(true);
+    try {
+      const savedCards = await fetchSellerAdCardsApi();
+      if (!mounted.current) return;
+      setCards(savedCards);
+      setCardId(prev => (savedCards.some(c => c.id === prev) ? prev : (savedCards.find(c => c.isDefault) || savedCards[0])?.id || ''));
+    } catch (err: any) {
+      if (mounted.current) {
+        setAlert({ visible: true, type: 'error', title: i18n.t('sellerAuto.couldNotLoadCards'), message: err?.message || i18n.t('customer.pleaseTryAgain') });
+      }
+    } finally {
+      if (mounted.current) setCheckingCards(false);
+    }
   };
 
-  const filteredProducts = products.filter(p =>
-    p.name.toLowerCase().includes(searchProductQuery.toLowerCase())
-  );
+  const filteredProducts = useMemo(() => {
+    const q = productSearch.trim().toLowerCase();
+    return q ? products.filter(p => p.name.toLowerCase().includes(q)) : products;
+  }, [products, productSearch]);
 
-  // AlertModal State
-  const [alertConfig, setAlertConfig] = useState<{
-    visible: boolean;
-    type: AlertModalType;
-    title: string;
-    message: string;
-    onOk?: () => void;
-  }>({
-    visible: false,
-    type: 'info',
-    title: '',
-    message: '',
-  });
+  const daily = parseFloat(dailyBudget);
+  const total = parseFloat(totalBudget);
+  const endDate = useMemo(() => {
+    if (!startDate || !(daily > 0) || !(total > 0)) return '';
+    const [y, m, d] = startDate.split('-').map(Number);
+    const end = new Date(y, m - 1, d);
+    end.setDate(end.getDate() + Math.min(Math.ceil(total / daily), 365));
+    return toApiDate(end);
+  }, [startDate, daily, total]);
 
-  const handleSubmit = () => {
-    setAlertConfig({
-      visible: true,
-      type: 'success',
-      title: 'Campaign Submitted',
-      message: 'Your campaign has been submitted for admin review before going live.',
-      onOk: () => navigation?.goBack(),
+  const clearError = (key: string) => setErrors(prev => (prev[key] ? { ...prev, [key]: '' } : prev));
+
+  const pickBanner = () => {
+    launchImageLibrary({ mediaType: 'photo', selectionLimit: 1 }, response => {
+      if (response.didCancel) return;
+      const asset = response.assets?.[0];
+      if (response.errorCode || !asset?.uri) {
+        setAlert({ visible: true, type: 'error', title: i18n.t('sellerAuto.imageError'), message: response.errorMessage || i18n.t('sellerAuto.couldNotSelectTheImage') });
+        return;
+      }
+      if ((asset.fileSize || 0) > MAX_BANNER_BYTES) {
+        setAlert({ visible: true, type: 'error', title: i18n.t('sellerAuto.bannerTooLarge'), message: i18n.t('sellerAuto.theBannerMustBeUnder') });
+        return;
+      }
+      setBanner({ uri: asset.uri, type: asset.type || 'image/jpeg', name: asset.fileName || 'banner.jpg' });
+      clearError('banner');
     });
   };
 
-  return (
-    <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: insets.top + 8 }]}>
-      {/* Header matching Create Compaign.png */}
-      <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <Squeeze onPress={() => navigation?.goBack()} scale={0.9}>
-          <View style={styles.backBtn}>
-            <Icon source={arrowLeftBold} size={18} color="#FFFFFF" />
-          </View>
-        </Squeeze>
-        <View style={styles.headerTitleWrap}>
-          <Text style={[styles.headerTitle, { color: colors.text }]}>Craete Ad Campaign</Text>
-          <Text style={[styles.headerSubtitle, { color: colors.textMuted }]}>
-            New campaign will be reviewed before going live
-          </Text>
-        </View>
+  const toggleProduct = (id: string) => {
+    setSelectedIds(prev => (prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]));
+    clearError('products');
+  };
+
+  const validate = (): boolean => {
+    const next: Record<string, string> = {};
+    if (!name.trim()) next.name = i18n.t('sellerMsg.campaign.nameReq');
+    else if (name.trim().length < 3) next.name = i18n.t('sellerMsg.campaign.nameMin');
+    if (!startDate) next.startDate = i18n.t('sellerMsg.campaign.startReq');
+    else if (startDate < toApiDate(new Date())) next.startDate = i18n.t('sellerMsg.campaign.startPast');
+    if (!dailyBudget) next.dailyBudget = i18n.t('sellerMsg.campaign.dailyReq');
+    else if (isNaN(daily) || daily < (settings?.minDailyBudget || 0)) {
+      next.dailyBudget = i18n.t('sellerMsg.campaign.dailyMin', { amount: formatMoney(settings?.minDailyBudget) });
+    }
+    if (!totalBudget) next.totalBudget = i18n.t('sellerMsg.campaign.totalReq');
+    else if (isNaN(total) || total < (settings?.minTotalBudget || 0)) {
+      next.totalBudget = i18n.t('sellerMsg.campaign.totalMin', { amount: formatMoney(settings?.minTotalBudget) });
+    }
+    if (!next.dailyBudget && !next.totalBudget && daily > total) {
+      next.dailyBudget = i18n.t('sellerMsg.campaign.dailyExceeds');
+    }
+    if (type === 'sponsored_product' && selectedIds.length === 0) next.products = i18n.t('sellerMsg.campaign.productsReq');
+    if (type === 'sponsored_store' && !banner) next.banner = i18n.t('sellerMsg.campaign.bannerReq');
+    if (!cardId) next.payment = i18n.t('sellerMsg.campaign.paymentReq');
+    setErrors(next);
+    return Object.keys(next).length === 0;
+  };
+
+  const leave = () => {
+    markAdsDirty();
+    openSellerTab(navigation, 'Ads');
+  };
+
+  const handleSubmit = async () => {
+    if (submitting) return;
+    if (!validate()) return;
+    setSubmitting(true);
+    try {
+      if (!draftId.current) {
+        const form = new FormData();
+        form.append('type', type);
+        form.append('name', name.trim());
+        form.append('startDate', startDate);
+        form.append('dailyBudget', String(daily));
+        form.append('totalBudget', String(total));
+        form.append('paymentMethodId', cardId);
+        if (type === 'sponsored_product') {
+          selectedIds.forEach(id => form.append('productIds[]', id));
+        } else {
+          if (tagline.trim()) form.append('storeTagline', tagline.trim());
+          if (banner) form.append('banner', banner as any);
+        }
+        const created = await createSellerCampaignApi(form);
+        if (!created.id) throw new Error('The campaign was created but the server sent no id.');
+        draftId.current = created.id;
+        markAdsDirty();
+      }
+      const submitted = await runSellerCampaignActionApi(draftId.current, 'submit');
+      if (!mounted.current) return;
+      setAlert({
+        visible: true,
+        type: 'success',
+        title: i18n.t('sellerAuto.campaignSubmitted'),
+        message: submitted.message || i18n.t('sellerAuto.yourCampaignWasSentFor'),
+        leave: true,
+      });
+    } catch (err: any) {
+      if (!mounted.current) return;
+      const saved = !!draftId.current;
+      setAlert({
+        visible: true,
+        type: 'error',
+        title: saved ? i18n.t('sellerAuto.savedAsDraftNotSubmitted') : i18n.t('sellerAuto.couldNotCreateTheCampaign'),
+        message: saved
+          ? i18n.t('sellerMsg.campaign.draftSaved', { message: err?.message || i18n.t('sellerAuto.submitFailed') })
+          : err?.message || i18n.t('sellerAuto.pleaseCheckTheFormAnd'),
+      });
+    } finally {
+      if (mounted.current) setSubmitting(false);
+    }
+  };
+
+  const optionBox = (selected: boolean) => ({
+    borderColor: selected ? colors.primary : colors.border,
+    backgroundColor: selected ? colors.primary + '10' : 'transparent',
+  });
+  const dateBox = {
+    backgroundColor: colors.surfaceAlt,
+    borderColor: errors.startDate ? colors.error : 'transparent',
+  };
+  const inputStyle = [styles.input, { color: colors.text, backgroundColor: colors.surfaceAlt }];
+  const locked = submitting || !!draftId.current;
+
+  const renderError = (key: string) =>
+    errors[key] ? <Text style={[styles.error, { color: colors.error }]}>{errors[key]}</Text> : null;
+
+  let content;
+  if (loading) {
+    content = <LoadingState text={t('common.loading')} style={styles.stateWrap} />;
+  } else if (loadError || !settings) {
+    content = <ErrorState error={loadError || t('sellerAuto.couldNotLoadTheCampaign')} onRetry={loadData} style={styles.stateWrap} />;
+  } else if (!settings.isEnabled) {
+    content = (
+      <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Text style={[styles.cardTitle, { color: colors.text }]}>{t('sellerAuto.advertisingIsNotAvailable')}</Text>
+        <Text style={[styles.hint, { color: colors.textMuted }]}>
+          {t('sellerAuto.advertisingIsSwitchedOffBy')}
+        </Text>
       </View>
+    );
+  } else {
+    content = (
+      <>
+        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Text style={[styles.cardTitle, { color: colors.text }]}>{t('sellerAuto.campaignType')}</Text>
+          {(
+            [
+              { id: 'sponsored_product', title: t('sellerAuto.sponsoredProducts'), desc: t('sellerAuto.promoteSelectedProductsInSearch') },
+              { id: 'sponsored_store', title: t('sellerAuto.sponsoredStore'), desc: t('sellerAuto.promoteYourWholeStoreWith') },
+            ] as Array<{ id: CampaignType; title: string; desc: string }>
+          ).map(option => {
+            const active = type === option.id;
+            return (
+              <Squeeze key={option.id} onPress={() => (locked ? undefined : setType(option.id))} scale={0.98}>
+                <View
+                  style={[styles.option, optionBox(active)]}>
+                  <View style={styles.flex1}>
+                    <Text style={[styles.optionTitle, { color: colors.text }]}>{option.title}</Text>
+                    <Text style={[styles.hint, { color: colors.textMuted }]}>{option.desc}</Text>
+                  </View>
+                  {active ? <Icon source={checkCircleBold} size={20} color={colors.primary} /> : null}
+                </View>
+              </Squeeze>
+            );
+          })}
+        </View>
 
-      <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]}
-        showsVerticalScrollIndicator={false}>
-        {/* Section 1: Target Icon & Sponsored Products Radio Cards */}
-        <FadeUp delay={30} duration={300}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionHeaderIcon}>🎯</Text>
-            <Text style={[styles.sectionHeaderTitle, { color: colors.text }]}>
-              Summer fashion Sale
-            </Text>
-          </View>
+        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Text style={[styles.cardTitle, { color: colors.text }]}>{t('sellerAuto.details')}</Text>
+          <Text style={[styles.label, { color: colors.text }]}>{t('sellerAuto.campaignName')}</Text>
+          <TextInput
+            value={name}
+            onChangeText={text => {
+              setName(text);
+              clearError('name');
+            }}
+            editable={!locked}
+            placeholder={t('sellerAuto.eGSummerSale')}
+            placeholderTextColor={colors.textMuted}
+            style={[inputStyle, errors.name ? { borderColor: colors.error } : null]}
+          />
+          {renderError('name')}
 
-          {/* Radio Card 1 (Selected) */}
-          <TouchableOpacity
-            onPress={() => setSelectedRadioIndex(0)}
-            activeOpacity={0.8}
-            style={[
-              styles.radioCard,
-              {
-                backgroundColor: colors.surface,
-                borderColor: selectedRadioIndex === 0 ? colors.primary : colors.border,
-                borderWidth: selectedRadioIndex === 0 ? 1.5 : 1,
-              },
-            ]}>
-            <View style={styles.radioCardLeft}>
-              <Text style={{ fontSize: 16 }}>🎯</Text>
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text style={[styles.radioCardTitle, { color: colors.text }]}>
-                  Sponsored Products
-                </Text>
-                <Text style={[styles.radioCardSub, { color: colors.textMuted }]}>
-                  New campaign will be reviewed before going live
-                </Text>
-              </View>
-            </View>
-            <View
-              style={[
-                styles.radioCircleOuter,
-                { borderColor: selectedRadioIndex === 0 ? colors.primary : colors.border },
-              ]}>
-              {selectedRadioIndex === 0 && (
-                <View style={[styles.radioCircleInner, { backgroundColor: colors.primary }]} />
-              )}
-            </View>
-          </TouchableOpacity>
-
-          {/* Radio Card 2 (Unselected) */}
-          <TouchableOpacity
-            onPress={() => setSelectedRadioIndex(1)}
-            activeOpacity={0.8}
-            style={[
-              styles.radioCard,
-              {
-                backgroundColor: colors.surface,
-                borderColor: selectedRadioIndex === 1 ? colors.primary : colors.border,
-                borderWidth: selectedRadioIndex === 1 ? 1.5 : 1,
-                marginTop: 10,
-              },
-            ]}>
-            <View style={styles.radioCardLeft}>
-              <Text style={{ fontSize: 16 }}>🎯</Text>
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text style={[styles.radioCardTitle, { color: colors.text }]}>
-                  Sponsored Products
-                </Text>
-                <Text style={[styles.radioCardSub, { color: colors.textMuted }]}>
-                  New campaign will be reviewed before going live
-                </Text>
-              </View>
-            </View>
-            <View
-              style={[
-                styles.radioCircleOuter,
-                { borderColor: selectedRadioIndex === 1 ? colors.primary : colors.border },
-              ]}>
-              {selectedRadioIndex === 1 && (
-                <View style={[styles.radioCircleInner, { backgroundColor: colors.primary }]} />
-              )}
-            </View>
-          </TouchableOpacity>
-        </FadeUp>
-
-        {/* Section 2: Summer fashion Sale Info Card */}
-        <FadeUp delay={60} duration={300}>
-          <View
-            style={[
-              styles.cardBox,
-              { backgroundColor: colors.surface, borderColor: colors.border },
-            ]}>
-            <View style={styles.cardBoxHeader}>
-              <Text style={styles.cardBoxHeaderIcon}>✉</Text>
-              <Text style={[styles.cardBoxTitle, { color: colors.text }]}>
-                Summer fashion Sale
-              </Text>
-            </View>
-
-            {/* Campaign Name Dropdown */}
-            <View style={styles.fieldGroup}>
-              <Text style={[styles.fieldLabel, { color: colors.text }]}>Campaign Name</Text>
-              <View
-                style={[
-                  styles.dropdownInput,
-                  { backgroundColor: colors.surfaceAlt, borderColor: colors.border },
-                ]}>
-                <Text style={[styles.dropdownValueText, { color: colors.text }]}>
-                  {campaignName}
-                </Text>
-                <Icon source={chevronDownBold} size={14} color={colors.textMuted} />
-              </View>
-            </View>
-
-            {/* Start Data Input */}
-            <View style={styles.fieldGroup}>
-              <View style={styles.labelCountRow}>
-                <Text style={[styles.fieldLabel, { color: colors.text }]}>Start Data</Text>
-                <Text style={[styles.counterText, { color: colors.textMuted }]}>0/100</Text>
-              </View>
-              <View
-                style={[
-                  styles.dateInputBox,
-                  { backgroundColor: colors.surfaceAlt, borderColor: colors.border },
-                ]}>
-                <TextInput
-                  value={startDate}
-                  onChangeText={setStartDate}
-                  placeholder="mm/dd/yyyy"
-                  placeholderTextColor={colors.textMuted}
-                  style={[styles.inputTextStyle, { color: colors.text }]}
-                />
-                <Text style={{ fontSize: 16 }}>📅</Text>
-              </View>
-              <Text style={[styles.helperFootnote, { color: colors.textMuted }]}>
-                Campaign runs until budget is fully spent - no end date needed.
-              </Text>
-            </View>
-          </View>
-        </FadeUp>
-
-        {/* Section 3: Select Products Card */}
-        <FadeUp delay={90} duration={300}>
-          <View
-            style={[
-              styles.cardBox,
-              { backgroundColor: colors.surface, borderColor: colors.border },
-            ]}>
-            <View style={styles.cardBoxHeader}>
-              <Text style={styles.cardBoxHeaderIcon}>🎨</Text>
-              <Text style={[styles.cardBoxTitle, { color: colors.text }]}>
-                Select Products
-              </Text>
-            </View>
-
-            {/* Search Product Bar */}
-            <View
-              style={[
-                styles.searchBarBox,
-                { backgroundColor: colors.surfaceAlt, borderColor: colors.border },
-              ]}>
-              <Icon source={searchBold} size={15} color={colors.textMuted} />
+          {type === 'sponsored_store' ? (
+            <>
+              <Text style={[styles.label, { color: colors.text }]}>{t('sellerAuto.storeTaglineOptional')}</Text>
               <TextInput
-                value={searchProductQuery}
-                onChangeText={setSearchProductQuery}
-                placeholder="Search product"
+                value={tagline}
+                onChangeText={setTagline}
+                editable={!locked}
+                placeholder={t('sellerAuto.aShortLineShownWith')}
                 placeholderTextColor={colors.textMuted}
-                style={[styles.inputTextStyle, { color: colors.text }]}
+                maxLength={120}
+                style={inputStyle}
               />
-            </View>
-
-            {/* Products List */}
-            <View style={styles.productList}>
-              {filteredProducts.map((p, idx) => (
-                <View key={p.id}>
-                  <TouchableOpacity
-                    onPress={() => toggleProduct(p.id)}
-                    style={styles.productRow}>
-                    <View
-                      style={[
-                        styles.checkboxSquare,
-                        {
-                          borderColor: p.checked ? colors.primary : colors.border,
-                          backgroundColor: p.checked ? colors.primary : 'transparent',
-                        },
-                      ]}>
-                      {p.checked && <Text style={styles.checkboxCheck}>✓</Text>}
-                    </View>
-
-                    <Image source={{ uri: p.img }} style={styles.productThumbnail} />
-
-                    <View style={styles.productInfo}>
-                      <Text style={[styles.productName, { color: colors.text }]}>{p.name}</Text>
-                      <Text style={[styles.productPrice, { color: colors.textMuted }]}>
-                        {p.price}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                  {idx < filteredProducts.length - 1 && (
-                    <View style={[styles.divider, { backgroundColor: colors.border }]} />
+              <Text style={[styles.label, { color: colors.text }]}>{t('sellerAuto.storeBanner')}</Text>
+              <Squeeze onPress={locked ? undefined : pickBanner} scale={0.98}>
+                <View style={[styles.bannerBox, { borderColor: errors.banner ? colors.error : colors.border, backgroundColor: colors.surfaceAlt }]}>
+                  {banner ? (
+                    <Image source={{ uri: banner.uri }} style={styles.bannerImage} resizeMode="cover" />
+                  ) : (
+                    <>
+                      <Icon source={imageBold} size={26} color={colors.textMuted} />
+                      <Text style={[styles.hint, { color: colors.textMuted }]}>{t('sellerAuto.tapToChooseABanner')}</Text>
+                    </>
                   )}
                 </View>
-              ))}
+              </Squeeze>
+              {renderError('banner')}
+            </>
+          ) : null}
+        </View>
+
+        {type === 'sponsored_product' ? (
+          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[styles.cardTitle, { color: colors.text }]}>
+              {selectedIds.length > 0 ? i18n.t('sellerMsg.campaign.productsTitleCount', { count: selectedIds.length }) : i18n.t('sellerMsg.campaign.productsTitle')}
+            </Text>
+            <View style={[styles.searchBar, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+              <Icon source={searchBold} size={16} color={colors.textMuted} />
+              <TextInput
+                value={productSearch}
+                onChangeText={setProductSearch}
+                placeholder={t('sellerAuto.searchYourProducts')}
+                placeholderTextColor={colors.textMuted}
+                style={[styles.searchInput, { color: colors.text }]}
+              />
             </View>
+            {products.length === 0 ? (
+              <Text style={[styles.hint, { color: colors.textMuted }]}>{t('sellerAuto.youHaveNoProductsYet')}</Text>
+            ) : (
+              <ScrollView style={styles.productList} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                {filteredProducts.map(product => {
+                  const picked = selectedIds.includes(product.id);
+                  return (
+                    <Squeeze key={product.id} onPress={locked ? undefined : () => toggleProduct(product.id)} scale={0.99}>
+                      <View style={[styles.productRow, { borderColor: picked ? colors.primary : colors.border }]}>
+                        <ProductThumb uri={product.image} size={40} radius={8} />
+                        <View style={styles.flex1}>
+                          <Text style={[styles.optionTitle, { color: colors.text }]}>{product.name}</Text>
+                          <Text style={[styles.hint, { color: colors.textMuted }]}>{formatMoney(product.sellingPrice)}</Text>
+                        </View>
+                        {picked ? <Icon source={checkCircleBold} size={20} color={colors.primary} /> : null}
+                      </View>
+                    </Squeeze>
+                  );
+                })}
+                {filteredProducts.length === 0 ? (
+                  <Text style={[styles.hint, { color: colors.textMuted }]}>{t('sellerAuto.noProductMatchesYourSearch')}</Text>
+                ) : null}
+              </ScrollView>
+            )}
+            {renderError('products')}
           </View>
-        </FadeUp>
+        ) : null}
 
-        {/* Section 4: Budget Card */}
-        <FadeUp delay={120} duration={300}>
-          <View
-            style={[
-              styles.cardBox,
-              { backgroundColor: colors.surface, borderColor: colors.border },
-            ]}>
-            <View style={styles.cardBoxHeader}>
-              <Text style={styles.cardBoxHeaderIcon}>🏠</Text>
-              <Text style={[styles.cardBoxTitle, { color: colors.text }]}>Budget</Text>
-            </View>
-
-            {/* CPC & Impressions Box */}
-            <View style={[styles.metricsBox, { backgroundColor: colors.surfaceAlt }]}>
-              <View style={styles.metricItemRow}>
-                <View style={styles.purplePlaneIconBox}>
-                  <Text style={{ fontSize: 13, color: '#9333EA' }}>✈</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.metricItemLabel, { color: colors.textMuted }]}>
-                    Cost per click (CPC)
-                  </Text>
-                  <Text style={[styles.metricItemValue, { color: colors.text }]}>$0.50</Text>
-                </View>
-              </View>
-
-              <View style={styles.metricItemRow}>
-                <View style={styles.blueEyeIconBox}>
-                  <Text style={{ fontSize: 13, color: '#2563EB' }}>👁</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.metricItemLabel, { color: colors.textMuted }]}>
-                    Imperessions
-                  </Text>
-                  <Text style={[styles.metricItemValue, { color: '#10B981' }]}>Free</Text>
-                </View>
-              </View>
-            </View>
-
-            {/* Daily Budget Input */}
-            <View style={styles.fieldGroup}>
-              <Text style={[styles.fieldLabel, { color: colors.text }]}>Daily Budget</Text>
-              <View
-                style={[
-                  styles.budgetInputBox,
-                  { backgroundColor: colors.surfaceAlt, borderColor: colors.border },
-                ]}>
-                <TextInput
-                  value={dailyBudget}
-                  onChangeText={setDailyBudget}
-                  placeholder="$ Min $1.00"
-                  placeholderTextColor={colors.textMuted}
-                  keyboardType="numeric"
-                  style={[styles.inputTextStyle, { color: colors.text }]}
-                />
-              </View>
-            </View>
-
-            {/* Total Budget Input */}
-            <View style={styles.fieldGroup}>
-              <Text style={[styles.fieldLabel, { color: colors.text }]}>Total Budget</Text>
-              <View
-                style={[
-                  styles.budgetInputBox,
-                  { backgroundColor: colors.surfaceAlt, borderColor: colors.border },
-                ]}>
-                <TextInput
-                  value={totalBudget}
-                  onChangeText={setTotalBudget}
-                  placeholder="$ Min $5.00"
-                  placeholderTextColor={colors.textMuted}
-                  keyboardType="numeric"
-                  style={[styles.inputTextStyle, { color: colors.text }]}
-                />
-              </View>
-            </View>
-
-            {/* Blue Info Banner */}
-            <View style={styles.blueInfoCard}>
-              <Text style={styles.blueInfoIcon}>ℹ</Text>
-              <Text style={styles.blueInfoText}>
-                Campaign runs until total budget is used up. You will be charged only when the campaign completes.
-              </Text>
-            </View>
-          </View>
-        </FadeUp>
-
-        {/* Section 5: Payment Method Card */}
-        <FadeUp delay={150} duration={300}>
-          <View
-            style={[
-              styles.cardBox,
-              { backgroundColor: colors.surface, borderColor: colors.border },
-            ]}>
-            <View style={styles.paymentHeaderRow}>
-              <View style={styles.cardBoxHeader}>
-                <Text style={styles.cardBoxHeaderIcon}>✉</Text>
-                <Text style={[styles.cardBoxTitle, { color: colors.text }]}>
-                  Payment Method
-                </Text>
-              </View>
-              <TouchableOpacity
-                onPress={() => setIsAddCardVisible(true)}
-                style={styles.addCardPillBtn}>
-                <Text style={styles.addCardPillText}>+ Add Card</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Selected Card Preview */}
+        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Text style={[styles.cardTitle, { color: colors.text }]}>{t('sellerAuto.scheduleAndBudget')}</Text>
+          <Text style={[styles.label, { color: colors.text }]}>{t('sellerAuto.startDate')}</Text>
+          <Squeeze onPress={locked ? undefined : () => setDateOpen(true)} scale={0.99}>
             <View
               style={[
-                styles.selectedCardBox,
-                {
-                  backgroundColor: colors.surface,
-                  borderColor: colors.primary,
-                },
+                styles.input,
+                styles.dateField,
+                dateBox,
               ]}>
-              <View style={styles.selectedCardLeft}>
-                <Text style={{ fontSize: 18, color: colors.primary }}>✉</Text>
-                <View>
-                  <Text style={[styles.selectedCardTitle, { color: colors.text }]}>
-                    Paraf ..ooo8
-                  </Text>
-                  <Text style={[styles.selectedCardSub, { color: colors.textMuted }]}>
-                    Jhon Deo Exp 12/2030
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.selectedCardRight}>
-                <View style={[styles.defaultBadge, { backgroundColor: colors.surfaceAlt }]}>
-                  <Text style={[styles.defaultBadgeText, { color: colors.primary }]}>Default</Text>
-                </View>
-                <View style={[styles.blackCheckCircle, { backgroundColor: colors.primary }]}>
-                  <Text style={styles.blackCheckMark}>✓</Text>
-                </View>
-              </View>
-            </View>
-
-            {/* Warning / Tokenization Notice Box */}
-            <View
-              style={[
-                styles.peachNoticeBox,
-                {
-                  backgroundColor: colors.surfaceAlt,
-                  borderColor: colors.border,
-                  borderWidth: 1,
-                },
-              ]}>
-              <Text style={{ fontSize: 16 }}>🛡</Text>
-              <Text style={[styles.peachNoticeText, { color: colors.textMuted }]}>
-                Your card will be charged only when the campaign ends or budget is exhausted - not before.
+              <Text style={[styles.dateText, { color: startDate ? colors.text : colors.textMuted }]}>
+                {startDate ? formatDate(startDate) : t('sellerAuto.chooseAStartDate')}
               </Text>
+              <Icon source={calendarBold} size={16} color={colors.textMuted} />
             </View>
-          </View>
-        </FadeUp>
+          </Squeeze>
+          {renderError('startDate')}
 
-        {/* Action Buttons matching Create Compaign.png */}
-        <FadeUp delay={180} duration={300}>
-          <View style={styles.actionBtnStack}>
-            <Squeeze onPress={handleSubmit} scale={0.98}>
-              <View style={[styles.submitApprovalBtn, { backgroundColor: '#FF6900' }]}>
-                <Text style={styles.submitApprovalText}>➤  Submit for Approval</Text>
-              </View>
-            </Squeeze>
+          <Text style={[styles.label, { color: colors.text }]}>{i18n.t('sellerMsg.campaign.dailyLabel', { symbol: currencySymbol() })}</Text>
+          <TextInput
+            value={dailyBudget}
+            onChangeText={text => {
+              setDailyBudget(text.replace(',', '.'));
+              clearError('dailyBudget');
+            }}
+            editable={!locked}
+            keyboardType="decimal-pad"
+            placeholder={`Min ${formatMoney(settings.minDailyBudget)}`}
+            placeholderTextColor={colors.textMuted}
+            style={[inputStyle, errors.dailyBudget ? { borderColor: colors.error } : null]}
+          />
+          {renderError('dailyBudget')}
 
-            <Squeeze onPress={() => navigation?.goBack()} scale={0.98}>
-              <View
-                style={[
-                  styles.cancelBtn,
-                  { backgroundColor: colors.surface, borderColor: colors.border },
-                ]}>
-                <Text style={[styles.cancelBtnText, { color: colors.text }]}>Cancel</Text>
-              </View>
-            </Squeeze>
-          </View>
-        </FadeUp>
+          <Text style={[styles.label, { color: colors.text }]}>{i18n.t('sellerMsg.campaign.totalLabel', { symbol: currencySymbol() })}</Text>
+          <TextInput
+            value={totalBudget}
+            onChangeText={text => {
+              setTotalBudget(text.replace(',', '.'));
+              clearError('totalBudget');
+            }}
+            editable={!locked}
+            keyboardType="decimal-pad"
+            placeholder={`Min ${formatMoney(settings.minTotalBudget)}`}
+            placeholderTextColor={colors.textMuted}
+            style={[inputStyle, errors.totalBudget ? { borderColor: colors.error } : null]}
+          />
+          {renderError('totalBudget')}
+
+          {endDate ? (
+            <Text style={[styles.hint, { color: colors.textMuted }]}>
+              {i18n.t('sellerMsg.campaign.endEstimate', { date: formatDate(endDate), cost: formatMoney(settings.costPerClick) })}
+            </Text>
+          ) : null}
+        </View>
+
+        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Text style={[styles.cardTitle, { color: colors.text }]}>{t('sellerAuto.paymentCard')}</Text>
+          {cards.length === 0 ? (
+            <>
+              <Text style={[styles.hint, { color: colors.textMuted }]}>
+                {t('sellerAuto.youHaveNoSavedCard')}
+              </Text>
+              <Button title={t('sellerAuto.addACardOnThe')} size="md" onPress={() => openWebsite(getWebSellerAdsPaymentUrl())} />
+              <Button
+                title={t('sellerAuto.iAddedACardCheck')}
+                size="md"
+                variant="soft"
+                loading={checkingCards}
+                onPress={refreshCards}
+              />
+            </>
+          ) : (
+            cards.map(card => {
+              const picked = card.id === cardId;
+              return (
+                <Squeeze
+                  key={card.id}
+                  onPress={
+                    locked
+                      ? undefined
+                      : () => {
+                          setCardId(card.id);
+                          clearError('payment');
+                        }
+                  }
+                  scale={0.98}>
+                  <View style={[styles.option, optionBox(picked)]}>
+                    <View style={styles.flex1}>
+                      <Text style={[styles.optionTitle, { color: colors.text }]}>
+                        {card.brand ? `${card.brand} ` : ''}****{card.last4}
+                        {card.isDefault ? i18n.t('sellerAuto.default') : ''}
+                      </Text>
+                      <Text style={[styles.hint, { color: colors.textMuted }]}>
+                        {card.holderName}
+                        {card.expMonth ? `  |  ${String(card.expMonth).padStart(2, '0')}/${card.expYear}` : ''}
+                      </Text>
+                    </View>
+                    {picked ? <Icon source={checkCircleBold} size={20} color={colors.primary} /> : null}
+                  </View>
+                </Squeeze>
+              );
+            })
+          )}
+          {renderError('payment')}
+        </View>
+
+        <Button
+          title={draftId.current ? t('sellerAuto.submitDraftForApproval') : t('sellerAuto.createAndSubmitForApproval')}
+          size="md"
+          loading={submitting}
+          onPress={handleSubmit}
+        />
+        <Text style={[styles.hint, styles.center, { color: colors.textMuted }]}>
+          {t('sellerAuto.theCampaignIsReviewedBy')}
+        </Text>
+      </>
+    );
+  }
+
+  return (
+    <KeyboardSafeView
+      style={[styles.screen, { backgroundColor: colors.background }]}>
+      <OfflineBanner />
+      <ScrollView
+        contentContainerStyle={[styles.container, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 40 }]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}>
+        <SellerScreenHeader title={t('sellerAuto.createCampaign')} subtitle={t('sellerAuto.promoteYourProductsOrStore')} onBack={() => navigation.goBack()} />
+        {checkingCards && cards.length > 0 ? <ActivityIndicator color={colors.primary} /> : null}
+        {content}
       </ScrollView>
 
-      <AddCardModal
-        visible={isAddCardVisible}
-        onClose={() => setIsAddCardVisible(false)}
-        onCardAdded={() => setIsAddCardVisible(false)}
+      <DateRangeModal
+        visible={dateOpen}
+        title={t('sellerAuto.startDate')}
+        from={startDate}
+        to={startDate}
+        onApply={from => {
+          setStartDate(from);
+          clearError('startDate');
+          setDateOpen(false);
+        }}
+        onClose={() => setDateOpen(false)}
       />
-
-      {/* Alert Modal */}
       <AlertModal
-        visible={alertConfig.visible}
-        type={alertConfig.type}
-        title={alertConfig.title}
-        message={alertConfig.message}
+        visible={alert.visible}
+        type={alert.type}
+        title={alert.title}
+        message={alert.message}
         onClose={() => {
-          setAlertConfig(prev => ({ ...prev, visible: false }));
-          if (alertConfig.onOk) {
-            alertConfig.onOk();
-          }
+          const goBack = alert.leave;
+          setAlert(HIDDEN_ALERT);
+          if (goBack) leave();
         }}
       />
-    </View>
+    </KeyboardSafeView>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    gap: 12,
-  },
-  backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#F59E0B',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitleWrap: { flex: 1 },
-  headerTitle: { fontFamily: fonts.bold, fontSize: 18 },
-  headerSubtitle: { fontFamily: fonts.regular, fontSize: 12, marginTop: 2 },
-
-  content: { padding: 16, gap: 16 },
-
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 10,
-  },
-  sectionHeaderIcon: { fontSize: 16 },
-  sectionHeaderTitle: { fontFamily: fonts.bold, fontSize: 15 },
-
-  radioCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderRadius: 14,
-    borderWidth: 1.5,
-    padding: 14,
-  },
-  radioCardLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
-  radioCardTitle: { fontFamily: fonts.bold, fontSize: 14 },
-  radioCardSub: { fontFamily: fonts.regular, fontSize: 12, marginTop: 2 },
-  radioCircleOuter: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  radioCircleInner: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#F59E0B',
-  },
-
-  cardBox: {
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 16,
-    gap: 14,
-  },
-  cardBoxHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  cardBoxHeaderIcon: { fontSize: 16, color: '#F97316' },
-  cardBoxTitle: { fontFamily: fonts.bold, fontSize: 16 },
-
-  fieldGroup: { gap: 6 },
-  fieldLabel: { fontFamily: fonts.medium, fontSize: 13 },
-  labelCountRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  counterText: { fontFamily: fonts.regular, fontSize: 12 },
-
-  dropdownInput: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderRadius: 10,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    height: 44,
-  },
-  dropdownValueText: { fontFamily: fonts.regular, fontSize: 13 },
-
-  dateInputBox: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderRadius: 10,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    height: 44,
-  },
-  inputTextStyle: { flex: 1, fontFamily: fonts.regular, fontSize: 13 },
-  helperFootnote: { fontFamily: fonts.regular, fontSize: 11, marginTop: 2 },
-
-  searchBarBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 10,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    height: 42,
-    gap: 8,
-  },
-  productList: { gap: 10 },
-  productRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 4,
-  },
-  checkboxSquare: {
-    width: 18,
-    height: 18,
-    borderRadius: 4,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checkboxCheck: { color: '#FFFFFF', fontSize: 11, fontFamily: fonts.bold },
-  productThumbnail: { width: 44, height: 44, borderRadius: 8, backgroundColor: '#F3F4F6' },
-  productInfo: { flex: 1, gap: 2 },
-  productName: { fontFamily: fonts.medium, fontSize: 13 },
-  productPrice: { fontFamily: fonts.regular, fontSize: 12 },
-  divider: { height: 1, width: '100%' },
-
-  metricsBox: {
+  flex1: { flex: 1 },
+  container: { paddingHorizontal: 16, gap: 14 },
+  stateWrap: { paddingVertical: 40 },
+  card: { borderRadius: 16, borderWidth: 1, padding: 14, gap: 10 },
+  cardTitle: { fontFamily: fonts.bold, fontSize: 15 },
+  label: { fontFamily: fonts.medium, fontSize: 13 },
+  hint: { fontFamily: fonts.regular, fontSize: 12, lineHeight: 17 },
+  center: { textAlign: 'center' },
+  error: { fontFamily: fonts.regular, fontSize: 12 },
+  input: {
+    minHeight: 46,
     borderRadius: 12,
-    padding: 12,
-    gap: 12,
-  },
-  metricItemRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  purplePlaneIconBox: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
-    backgroundColor: '#F3E8FF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  blueEyeIconBox: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
-    backgroundColor: '#DBEAFE',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  metricItemLabel: { fontFamily: fonts.regular, fontSize: 12 },
-  metricItemValue: { fontFamily: fonts.bold, fontSize: 14, marginTop: 1 },
-
-  budgetInputBox: {
-    borderRadius: 10,
     borderWidth: 1,
+    borderColor: 'transparent',
     paddingHorizontal: 14,
-    height: 44,
-    justifyContent: 'center',
+    fontFamily: fonts.regular,
+    fontSize: 14,
   },
-
-  blueInfoCard: {
+  dateField: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  dateText: { fontFamily: fonts.regular, fontSize: 14 },
+  option: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 12, padding: 12 },
+  optionTitle: { fontFamily: fonts.medium, fontSize: 13 },
+  bannerBox: {
+    height: 130,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    overflow: 'hidden',
+  },
+  bannerImage: { width: '100%', height: '100%' },
+  searchBar: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 10,
-    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 14,
+    height: 44,
     borderRadius: 10,
-    padding: 12,
-    alignItems: 'flex-start',
-  },
-  blueInfoIcon: { color: '#2563EB', fontSize: 16, fontFamily: fonts.bold },
-  blueInfoText: { color: '#1E40AF', fontFamily: fonts.regular, fontSize: 12, lineHeight: 16, flex: 1 },
-
-  paymentHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  addCardPillBtn: {
-    backgroundColor: '#FFF7ED',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-  },
-  addCardPillText: { color: '#F97316', fontFamily: fonts.bold, fontSize: 12 },
-
-  selectedCardBox: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderWidth: 1.5,
-    borderRadius: 12,
-    padding: 14,
-  },
-  selectedCardLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  selectedCardTitle: { fontFamily: fonts.bold, fontSize: 14 },
-  selectedCardSub: { fontFamily: fonts.regular, fontSize: 12, marginTop: 2 },
-  selectedCardRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  defaultBadge: {
-    backgroundColor: '#FEF3C7',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  defaultBadgeText: { color: '#D97706', fontFamily: fonts.medium, fontSize: 11 },
-  blackCheckCircle: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: '#000000',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  blackCheckMark: { color: '#FFFFFF', fontSize: 11, fontFamily: fonts.bold },
-
-  peachNoticeBox: {
-    flexDirection: 'row',
-    gap: 10,
-    backgroundColor: '#FFFBEB',
-    borderRadius: 10,
-    padding: 12,
-    alignItems: 'flex-start',
-  },
-  peachNoticeText: { color: '#92400E', fontFamily: fonts.regular, fontSize: 12, lineHeight: 16, flex: 1 },
-
-  actionBtnStack: { gap: 10 },
-  submitApprovalBtn: {
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  submitApprovalText: { color: '#FFFFFF', fontFamily: fonts.bold, fontSize: 15 },
-  cancelBtn: {
-    paddingVertical: 14,
-    borderRadius: 12,
     borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  cancelBtnText: { fontFamily: fonts.medium, fontSize: 15 },
+  searchInput: { flex: 1, fontFamily: fonts.regular, fontSize: 13, padding: 0 },
+  productList: { maxHeight: 300 },
+  productRow: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 12, padding: 8, marginBottom: 8 },
 });

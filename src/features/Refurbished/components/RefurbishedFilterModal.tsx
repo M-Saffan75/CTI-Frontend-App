@@ -1,7 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
 import Squeeze from '@/components/Squeeze';
+import KeyboardSafeView from '@/components/KeyboardSafeView';
 import {
   arrowLeftBold,
   checkCircleBold,
@@ -22,7 +22,10 @@ import {
 } from '@/assets/icons';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
-import { REFURBISHED_BRANDS, REFURBISHED_CATEGORIES } from '../data/refurbishedData';
+import { getRefurbishedFilters } from '../services/refurbishedApi';
+import { currencySymbol } from '@/utils/money';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 interface FilterModalProps {
   visible: boolean;
@@ -37,10 +40,31 @@ export default function RefurbishedFilterModal({
   onApply,
   initialFilters = {},
 }: FilterModalProps) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
   const safeInitial = initialFilters || {};
+
+  // The options come from the backend only (no built-in lists)
+  const [categoryOptions, setCategoryOptions] = useState<{ id: string; name: string; figmaName?: string }[]>([
+    { id: 'all', name: i18n.t('customerMsg.allTypes') },
+  ]);
+  const [brandOptions, setBrandOptions] = useState<string[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    getRefurbishedFilters().then(result => {
+      if (!active || !result) return;
+      if (result.categories.length > 0) {
+        setCategoryOptions([{ id: 'all', name: i18n.t('customerMsg.allTypes') }, ...result.categories]);
+      }
+      if (result.brands.length > 0) setBrandOptions(result.brands);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
   const [selectedTypes, setSelectedTypes] = useState<string[]>(
     safeInitial?.types || ['all'],
   );
@@ -51,7 +75,8 @@ export default function RefurbishedFilterModal({
     safeInitial?.sources || ['Platform Products'],
   );
   const [minPrice, setMinPrice] = useState(safeInitial?.minPrice?.toString() || '0');
-  const [maxPrice, setMaxPrice] = useState(safeInitial?.maxPrice?.toString() || '2000');
+  // empty = no price limit (a hidden limit would hide the dearer devices)
+  const [maxPrice, setMaxPrice] = useState(safeInitial?.maxPrice?.toString() || '');
   const [ramSectionOpen, setRamSectionOpen] = useState(true);
   const [selectedRam, setSelectedRam] = useState<string[]>(safeInitial?.ram || []);
   const [storageSectionOpen, setStorageSectionOpen] = useState(true);
@@ -64,9 +89,9 @@ export default function RefurbishedFilterModal({
       setSelectedTypes(['all']);
     } else {
       const current = Array.isArray(selectedTypes) ? selectedTypes : [];
-      let updated = current.filter(t => t !== 'all');
+      let updated = current.filter(item => item !== 'all');
       if (updated.includes(id)) {
-        updated = updated.filter(t => t !== id);
+        updated = updated.filter(item => item !== id);
       } else {
         updated.push(id);
       }
@@ -126,7 +151,7 @@ export default function RefurbishedFilterModal({
       brands: selectedBrands,
       sources: selectedSources,
       minPrice: Number(minPrice) || 0,
-      maxPrice: Number(maxPrice) || 2000,
+      maxPrice: Number(maxPrice) > 0 ? Number(maxPrice) : undefined,
       ram: selectedRam,
       storage: selectedStorage,
     });
@@ -146,14 +171,15 @@ export default function RefurbishedFilterModal({
             },
           ]}>
           <Squeeze onPress={onClose} style={[styles.backBtn, { backgroundColor: colors.primary }]}>
-            <Icon source={arrowLeftBold} size={18} color="#FFFFFF" />
+            <Icon source={arrowLeftBold} size={18} color={colors.onPrimary} />
           </Squeeze>
-          <Text style={[styles.headerTitle, { color: colors.text }]}>Filter</Text>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>{t('customer.filter')}</Text>
           <TouchableOpacity onPress={handleReset}>
-            <Text style={[styles.resetText, { color: colors.primary }]}>Reset</Text>
+            <Text style={[styles.resetText, { color: colors.primary }]}>{t('common.reset')}</Text>
           </TouchableOpacity>
         </View>
 
+        <KeyboardSafeView>
         <ScrollView
           style={styles.scroll}
           contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 80 }]}
@@ -168,8 +194,8 @@ export default function RefurbishedFilterModal({
               },
             ]}>
             {/* Section: Product Type */}
-            <Text style={[styles.sectionHeading, { color: colors.text }]}>Product Type</Text>
-            {REFURBISHED_CATEGORIES.map(cat => {
+            <Text style={[styles.sectionHeading, { color: colors.text }]}>{t('customer.productType')}</Text>
+            {categoryOptions.map(cat => {
               const checked = Boolean(selectedTypes?.includes(cat?.id));
               return (
                 <Pressable
@@ -184,7 +210,7 @@ export default function RefurbishedFilterModal({
                         backgroundColor: checked ? colors.primary : 'transparent',
                       },
                     ]}>
-                    {checked && <Icon source={checkCircleBold} size={14} color="#FFFFFF" />}
+                    {checked && <Icon source={checkCircleBold} size={14} color={colors.onPrimary} />}
                   </View>
                   <Text style={[styles.checkboxLabel, { color: colors.text }]}>
                     {cat.figmaName || cat.name}
@@ -195,9 +221,9 @@ export default function RefurbishedFilterModal({
 
             {/* Section: Brand */}
             <Text style={[styles.sectionHeading, { color: colors.text, marginTop: 24 }]}>
-              BRAND
+              {t('customer.brand')}
             </Text>
-            {REFURBISHED_BRANDS.map(brand => {
+            {brandOptions.map(brand => {
               const checked = Boolean(selectedBrands?.includes(brand));
               return (
                 <Pressable
@@ -212,7 +238,7 @@ export default function RefurbishedFilterModal({
                         backgroundColor: checked ? colors.primary : 'transparent',
                       },
                     ]}>
-                    {checked && <Icon source={checkCircleBold} size={14} color="#FFFFFF" />}
+                    {checked && <Icon source={checkCircleBold} size={14} color={colors.onPrimary} />}
                   </View>
                   <Text style={[styles.checkboxLabel, { color: colors.text }]}>{brand}</Text>
                 </Pressable>
@@ -221,7 +247,7 @@ export default function RefurbishedFilterModal({
 
             {/* Section: Product Source */}
             <Text style={[styles.sectionHeading, { color: colors.text, marginTop: 24 }]}>
-              PRODUCT SOURCE
+              {t('customer.productSource')}
             </Text>
             {['Platform Products', 'Seller Products'].map(src => {
               const checked = Boolean(selectedSources?.includes(src));
@@ -238,9 +264,11 @@ export default function RefurbishedFilterModal({
                         backgroundColor: checked ? colors.primary : 'transparent',
                       },
                     ]}>
-                    {checked && <Icon source={checkCircleBold} size={14} color="#FFFFFF" />}
+                    {checked && <Icon source={checkCircleBold} size={14} color={colors.onPrimary} />}
                   </View>
-                  <Text style={[styles.checkboxLabel, { color: colors.text }]}>{src}</Text>
+                  <Text style={[styles.checkboxLabel, { color: colors.text }]}>
+                    {t(src === 'Platform Products' ? 'customerMsg.productSources.platform' : 'customerMsg.productSources.seller')}
+                  </Text>
                 </Pressable>
               );
             })}
@@ -248,13 +276,13 @@ export default function RefurbishedFilterModal({
             {/* Section: Price Range */}
             <View style={styles.accordionHeader}>
               <Text style={[styles.sectionHeading, { color: colors.text, marginTop: 24 }]}>
-                Price Range
+                {t('customer.priceRange')}
               </Text>
               <Icon source={chevronDownBold} size={18} color={colors.textMuted} />
             </View>
 
             {/* Slider track bar graphic */}
-            <View style={styles.sliderTrack}>
+            <View style={[styles.sliderTrack, { backgroundColor: colors.border }]}>
               <View style={[styles.sliderActive, { backgroundColor: colors.primary }]} />
               <View style={[styles.sliderThumb, { borderColor: colors.primary, left: 0 }]} />
               <View style={[styles.sliderThumb, { borderColor: colors.primary, right: 0 }]} />
@@ -262,13 +290,13 @@ export default function RefurbishedFilterModal({
 
             <View style={styles.priceInputsRow}>
               <View style={styles.priceInputBlock}>
-                <Text style={[styles.priceInputLabel, { color: colors.textMuted }]}>Min</Text>
+                <Text style={[styles.priceInputLabel, { color: colors.textMuted }]}>{t('customer.min')}</Text>
                 <View
                   style={[
                     styles.priceInputBox,
                     { backgroundColor: colors.surfaceAlt, borderColor: colors.border },
                   ]}>
-                  <Text style={[styles.currencyPrefix, { color: colors.text }]}>$</Text>
+                  <Text style={[styles.currencyPrefix, { color: colors.text }]}>{currencySymbol()}</Text>
                   <TextInput
                     value={minPrice}
                     onChangeText={setMinPrice}
@@ -279,13 +307,13 @@ export default function RefurbishedFilterModal({
               </View>
 
               <View style={styles.priceInputBlock}>
-                <Text style={[styles.priceInputLabel, { color: colors.textMuted }]}>Max</Text>
+                <Text style={[styles.priceInputLabel, { color: colors.textMuted }]}>{t('customer.max')}</Text>
                 <View
                   style={[
                     styles.priceInputBox,
                     { backgroundColor: colors.surfaceAlt, borderColor: colors.border },
                   ]}>
-                  <Text style={[styles.currencyPrefix, { color: colors.text }]}>$</Text>
+                  <Text style={[styles.currencyPrefix, { color: colors.text }]}>{currencySymbol()}</Text>
                   <TextInput
                     value={maxPrice}
                     onChangeText={setMaxPrice}
@@ -300,7 +328,7 @@ export default function RefurbishedFilterModal({
             <TouchableOpacity
               onPress={() => setRamSectionOpen(!ramSectionOpen)}
               style={[styles.accordionHeader, { marginTop: 20 }]}>
-              <Text style={[styles.sectionHeading, { color: colors.text }]}>Ram</Text>
+              <Text style={[styles.sectionHeading, { color: colors.text }]}>{t('customer.ram')}</Text>
               <Icon
                 source={ramSectionOpen ? chevronUpBold : chevronDownBold}
                 size={18}
@@ -323,7 +351,7 @@ export default function RefurbishedFilterModal({
                           backgroundColor: checked ? colors.primary : 'transparent',
                         },
                       ]}>
-                      {checked && <Icon source={checkCircleBold} size={14} color="#FFFFFF" />}
+                      {checked && <Icon source={checkCircleBold} size={14} color={colors.onPrimary} />}
                     </View>
                     <Text style={[styles.checkboxLabel, { color: colors.text }]}>{ram}</Text>
                   </Pressable>
@@ -334,7 +362,7 @@ export default function RefurbishedFilterModal({
             <TouchableOpacity
               onPress={() => setStorageSectionOpen(!storageSectionOpen)}
               style={[styles.accordionHeader, { marginTop: 20 }]}>
-              <Text style={[styles.sectionHeading, { color: colors.text }]}>Storage</Text>
+              <Text style={[styles.sectionHeading, { color: colors.text }]}>{t('customer.storage')}</Text>
               <Icon
                 source={storageSectionOpen ? chevronUpBold : chevronDownBold}
                 size={18}
@@ -357,7 +385,7 @@ export default function RefurbishedFilterModal({
                           backgroundColor: checked ? colors.primary : 'transparent',
                         },
                       ]}>
-                      {checked && <Icon source={checkCircleBold} size={14} color="#FFFFFF" />}
+                      {checked && <Icon source={checkCircleBold} size={14} color={colors.onPrimary} />}
                     </View>
                     <Text style={[styles.checkboxLabel, { color: colors.text }]}>{stg}</Text>
                   </Pressable>
@@ -379,9 +407,10 @@ export default function RefurbishedFilterModal({
           <Squeeze
             onPress={handleApply}
             style={[styles.applyBtn, { backgroundColor: colors.primary }]}>
-            <Text style={styles.applyBtnText}>Apply Filters</Text>
+            <Text style={styles.applyBtnText}>{t('customer.applyFilters')}</Text>
           </Squeeze>
         </View>
+        </KeyboardSafeView>
       </View>
     </Modal>
   );
@@ -407,6 +436,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   headerTitle: {
+    flexShrink: 1,
     fontSize: 20,
     fontFamily: fonts.bold,
   },
@@ -426,6 +456,7 @@ const styles = StyleSheet.create({
     padding: 18,
   },
   sectionHeading: {
+    flexShrink: 1,
     fontSize: 16,
     fontFamily: fonts.bold,
     marginBottom: 12,
@@ -445,6 +476,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   checkboxLabel: {
+    flexShrink: 1,
     fontSize: 14,
     fontFamily: fonts.regular,
   },

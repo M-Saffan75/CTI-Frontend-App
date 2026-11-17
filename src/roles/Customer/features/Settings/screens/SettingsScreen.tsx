@@ -16,6 +16,8 @@ import Icon from '@/components/Icon';
 import ConfirmModal from '@/components/ConfirmModal';
 import Squeeze from '@/components/Squeeze';
 import ThemePicker from '@/components/ThemePicker';
+import { useLanguage } from '@/i18n/LanguageContext';
+import { lower } from '@/i18n/locale';
 import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
@@ -27,7 +29,6 @@ import {
   desktopBold,
   dummyProfileExtra,
   fileBold,
-  headphonesBold,
   homeBold,
   infoCircleBold,
   lockBold,
@@ -35,6 +36,7 @@ import {
   mobileBold,
   packageBold,
   phoneBold,
+  globeBold,
   searchBold,
   shieldBold,
   shoppingBasketBold,
@@ -46,68 +48,72 @@ import {
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import AuthService, { AuthUser } from '@/services/authService';
+import { useTranslation } from 'react-i18next';
 
 // The designer used the same gear icon on every row, so these are picked to match
 // what each row actually does.
 const MENU = [
-  { label: 'Home', icon: homeBold, screen: 'Home' },
-  { label: 'Top Expert Repairmen', icon: usersThreeBold, screen: 'ExpertRepairmen' },
-  { label: 'About', icon: infoCircleBold, screen: 'About' },
-  { label: 'Academy', icon: bookmarkBold, screen: 'Academy' },
-  { label: 'Blogs', icon: blogExtra, screen: 'Blogs' },
-  { label: 'Support', icon: headphonesBold },
-  { label: 'My Orders', icon: packageBold, screen: 'Orders' },
-  { label: 'My Messages', icon: commentDotsBold, screen: 'ChatList' },
-  { label: 'My Sell Request', icon: tagBold, screen: 'MySellRequests' },
+  { label: 'settings.menu.home', icon: homeBold, screen: 'Home' },
+  { label: 'settings.menu.topExpertRepairmen', icon: usersThreeBold, screen: 'ExpertRepairmen' },
+  { label: 'settings.menu.about', icon: infoCircleBold, screen: 'About' },
+  { label: 'settings.menu.academy', icon: bookmarkBold, screen: 'Academy' },
+  { label: 'settings.menu.blogs', icon: blogExtra, screen: 'Blogs' },
+  { label: 'settings.menu.myOrders', icon: packageBold, screen: 'Orders' },
+  { label: 'settings.menu.myMessages', icon: commentDotsBold, screen: 'ChatList' },
+  { label: 'settings.menu.mySellRequest', icon: tagBold, screen: 'MySellRequests' },
   {
-    label: 'Refurbished Devices',
+    label: 'settings.menu.refurbishedDevices',
     icon: mobileBold,
     children: [
-      { label: 'Sell Phone', icon: phoneBold, screen: 'SellRefurbished', params: { mode: 'phone' } },
-      { label: 'Sell Gadgets', icon: storeBold, screen: 'SellRefurbished', params: { mode: 'gadget' } },
+      { label: 'settings.menu.sellPhone', icon: phoneBold, screen: 'SellRefurbished', params: { mode: 'phone' } },
+      { label: 'settings.menu.sellGadgets', icon: storeBold, screen: 'SellRefurbished', params: { mode: 'gadget' } },
     ],
   },
   {
-    label: 'Buy Refurbished Devices',
+    label: 'settings.menu.buyRefurbishedDevices',
     icon: shoppingBasketBold,
     children: [
-      { label: 'Browse Refurbished Store', icon: shoppingBasketBold, screen: 'BuyRefurbished' },
+      { label: 'settings.menu.browseStore', icon: shoppingBasketBold, screen: 'BuyRefurbished' },
       {
-        label: 'Refurbished Smart Watch',
+        label: 'settings.menu.smartWatch',
         icon: clockBold,
         screen: 'AllGadgets',
         params: { initialCategory: 'Smart watches', categorySlug: 'smart-watches' },
       },
       {
-        label: 'Refurbished Tablet',
+        label: 'settings.menu.tablet',
         icon: tabletBold,
         screen: 'AllGadgets',
         params: { initialCategory: 'Tablets', categorySlug: 'tablets' },
       },
       {
-        label: 'Refurbished Gaming Console',
+        label: 'settings.menu.gamingConsole',
         icon: desktopBold,
         screen: 'AllGadgets',
         params: { initialCategory: 'Gaming Console', categorySlug: 'gaming-consoles' },
       },
     ],
   },
-  { label: 'Change Password', icon: lockBold, screen: 'ChangePassword' },
-  { label: 'Privacy Policy', icon: shieldBold, screen: 'PrivacyPolicy' },
-  { label: 'Terms & Conditions', icon: fileBold, screen: 'Terms' },
+  { label: 'settings.menu.changePassword', icon: lockBold, screen: 'ChangePassword' },
+  { label: 'settings.menu.privacyPolicy', icon: shieldBold, screen: 'PrivacyPolicy' },
+  { label: 'settings.menu.language', icon: globeBold, action: 'language' },
+  { label: 'settings.menu.terms', icon: fileBold, screen: 'Terms' },
 ];
 
 function MenuRow({ item, depth = 0, navigation }) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const hasChildren = Boolean(item.children);
+  const { openLanguageModal } = useLanguage();
 
   const onPress = () => {
     try {
-      if (hasChildren) setOpen(!open);
+      if (item.action === 'language') openLanguageModal();
+      else if (hasChildren) setOpen(!open);
       else if (item?.screen) navigation?.navigate(item.screen, item.params);
     } catch (e) {
-      console.warn('Navigation error:', e);
+      if (__DEV__) console.warn('Navigation error:', e);
     }
   };
 
@@ -133,7 +139,7 @@ function MenuRow({ item, depth = 0, navigation }) {
               fontSize: depth ? 14 : 16,
             },
           ]}>
-          {item.label}
+          {t(item.label)}
         </Text>
 
         {hasChildren && (
@@ -143,8 +149,8 @@ function MenuRow({ item, depth = 0, navigation }) {
 
       {hasChildren &&
         open &&
-        (item?.children || []).map(child => (
-          <MenuRow key={child?.label || Math.random().toString()} item={child} depth={depth + 1} navigation={navigation} />
+        (item?.children || []).map((child, childIdx) => (
+          <MenuRow key={child?.label || `child-${childIdx}`} item={child} depth={depth + 1} navigation={navigation} />
         ))}
     </>
   );
@@ -152,6 +158,7 @@ function MenuRow({ item, depth = 0, navigation }) {
 
 export default function SettingsScreen({ navigation, onLogout }: any) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
   const [confirmLogout, setConfirmLogout] = useState(false);
@@ -167,12 +174,12 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
     };
   }, []);
 
-  const query = (search || '').trim().toLowerCase();
+  const query = lower((search || '').trim());
   const menu = query
     ? (MENU || []).filter(
         item =>
-          item?.label?.toLowerCase()?.includes(query) ||
-          item?.children?.some((c: any) => c?.label?.toLowerCase()?.includes(query)),
+          lower(t(item?.label)).includes(query) ||
+          item?.children?.some((c: any) => lower(t(c?.label)).includes(query)),
       )
     : (MENU || []);
 
@@ -202,7 +209,7 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
         <TextInput
           value={search}
           onChangeText={setSearch}
-          placeholder="Search..."
+          placeholder={t('settings.search')}
           placeholderTextColor={colors.textMuted}
           style={[styles.searchInput, { color: colors.text }]}
         />
@@ -232,9 +239,9 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
 
           <View style={styles.profileText}>
             <Text style={[styles.name, { color: colors.text }]}>
-              {currentUser?.name || 'Customer'}
+              {currentUser?.name || t('glossary.customer')}
             </Text>
-            <Text style={[styles.role, { color: colors.primary }]}>Customer</Text>
+            <Text style={[styles.role, { color: colors.primary }]}>{t('glossary.customer')}</Text>
           </View>
         </TouchableOpacity>
 
@@ -245,10 +252,10 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
 
       <ConfirmModal
         visible={confirmLogout}
-        title="Logout"
-        message="Are you sure you want to logout?"
-        cancelText="Not now"
-        confirmText="Logout"
+        title={t('settings.logout')}
+        message={t('settings.logoutConfirm')}
+        cancelText={t('settings.notNow')}
+        confirmText={t('settings.logout')}
         danger
         onCancel={() => setConfirmLogout(false)}
         onConfirm={() => {

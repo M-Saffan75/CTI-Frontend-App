@@ -9,10 +9,13 @@ import AlertModal from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
-import { PASSWORD_MAX, validateEmail, validatePassword } from '@/utils/validators';
+import { PASSWORD_MAX, validateEmail, validateLoginPassword } from '@/utils/validators';
 import { login } from '../api/authApi';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 export default function LoginScreen({ navigation, onLoggedIn }: any) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
 
   const [email, setEmail] = useState('');
@@ -25,7 +28,7 @@ export default function LoginScreen({ navigation, onLoggedIn }: any) {
     type: 'error' as 'error' | 'warning' | 'success',
     title: '',
     message: '',
-    buttonText: 'Okay',
+    buttonText: t('common.okay'),
     secondaryButtonText: '',
     onPrimary: () => {},
   });
@@ -33,7 +36,7 @@ export default function LoginScreen({ navigation, onLoggedIn }: any) {
   const onSubmit = async () => {
     const next = {
       email: validateEmail(email),
-      password: validatePassword(password),
+      password: validateLoginPassword(password),
     };
     setErrors(next);
     if (next.email || next.password) return;
@@ -45,10 +48,10 @@ export default function LoginScreen({ navigation, onLoggedIn }: any) {
         setModal({
           visible: true,
           type: 'warning',
-          title: 'Verification Required',
-          message: res.message || 'Please verify your email address to continue.',
-          buttonText: 'Verify Now',
-          secondaryButtonText: 'Cancel',
+          title: i18n.t('sellerAuto.verificationRequired'),
+          message: res.message || i18n.t('customer.pleaseVerifyYourEmailAddress'),
+          buttonText: i18n.t('sellerAuto.verifyNow'),
+          secondaryButtonText: i18n.t('common.cancel'),
           onPrimary: () => {
             setModal(m => ({ ...m, visible: false }));
             navigation.navigate('VerifyOtp', {
@@ -66,7 +69,7 @@ export default function LoginScreen({ navigation, onLoggedIn }: any) {
         navigation.navigate('KycStatus', {
           status: 'incomplete',
           role: 'seller',
-          message: err.message || 'Please complete your KYC on the website.',
+          message: err.message || i18n.t('sellerAuto.pleaseCompleteYourKycOn'),
           userId: err.data?.userId,
           noToken: true,
         });
@@ -76,9 +79,9 @@ export default function LoginScreen({ navigation, onLoggedIn }: any) {
       setModal({
         visible: true,
         type: 'error',
-        title: 'Login Failed',
-        message: err.message || 'Invalid email or password',
-        buttonText: 'Okay',
+        title: i18n.t('sellerAuto.loginFailed'),
+        message: err.message || i18n.t('customer.invalidEmailOrPassword'),
+        buttonText: i18n.t('common.okay'),
         secondaryButtonText: '',
         onPrimary: () => setModal(m => ({ ...m, visible: false })),
       });
@@ -88,16 +91,16 @@ export default function LoginScreen({ navigation, onLoggedIn }: any) {
   };
 
   return (
-    <AuthLayout title="Welcome Back">
+    <AuthLayout title={t('sellerAuto.welcomeBack')}>
       <FadeUp delay={150} duration={700}>
         <Input
-          label="Email"
+          label={t('sellerAuto.email')}
           value={email}
           onChangeText={text => {
             setEmail(text);
             if (errors.email) setErrors({ ...errors, email: '' });
           }}
-          placeholder="example@gmail.com"
+          placeholder={t('sellerAuto.exampleGmailCom')}
           error={errors.email}
           keyboardType="email-address"
           autoCapitalize="none"
@@ -106,7 +109,7 @@ export default function LoginScreen({ navigation, onLoggedIn }: any) {
 
       <FadeUp delay={250} duration={700}>
         <Input
-          label="Password"
+          label={t('sellerAuto.password')}
           value={password}
           onChangeText={text => {
             setPassword(text);
@@ -122,23 +125,23 @@ export default function LoginScreen({ navigation, onLoggedIn }: any) {
 
       <FadeUp delay={350} duration={700}>
         <View style={styles.row}>
-          <Checkbox checked={remember} onChange={setRemember} label="Remember me" />
+          <Checkbox checked={remember} onChange={setRemember} label={t('sellerAuto.rememberMe')} />
           <Pressable onPress={() => navigation.navigate('ForgotPassword')} hitSlop={8}>
-            <Text style={[styles.link, { color: colors.textMuted }]}>Forgot Password?</Text>
+            <Text style={[styles.link, { color: colors.textMuted }]}>{t('sellerAuto.forgotPassword')}</Text>
           </Pressable>
         </View>
       </FadeUp>
 
       <FadeUp delay={450} duration={700}>
-        <Button title="Login" size="lg" loading={loading} onPress={onSubmit} style={styles.button} />
+        <Button title={t('sellerAuto.login')} size="lg" loading={loading} onPress={onSubmit} style={styles.button} />
       </FadeUp>
 
       <View style={styles.footer}>
         <Text style={[styles.footerText, { color: colors.textMuted }]}>
-          Don't have an account?{' '}
+          {t('customerMsg.noAccount')}{' '}
         </Text>
         <Pressable onPress={() => navigation.navigate('SignUp')} hitSlop={8}>
-          <Text style={[styles.footerLink, { color: colors.primary }]}>Sign up</Text>
+          <Text style={[styles.footerLink, { color: colors.primary }]}>{t('sellerAuto.signUp')}</Text>
         </Pressable>
       </View>
 
@@ -173,6 +176,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 20,
   },
-  footerText: { fontFamily: fonts.regular, fontSize: 14 },
+  footerText: { flexShrink: 1, fontFamily: fonts.regular, fontSize: 14 },
   footerLink: { fontFamily: fonts.bold, fontSize: 14 },
 });

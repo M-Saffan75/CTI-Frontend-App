@@ -112,7 +112,7 @@ cache holds stale resolutions.
 | Concern | Decision |
 |---|---|
 | Styling | Plain StyleSheet + central `theme/colors.ts`. Screens never hardcode a hex value. |
-| Theme | **5 named themes**, not light/dark/system: `white` (default), `black`, `sand`, `ocean`, `forest`. Every theme exposes the same 12 semantic names, so a screen written once works in all 5. Saved to AsyncStorage under `app.theme`, so it survives restarts. |
+| Theme | **3 named themes**, not light/dark/system: `white` (default), `black`, `sand` (Forest and Ocean were removed; a saved Forest/Ocean falls back to `white`). Every theme exposes the same 12 semantic names, so a screen written once works in all 3. Saved to AsyncStorage under `app.theme`, so it survives restarts. |
 | Theme switch animation | Telegram-style reveal spreading from the theme icon downward. **Deferred** — decided later. When built it must live in `ThemeProvider` at app level, not inside a screen, or it cannot cover headers and tab bars. Screens need no changes for it. |
 | Font | **Switzer** — Regular / Medium / Bold, via `theme/fonts.ts`. Change `FAMILY` there to swap the font app-wide. Use `fontFamily: fonts.bold`, **never** `fontWeight` — Android ignores `fontWeight` on custom fonts and silently keeps the regular file. |
 | No typography/spacing files | Deliberately skipped. Font sizes and padding go directly in components. The user wants fewer moving parts they have to understand. |

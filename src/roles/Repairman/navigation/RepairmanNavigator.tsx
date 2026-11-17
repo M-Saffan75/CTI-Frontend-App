@@ -4,6 +4,9 @@ import RepairmanBottomTabs from './RepairmanBottomTabs';
 import JobBoardDetailScreen from '../features/Jobs/screens/JobBoardDetailScreen';
 import SendProposalScreen from '../features/Jobs/screens/SendProposalScreen';
 import MyJobDetailScreen from '../features/Jobs/screens/MyJobDetailScreen';
+import MyOfferDetailScreen from '../features/Jobs/screens/MyOfferDetailScreen';
+import PartsOrderDetailScreen from '../features/PartsOrder/screens/PartsOrderDetailScreen';
+import { useRepairmanOfferLiveListener } from '../utils/offerEvents';
 import BankingInformationScreen from '../features/Earnings/screens/BankingInformationScreen';
 import ChatListScreen from '@/features/Chat/screens/ChatListScreen';
 import ChatDetailScreen from '@/features/Chat/screens/ChatDetailScreen';
@@ -22,17 +25,20 @@ import AboutScreen from '@/roles/Customer/features/About/screens/AboutScreen';
 import AcademyScreen from '@/roles/Customer/features/Academy/screens/AcademyScreen';
 import CoursesListScreen from '@/roles/Customer/features/Academy/screens/CoursesListScreen';
 import CourseDetailScreen from '@/roles/Customer/features/Academy/screens/CourseDetailScreen';
+import ProductScreen from '@/roles/Customer/features/Product/screens/ProductScreen';
 import FilterScreen from '@/roles/Customer/features/Product/screens/FilterScreen';
 import ProductDetailScreen from '@/roles/Customer/features/Product/screens/ProductDetailScreen';
 import CartScreen from '@/roles/Customer/features/Product/screens/CartScreen';
 import CheckoutScreen from '@/roles/Customer/features/Product/screens/CheckoutScreen';
 import WishlistScreen from '@/roles/Customer/features/Product/screens/WishlistScreen';
 import { WishlistProvider } from '@/roles/Customer/context/WishlistContext';
+import { CartProvider } from '@/roles/Customer/context/CartContext';
 import PrivacyPolicyScreen from '@/features/Legal/screens/PrivacyPolicyScreen';
 import TermsScreen from '@/features/Legal/screens/TermsScreen';
-import ProfileScreen from '@/features/Profile/screens/ProfileScreen';
-import EditProfileScreen from '@/features/Profile/screens/EditProfileScreen';
-import ServiceCatalogScreen from '@/features/Profile/screens/ServiceCatalogScreen';
+import ProfileScreen from '../features/Profile/screens/ProfileScreen';
+import ServiceCatalogScreen from '../features/ServiceCatalog/screens/ServiceCatalogScreen';
+import DisputesScreen from '../features/Disputes/screens/DisputesScreen';
+import DisputeDetailScreen from '../features/Disputes/screens/DisputeDetailScreen';
 import ChangePasswordScreen from '@/features/Profile/screens/ChangePasswordScreen';
 
 // Refurbished screens
@@ -47,85 +53,138 @@ import UploadDeviceMediaScreen from '@/features/Refurbished/screens/UploadDevice
 import QuoteApplicationScreen from '@/features/Refurbished/screens/QuoteApplicationScreen';
 import ApplicationSubmittedScreen from '@/features/Refurbished/screens/ApplicationSubmittedScreen';
 import MySellRequestsScreen from '@/features/Refurbished/screens/MySellRequestsScreen';
+import { useTranslation } from 'react-i18next';
 
 const Stack = createNativeStackNavigator();
 
 export default function RepairmanNavigator({ onLogout }) {
+  useTranslation();
+  useRepairmanOfferLiveListener();
+
   return (
     <WishlistProvider>
-      <Stack.Navigator
-        id="Repairman"
-        screenOptions={{
-          headerShown: false,
-          animation: 'simple_push',
-          animationDuration: 380,
-        }}>
-        {/* The bottom tab bar (Dashboard / Jobs / Product / Profile) lives here.
+      <CartProvider>
+        <Stack.Navigator
+          id="Repairman"
+          screenOptions={{
+            headerShown: false,
+            animation: 'simple_push',
+            animationDuration: 380,
+          }}
+        >
+          {/* The bottom tab bar (Dashboard / Jobs / Earnings / Profile) lives here.
             Everything below is pushed on top of it, which hides the tab bar.
-            The jobs board, offers, reviews, earnings and parts orders are local
+            The jobs board, offers, my jobs, reviews and parts orders are local
             tabs inside the Jobs tab, not routes. */}
-        <Stack.Screen name="Home" component={RepairmanBottomTabs} />
-        <Stack.Screen name="Settings">
-          {props => <SettingsScreen {...props} onLogout={onLogout} />}
-        </Stack.Screen>
+          <Stack.Screen name="Home" component={RepairmanBottomTabs} />
+          <Stack.Screen name="Settings">
+            {props => <SettingsScreen {...props} onLogout={onLogout} />}
+          </Stack.Screen>
 
-        <Stack.Screen name="JobBoardDetail" component={JobBoardDetailScreen} />
-        <Stack.Screen name="SendProposal" component={SendProposalScreen} />
-        <Stack.Screen name="MyJobDetail" component={MyJobDetailScreen} />
-        <Stack.Screen name="BankingInformation" component={BankingInformationScreen} />
-        <Stack.Screen name="ChatList">
-          {props => <ChatListScreen {...props} role="repairman" />}
-        </Stack.Screen>
-        <Stack.Screen name="ChatDetail">
-          {props => <ChatDetailScreen {...props} role="repairman" />}
-        </Stack.Screen>
-        <Stack.Screen name="Notifications" component={NotificationsScreen} />
+          <Stack.Screen
+            name="JobBoardDetail"
+            component={JobBoardDetailScreen}
+          />
+          <Stack.Screen name="SendProposal" component={SendProposalScreen} />
+          <Stack.Screen name="MyJobDetail" component={MyJobDetailScreen} />
+          <Stack.Screen name="MyOfferDetail" component={MyOfferDetailScreen} />
+          <Stack.Screen
+            name="PartsOrderDetail"
+            component={PartsOrderDetailScreen}
+          />
+          <Stack.Screen
+            name="BankingInformation"
+            component={BankingInformationScreen}
+          />
+          <Stack.Screen name="ChatList">
+            {props => <ChatListScreen {...props} role="repairman" />}
+          </Stack.Screen>
+          <Stack.Screen name="ChatDetail">
+            {props => <ChatDetailScreen {...props} role="repairman" />}
+          </Stack.Screen>
+          <Stack.Screen name="Notifications" component={NotificationsScreen} />
 
-        <Stack.Screen name="Orders" component={OrdersScreen} />
-        <Stack.Screen name="OrderDetail" component={OrderDetailScreen} />
-        <Stack.Screen name="ExpertRepairmen" component={ExpertRepairmenScreen} />
-        <Stack.Screen name="Blogs" component={BlogsScreen} />
-        <Stack.Screen name="BlogDetail" component={BlogDetailScreen} />
-        <Stack.Screen name="About" component={AboutScreen} />
-        <Stack.Screen name="Academy" component={AcademyScreen} />
-        <Stack.Screen name="Courses" component={CoursesListScreen} />
-        <Stack.Screen name="CourseDetail" component={CourseDetailScreen} />
+          <Stack.Screen name="Orders" component={OrdersScreen} />
+          <Stack.Screen name="OrderDetail" component={OrderDetailScreen} />
+          <Stack.Screen
+            name="ExpertRepairmen"
+            component={ExpertRepairmenScreen}
+          />
+          <Stack.Screen name="Blogs" component={BlogsScreen} />
+          <Stack.Screen name="BlogDetail" component={BlogDetailScreen} />
+          <Stack.Screen name="About" component={AboutScreen} />
+          <Stack.Screen name="Academy" component={AcademyScreen} />
+          <Stack.Screen name="Courses" component={CoursesListScreen} />
+          <Stack.Screen name="CourseDetail" component={CourseDetailScreen} />
 
-        <Stack.Screen name="ProductFilter" component={FilterScreen} />
-        <Stack.Screen name="ProductDetail" component={ProductDetailScreen} />
-        <Stack.Screen name="Cart" component={CartScreen} />
-        <Stack.Screen name="Checkout" component={CheckoutScreen} />
-        <Stack.Screen name="Wishlist" component={WishlistScreen} />
-        <Stack.Screen name="Profile" component={ProfileScreen} />
-        <Stack.Screen name="EditProfile" component={EditProfileScreen} />
-        <Stack.Screen name="ServiceCatalog" component={ServiceCatalogScreen} />
-        <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
+          <Stack.Screen name="Products" component={ProductScreen} />
+          <Stack.Screen name="ProductFilter" component={FilterScreen} />
+          <Stack.Screen name="ProductDetail" component={ProductDetailScreen} />
+          <Stack.Screen name="Cart" component={CartScreen} />
+          <Stack.Screen name="Checkout" component={CheckoutScreen} />
+          <Stack.Screen name="Wishlist" component={WishlistScreen} />
+          <Stack.Screen name="Profile" component={ProfileScreen} />
+          <Stack.Screen
+            name="ServiceCatalog"
+            component={ServiceCatalogScreen}
+          />
+          <Stack.Screen name="Disputes" component={DisputesScreen} />
+          <Stack.Screen name="DisputeDetail" component={DisputeDetailScreen} />
+          <Stack.Screen
+            name="ChangePassword"
+            component={ChangePasswordScreen}
+          />
 
-        {/* Refurbished screens */}
-        <Stack.Screen name="BuyRefurbished" component={BuyRefurbishedScreen} />
-        <Stack.Screen name="AllGadgets" component={AllGadgetsScreen} />
-        <Stack.Screen name="RefurbishedProductDetail" component={RefurbishedProductDetailScreen} />
-        <Stack.Screen name="SellRefurbished" component={SellRefurbishedScreen} />
-        <Stack.Screen name="SelectModel" component={SelectModelScreen} />
-        <Stack.Screen name="SelectVariant" component={SelectVariantScreen} />
-        <Stack.Screen name="DeviceCondition" component={DeviceConditionScreen} />
-        <Stack.Screen name="UploadDeviceMedia" component={UploadDeviceMediaScreen} />
-        <Stack.Screen name="QuoteApplication" component={QuoteApplicationScreen} />
-        <Stack.Screen name="ApplicationSubmitted" component={ApplicationSubmittedScreen} />
-        <Stack.Screen name="MySellRequests" component={MySellRequestsScreen} />
+          {/* Refurbished screens */}
+          <Stack.Screen
+            name="BuyRefurbished"
+            component={BuyRefurbishedScreen}
+          />
+          <Stack.Screen name="AllGadgets" component={AllGadgetsScreen} />
+          <Stack.Screen
+            name="RefurbishedProductDetail"
+            component={RefurbishedProductDetailScreen}
+          />
+          <Stack.Screen
+            name="SellRefurbished"
+            component={SellRefurbishedScreen}
+          />
+          <Stack.Screen name="SelectModel" component={SelectModelScreen} />
+          <Stack.Screen name="SelectVariant" component={SelectVariantScreen} />
+          <Stack.Screen
+            name="DeviceCondition"
+            component={DeviceConditionScreen}
+          />
+          <Stack.Screen
+            name="UploadDeviceMedia"
+            component={UploadDeviceMediaScreen}
+          />
+          <Stack.Screen
+            name="QuoteApplication"
+            component={QuoteApplicationScreen}
+          />
+          <Stack.Screen
+            name="ApplicationSubmitted"
+            component={ApplicationSubmittedScreen}
+          />
+          <Stack.Screen
+            name="MySellRequests"
+            component={MySellRequestsScreen}
+          />
 
-        {/* Legal documents slide up from the bottom instead of in from the side. */}
-        <Stack.Screen
-          name="PrivacyPolicy"
-          component={PrivacyPolicyScreen}
-          options={{ animation: 'fade_from_bottom', animationDuration: 600 }}
-        />
-        <Stack.Screen
-          name="Terms"
-          component={TermsScreen}
-          options={{ animation: 'fade_from_bottom', animationDuration: 600 }}
-        />
-      </Stack.Navigator>
+          {/* Legal documents slide up from the bottom instead of in from the side. */}
+          <Stack.Screen
+            name="PrivacyPolicy"
+            component={PrivacyPolicyScreen}
+            options={{ animation: 'fade_from_bottom', animationDuration: 600 }}
+          />
+          <Stack.Screen
+            name="Terms"
+            component={TermsScreen}
+            options={{ animation: 'fade_from_bottom', animationDuration: 600 }}
+          />
+        </Stack.Navigator>
+      </CartProvider>
     </WishlistProvider>
   );
 }

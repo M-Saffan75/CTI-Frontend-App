@@ -8,8 +8,11 @@ import AlertModal from '@/components/AlertModal';
 import { FadeUp } from '@/animations';
 import { validateEmailOrPhone } from '@/utils/validators';
 import { forgotPassword } from '../api/authApi';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 export default function ForgotPasswordScreen({ navigation }: any) {
+  const { t } = useTranslation();
   const [emailOrPhone, setEmailOrPhone] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -31,8 +34,8 @@ export default function ForgotPasswordScreen({ navigation }: any) {
     } catch (err: any) {
       setModal({
         visible: true,
-        title: 'Reset Request Failed',
-        message: err.message || 'Could not send reset code. Please check your email.',
+        title: i18n.t('customer.resetRequestFailed'),
+        message: err.message || i18n.t('customer.couldNotSendResetCode'),
       });
     } finally {
       setLoading(false);
@@ -41,17 +44,17 @@ export default function ForgotPasswordScreen({ navigation }: any) {
 
   return (
     <AuthLayout
-      title="Forgot Password?"
-      subtitle="Enter your email or phone to reset your password">
+      title={t('sellerAuto.forgotPassword')}
+      subtitle={t('customer.enterYourEmailOrPhone')}>
       <FadeUp delay={150} duration={700}>
         <Input
-          label="Enter your Email or Phone"
+          label={t('customer.enterYourEmailOrPhone2')}
           value={emailOrPhone}
           onChangeText={text => {
             setEmailOrPhone(text);
             if (error) setError('');
           }}
-          placeholder="example@gmail.com"
+          placeholder={t('sellerAuto.exampleGmailCom')}
           error={error}
           keyboardType="email-address"
           autoCapitalize="none"
@@ -60,7 +63,7 @@ export default function ForgotPasswordScreen({ navigation }: any) {
 
       <FadeUp delay={250} duration={700}>
         <Button
-          title="Continue"
+          title={t('sellerAuto.continue')}
           size="lg"
           loading={loading}
           onPress={onSubmit}

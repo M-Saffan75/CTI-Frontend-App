@@ -2,3 +2,4 @@ Read finish-protocol.md, api-integration-brief.md and PROJECT_MAP.md at the star
 Backend (tbt-server) and web app (frontend) are read only. All changes only in this project.
 Before connecting any screen: read the backend endpoint and the web request first.
 Ask me before installing any package. Never write secrets into files.
+Logic rule for every group: before you finish, do a logic review. Walk each user journey end to end as the seller and as the other roles it affects (customer, repairman). Look for states that cannot happen, buttons shown when the backend will reject the action, data that disagrees between two screens, actions with no feedback, double submits, stale data after a change, and anything that would not make sense to a real user. End your report with a short list "Logic review: found and fixed".
