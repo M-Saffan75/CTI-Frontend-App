@@ -9,7 +9,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import Icon from '@/components/Icon';
-import { chevronDownBold, globeBold } from '@/assets/icons';
+import { chevronDownBold } from '@/assets/icons';
 import { LANGUAGES, useLanguage } from '@/i18n/LanguageContext';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
@@ -29,7 +29,10 @@ export default function LanguagePicker({ style = null }) {
   const trigger = useRef<View>(null);
   const progress = useSharedValue(0);
 
-  const current = LANGUAGES.find(l => l.code === language) || LANGUAGES[0];
+  // The tapped language shows as chosen at once; the app-wide switch runs after the menu has closed
+  const [picked, setPicked] = useState<string | null>(null);
+  const shown = picked ?? language;
+  const current = LANGUAGES.find(l => l.code === shown) || LANGUAGES[0];
 
   const openMenu = () => {
     trigger.current?.measureInWindow((x, y, _width, height) => {
@@ -58,7 +61,7 @@ export default function LanguagePicker({ style = null }) {
   return (
     <View style={style}>
       <Pressable ref={trigger} onPress={openMenu} hitSlop={8} style={styles.trigger}>
-        <Icon source={globeBold} size={18} color={colors.text} />
+        <Text style={styles.flag}>{current.flag}</Text>
         <Text style={[styles.triggerText, { color: colors.text }]}>{current.label}</Text>
         <Icon source={chevronDownBold} size={14} color={colors.textMuted} />
       </Pressable>
@@ -69,17 +72,20 @@ export default function LanguagePicker({ style = null }) {
         <Animated.View style={[styles.menuPosition, position, menuStyle]}>
           <View style={[styles.menu, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             {LANGUAGES.map(item => {
-              const isActive = item.code === language;
+              const isActive = item.code === shown;
               return (
                 <Pressable
                   key={item.code}
-                  onPress={() => closeMenu(() => setLanguage(item.code))}
+                  onPress={() => {
+                    if (picked) return;
+                    setPicked(item.code);
+                    closeMenu(() => {
+                      if (item.code !== language) setLanguage(item.code);
+                      setPicked(null);
+                    });
+                  }}
                   style={[styles.row, isActive && { backgroundColor: colors.surfaceAlt }]}>
-                  <Icon
-                    source={globeBold}
-                    size={20}
-                    color={isActive ? colors.primary : colors.textMuted}
-                  />
+                  <Text style={styles.rowFlag}>{item.flag}</Text>
                   <Text style={[styles.label, { color: isActive ? colors.primary : colors.text }]}>
                     {item.label}
                   </Text>
@@ -95,6 +101,8 @@ export default function LanguagePicker({ style = null }) {
 
 const styles = StyleSheet.create({
   trigger: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 4 },
+  flag: { fontSize: 20 },
+  rowFlag: { fontSize: 22 },
   triggerText: { fontFamily: fonts.medium, fontSize: 14 },
   menuPosition: {
     position: 'absolute',

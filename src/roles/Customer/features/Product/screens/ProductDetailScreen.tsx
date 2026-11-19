@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { launchImageLibrary } from 'react-native-image-picker';
 
 import Icon from '@/components/Icon';
+import Avatar from '@/components/Avatar';
 import Button from '@/components/Button';
 import Squeeze from '@/components/Squeeze';
 import AlertModal, { AlertModalType } from '@/components/AlertModal';
@@ -27,7 +28,6 @@ import {
   shoppingCartExtra,
   starExtra,
   trashBold,
-  dummyProfileExtra,
   videoBold,
 } from '@/assets/icons';
 import { ctiLogo } from '@/assets/images';
@@ -904,8 +904,9 @@ export default function ProductDetailScreen({ navigation, route }: any) {
                 activeOpacity={0.8}
                 onPress={handleVisitStore}
                 style={styles.sellerTouchable}>
-                <Image
-                  source={resolveImageSource(product.seller?.avatar, dummyProfileExtra)}
+                <Avatar
+                  uri={resolveImageSource(product.seller?.avatar, null)?.uri}
+                  name={product.seller?.name}
                   style={styles.sellerAvatar}
                 />
                 <View style={styles.sellerInfo}>

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Image,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -14,10 +13,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import CtiLoader from '@/components/CtiLoader';
 import { ErrorState } from '@/components/states';
 import Icon from '@/components/Icon';
+import Avatar from '@/components/Avatar';
 import Squeeze from '@/components/Squeeze';
 import { FadeUp } from '@/animations';
 import { arrowLeftBold, searchBold } from '@/assets/icons';
-import { dummyProfileExtra } from '@/assets/icons';
 import i18n from '@/i18n';
 
 import { useTheme } from '@/theme/ThemeContext';
@@ -55,9 +54,6 @@ function ChatRow({
 }) {
   const { colors } = useTheme();
   const { t } = useTranslation();
-  const avatarSource = chat.participant?.avatar
-    ? { uri: chat.participant.avatar }
-    : dummyProfileExtra;
   const isQuery = chat.chatType === 'seller_query';
   const rowFallback = isQuery ? t('glossary.seller') : fallbackName;
 
@@ -76,8 +72,9 @@ function ChatRow({
       }>
       <View style={styles.row}>
         <View style={styles.avatarWrap}>
-          <Image
-            source={avatarSource}
+          <Avatar
+            uri={chat.participant?.avatar}
+            name={chat.participant?.name || rowFallback}
             style={[styles.avatar, { borderWidth: 1, borderColor: colors.avatarBorder }]}
           />
           {chat.participant?.isOnline && (

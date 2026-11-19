@@ -1,11 +1,11 @@
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import Button from '@/components/Button';
 import Icon from '@/components/Icon';
+import Avatar from '@/components/Avatar';
 import {
   calendarBold,
   clockBold,
-  dummyProfileExtra,
   mobileBold,
 } from '@/assets/icons';
 import { MyBooking } from '@/roles/Repairman/api/repairmanApi';
@@ -94,8 +94,9 @@ export default function MyJobCard({ booking, onOpen }: Props) {
       </View>
 
       <View style={styles.customerRow}>
-        <Image
-          source={avatar ? { uri: avatar } : dummyProfileExtra}
+        <Avatar
+          uri={avatar}
+          name={booking.customer?.name}
           style={[styles.avatar, { borderColor: colors.avatarBorder }]}
         />
         <Text

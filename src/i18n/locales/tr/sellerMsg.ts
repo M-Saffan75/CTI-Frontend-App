@@ -95,7 +95,7 @@ const sellerMsg: typeof enSellerMsg = {
       onWebsite: 'Bu özellik web sitesinde mevcut:\n\n{{url}}',
       allStatus: 'Tüm Durumlar',
       active: 'Aktif',
-      disabled: 'Devre dışı',
+      disabled: 'Pasif',
       discounted: '{{price}} indirimli',
       inStock: '{{count}} adet stokta',
       showing: '{{total}} üründen {{shown}} tanesi gösteriliyor',

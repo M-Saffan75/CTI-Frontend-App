@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import Button from '@/components/Button';
 import Icon from '@/components/Icon';
+import Avatar from '@/components/Avatar';
 import Squeeze from '@/components/Squeeze';
 import { ErrorState, LoadingState } from '@/components/states';
 import {
@@ -17,7 +18,6 @@ import {
   compassBold,
   creditCardBold,
   discountBold,
-  dummyProfileExtra,
   envelopeBold,
   exclamationCircleBold,
   fileBold,
@@ -269,8 +269,9 @@ export default function SellerProfileScreen({ navigation, route }: any) {
 
           <View style={styles.headerWrap}>
             <View>
-              <Image
-                source={seller.profilePictureOrLogo ? { uri: seller.profilePictureOrLogo } : dummyProfileExtra}
+              <Avatar
+                uri={seller.profilePictureOrLogo}
+                name={seller.businessName || seller.fullName}
                 style={[styles.avatar, { borderColor: colors.avatarBorder, backgroundColor: colors.surface }]}
               />
               <TouchableOpacity

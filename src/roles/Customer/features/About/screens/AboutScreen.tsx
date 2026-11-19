@@ -35,7 +35,8 @@ import { Trans, useTranslation } from 'react-i18next';
 
 const PROMISE_ICONS = [starBold, shieldBold, checkCircleBold, stopwatchBold];
 
-export default function AboutScreen({ navigation }: any) {
+export default function AboutScreen({ navigation, route }: any) {
+  const hideShop = Boolean(route?.params?.hideShop);
   const { t } = useTranslation();
   const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
@@ -50,6 +51,7 @@ export default function AboutScreen({ navigation }: any) {
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <Image source={ctiLogo} resizeMode="contain" style={styles.logo} />
 
+        {hideShop ? null : (
         <View style={styles.headerIcons}>
           <Squeeze onPress={() => navigation.navigate('Wishlist')} scale={0.85}>
             <View>
@@ -65,6 +67,7 @@ export default function AboutScreen({ navigation }: any) {
             <Icon source={shoppingBasketBold} size={24} color={colors.text} />
           </Squeeze>
         </View>
+        )}
       </View>
 
       <ScrollView

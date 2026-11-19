@@ -8,9 +8,9 @@ import { DEFAULT_LANGUAGE, LanguageCode, setCurrentLanguage } from '@/i18n/local
 export type { LanguageCode };
 
 // Turkish is the default, English the second language
-export const LANGUAGES: { code: LanguageCode; label: string }[] = [
-  { code: 'tr', label: 'Türkçe' },
-  { code: 'en', label: 'English' },
+export const LANGUAGES: { code: LanguageCode; label: string; flag: string }[] = [
+  { code: 'tr', label: 'Türkçe', flag: '🇹🇷' },
+  { code: 'en', label: 'English', flag: '🇬🇧' },
 ];
 
 const STORAGE_KEY = 'app.language';

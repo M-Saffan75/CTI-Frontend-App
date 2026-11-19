@@ -1,6 +1,6 @@
 import { ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { useIsFocused } from '@react-navigation/native';
-import { Image, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useOffersChangedChecker } from '@/roles/Repairman/utils/offerEvents';
@@ -9,6 +9,7 @@ import useRefreshOnActive from '@/utils/useRefreshOnActive';
 import AlertModal from '@/components/AlertModal';
 import Button from '@/components/Button';
 import Icon from '@/components/Icon';
+import Avatar from '@/components/Avatar';
 import Squeeze from '@/components/Squeeze';
 import { ErrorState, LoadingState } from '@/components/states';
 import {
@@ -16,7 +17,6 @@ import {
   bookmarkBold,
   checkCircleBold,
   clockBold,
-  dummyProfileExtra,
   envelopeBold,
   exclamationCircleBold,
   fileBold,
@@ -196,8 +196,9 @@ export default function RepairmanProfileScreen({ navigation }: any) {
             />
           }>
           <View style={styles.header}>
-            <Image
-              source={photo ? { uri: photo } : dummyProfileExtra}
+            <Avatar
+              uri={photo}
+              name={rp.fullName || user.name}
               style={[styles.avatar, { borderColor: colors.avatarBorder }]}
             />
             <Text style={[styles.name, { color: colors.text }]}>{rp.fullName || user.name}</Text>

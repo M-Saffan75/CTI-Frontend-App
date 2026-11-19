@@ -1,7 +1,6 @@
 import { useCallback, useState } from 'react';
 import {
   FlatList,
-  Image,
   RefreshControl,
   StyleSheet,
   Text,
@@ -13,6 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import Icon from '@/components/Icon';
+import Avatar from '@/components/Avatar';
 import {
   EmptyState,
   ErrorState,
@@ -21,7 +21,6 @@ import {
 } from '@/components/states';
 import {
   arrowRightBold,
-  dummyProfileExtra,
   starBold,
   starExtra,
 } from '@/assets/icons';
@@ -80,8 +79,9 @@ function ReviewCard({
       ]}
     >
       <View style={styles.head}>
-        <Image
-          source={avatar ? { uri: avatar } : dummyProfileExtra}
+        <Avatar
+          uri={avatar}
+          name={review.customerId?.name}
           style={[styles.avatar, { borderColor: colors.avatarBorder }]}
         />
         <View style={styles.flex}>

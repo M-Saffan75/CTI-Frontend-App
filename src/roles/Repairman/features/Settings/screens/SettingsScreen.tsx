@@ -1,6 +1,5 @@
 import { useCallback, useState } from 'react';
 import {
-  Image,
   Platform,
   Pressable,
   ScrollView,
@@ -14,11 +13,12 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
+import Avatar from '@/components/Avatar';
 import AlertModal from '@/components/AlertModal';
 import ConfirmModal from '@/components/ConfirmModal';
 import Squeeze from '@/components/Squeeze';
 import ThemePicker from '@/components/ThemePicker';
-import { useLanguage } from '@/i18n/LanguageContext';
+import { LANGUAGES, useLanguage } from '@/i18n/LanguageContext';
 import { lower } from '@/i18n/locale';
 import { FadeUp } from '@/animations';
 import {
@@ -26,22 +26,15 @@ import {
   blogExtra,
   bookmarkBold,
   chevronDownBold,
-  clockBold,
   commentDotsBold,
-  desktopBold,
-  dummyProfileExtra,
   exclamationCircleBold,
   fileBold,
-  globeBold,
   homeBold,
   infoCircleBold,
   lockBold,
   logOutBold,
-  packageBold,
   searchBold,
   shieldBold,
-  shoppingBasketBold,
-  tabletBold,
   tagBold,
   toolExtra,
 } from '@/assets/icons';
@@ -52,50 +45,30 @@ import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { useTranslation } from 'react-i18next';
 
-// Only pages that apply to a repairman. "Home" lands on the Dashboard tab; the shop and info pages are shared screens.
-const MENU = [
+// Only pages that apply to a repairman (the web repairman menu has no shop, and the backend lets only customers place orders)
+interface MenuItem {
+  label: string;
+  icon: number;
+  tab?: string;
+  screen?: string;
+  url?: () => string;
+  params?: Record<string, unknown>;
+  action?: string;
+  children?: MenuItem[];
+}
+
+const MENU: MenuItem[] = [
   { label: 'settings.menu.home', icon: homeBold, tab: 'DashboardTab' },
   { label: 'settings.menu.serviceCatalog', icon: toolExtra, screen: 'ServiceCatalog' },
   { label: 'settings.menu.disputes', icon: exclamationCircleBold, screen: 'Disputes' },
   { label: 'settings.menu.advertisements', icon: tagBold, url: getWebRepairmanAdsUrl },
-  { label: 'settings.menu.shopProducts', icon: shoppingBasketBold, screen: 'Products' },
-  { label: 'settings.menu.about', icon: infoCircleBold, screen: 'About' },
+  { label: 'settings.menu.about', icon: infoCircleBold, screen: 'About', params: { hideShop: true } },
   { label: 'settings.menu.academy', icon: bookmarkBold, screen: 'Academy' },
   { label: 'settings.menu.blogs', icon: blogExtra, screen: 'Blogs' },
-  { label: 'settings.menu.myOrder', icon: packageBold, screen: 'Orders' },
   { label: 'settings.menu.myMessages', icon: commentDotsBold, screen: 'ChatList' },
-  {
-    label: 'settings.menu.buyRefurbishedDevices',
-    icon: shoppingBasketBold,
-    children: [
-      {
-        label: 'settings.menu.browseStore',
-        icon: shoppingBasketBold,
-        screen: 'BuyRefurbished',
-      },
-      {
-        label: 'settings.menu.smartWatch',
-        icon: clockBold,
-        screen: 'AllGadgets',
-        params: { initialCategory: 'Smart watches' },
-      },
-      {
-        label: 'settings.menu.tablet',
-        icon: tabletBold,
-        screen: 'AllGadgets',
-        params: { initialCategory: 'Tablets' },
-      },
-      {
-        label: 'settings.menu.gamingConsole',
-        icon: desktopBold,
-        screen: 'AllGadgets',
-        params: { initialCategory: 'Gaming Console' },
-      },
-    ],
-  },
   { label: 'settings.menu.changePassword', icon: lockBold, screen: 'ChangePassword' },
   { label: 'settings.menu.privacyPolicy', icon: shieldBold, screen: 'PrivacyPolicy' },
-  { label: 'settings.menu.language', icon: globeBold, action: 'language' },
+  { label: 'settings.menu.language', icon: 0, action: 'language' },
   { label: 'settings.menu.terms', icon: fileBold, screen: 'Terms' },
 ];
 
@@ -104,7 +77,8 @@ function MenuRow({ item, depth = 0, navigation, onOpenUrl }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const hasChildren = Boolean(item.children);
-  const { openLanguageModal } = useLanguage();
+  const { openLanguageModal, language } = useLanguage();
+  const flag = (LANGUAGES.find(l => l.code === language) || LANGUAGES[0]).flag;
 
   const onPress = () => {
     if (item?.action === 'language') openLanguageModal();
@@ -127,7 +101,11 @@ function MenuRow({ item, depth = 0, navigation, onOpenUrl }) {
             Platform.OS === 'ios' && { backgroundColor: colors.primary + '12' },
         ]}
       >
-        <Icon source={item.icon} size={depth ? 18 : 21} color={colors.text} />
+        {item.action === 'language' ? (
+          <Text style={{ fontSize: depth ? 18 : 21 }}>{flag}</Text>
+        ) : (
+          <Icon source={item.icon} size={depth ? 18 : 21} color={colors.text} />
+        )}
 
         <Text
           style={[
@@ -242,12 +220,9 @@ export default function SettingsScreen({ navigation, onLogout }) {
           onPress={() => navigation?.navigate('Profile')}
           style={styles.profileBtn}
         >
-          <Image
-            source={
-              user?.profileImage || user?.avatar
-                ? { uri: user.profileImage || user.avatar }
-                : dummyProfileExtra
-            }
+          <Avatar
+            uri={user?.profileImage || user?.avatar}
+            name={user?.name}
             style={[styles.avatar, { borderColor: colors.avatarBorder }]}
           />
 

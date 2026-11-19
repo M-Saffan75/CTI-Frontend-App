@@ -1,5 +1,5 @@
 import { ReactNode, useEffect, useRef, useState } from 'react';
-import { Keyboard, KeyboardAvoidingView, Platform, StyleProp, View, ViewStyle } from 'react-native';
+import { Keyboard, KeyboardAvoidingView, Platform, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 
 // Android 15 and newer (the app targets API 36) always draw edge to edge, so the system no longer
 // shrinks the window for the keyboard and adjustResize does nothing. Older Android still shrinks
@@ -40,6 +40,8 @@ interface Props {
 export default function KeyboardSafeView({ style, children }: Props) {
   const ref = useRef<View>(null);
   const [covered, setCovered] = useState(0);
+  // The extra inner view must lay out its children the same way as the outer one (a bottom sheet uses flex-end)
+  const justifyContent = StyleSheet.flatten(style)?.justifyContent;
 
   useEffect(() => {
     if (Platform.OS !== 'android' || SYSTEM_RESIZES) return;
@@ -65,7 +67,7 @@ export default function KeyboardSafeView({ style, children }: Props) {
 
   return (
     <View ref={ref} collapsable={false} style={[{ flex: 1 }, style]}>
-      <View style={{ flex: 1, paddingBottom: covered }}>{children}</View>
+      <View style={{ flex: 1, paddingBottom: covered, justifyContent }}>{children}</View>
     </View>
   );
 }

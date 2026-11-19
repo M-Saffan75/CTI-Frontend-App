@@ -19,6 +19,13 @@ export const splashByTheme = {
 // Reusable Lottie spinner/loader matching the Next.js webapp
 export const ctiLoaderAnimation = require('./cti-loader.json');
 
+// The three bubbles behind the Home hero picture (web: public/assets/home/ellipse1-3.png)
+export const ctiHomeBubbles = [
+  require('./home/ellipse1.png'),
+  require('./home/ellipse2.png'),
+  require('./home/ellipse3.png'),
+];
+
 // About screen assets matching web frontend/public/assets/about/
 export const aboutImages = {
   hero: require('./about/1.png'),

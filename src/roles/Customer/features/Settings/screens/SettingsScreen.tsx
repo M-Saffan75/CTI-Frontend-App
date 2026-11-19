@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import {
-  Image,
   Platform,
   Pressable,
   ScrollView,
@@ -13,10 +12,11 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
+import Avatar from '@/components/Avatar';
 import ConfirmModal from '@/components/ConfirmModal';
 import Squeeze from '@/components/Squeeze';
 import ThemePicker from '@/components/ThemePicker';
-import { useLanguage } from '@/i18n/LanguageContext';
+import { LANGUAGES, useLanguage } from '@/i18n/LanguageContext';
 import { lower } from '@/i18n/locale';
 import { FadeUp } from '@/animations';
 import {
@@ -27,7 +27,6 @@ import {
   clockBold,
   commentDotsBold,
   desktopBold,
-  dummyProfileExtra,
   fileBold,
   homeBold,
   infoCircleBold,
@@ -36,7 +35,6 @@ import {
   mobileBold,
   packageBold,
   phoneBold,
-  globeBold,
   searchBold,
   shieldBold,
   shoppingBasketBold,
@@ -96,7 +94,7 @@ const MENU = [
   },
   { label: 'settings.menu.changePassword', icon: lockBold, screen: 'ChangePassword' },
   { label: 'settings.menu.privacyPolicy', icon: shieldBold, screen: 'PrivacyPolicy' },
-  { label: 'settings.menu.language', icon: globeBold, action: 'language' },
+  { label: 'settings.menu.language', icon: 0, action: 'language' },
   { label: 'settings.menu.terms', icon: fileBold, screen: 'Terms' },
 ];
 
@@ -105,7 +103,8 @@ function MenuRow({ item, depth = 0, navigation }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const hasChildren = Boolean(item.children);
-  const { openLanguageModal } = useLanguage();
+  const { openLanguageModal, language } = useLanguage();
+  const flag = (LANGUAGES.find(l => l.code === language) || LANGUAGES[0]).flag;
 
   const onPress = () => {
     try {
@@ -128,7 +127,11 @@ function MenuRow({ item, depth = 0, navigation }) {
           // Android draws its own ripple; this is the iOS equivalent.
           pressed && Platform.OS === 'ios' && { backgroundColor: colors.primary + '12' },
         ]}>
-        <Icon source={item.icon} size={depth ? 18 : 21} color={colors.text} />
+        {item.action === 'language' ? (
+          <Text style={{ fontSize: depth ? 18 : 21 }}>{flag}</Text>
+        ) : (
+          <Icon source={item.icon} size={depth ? 18 : 21} color={colors.text} />
+        )}
 
         <Text
           style={[
@@ -183,10 +186,6 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
       )
     : (MENU || []);
 
-  const avatarSource =
-    currentUser?.avatar || currentUser?.profileImage
-      ? { uri: currentUser.avatar || currentUser.profileImage }
-      : dummyProfileExtra;
 
   return (
     <View
@@ -232,8 +231,9 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
           activeOpacity={0.7}
           onPress={() => navigation?.navigate('Profile')}
           style={styles.profileBtn}>
-          <Image
-            source={avatarSource}
+          <Avatar
+            uri={currentUser?.avatar || currentUser?.profileImage}
+            name={currentUser?.name}
             style={[styles.avatar, { borderColor: colors.avatarBorder }]}
           />
 

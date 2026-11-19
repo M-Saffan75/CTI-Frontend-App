@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Image,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -11,6 +10,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
+import Avatar from '@/components/Avatar';
 import Button from '@/components/Button';
 import Squeeze from '@/components/Squeeze';
 import { FadeUp } from '@/animations';
@@ -21,7 +21,6 @@ import {
   checkCircleBold,
   commentDotsBold,
   compassBold,
-  dummyProfileExtra,
   envelopeBold,
   exclamationCircleBold,
   flagBold,
@@ -183,8 +182,9 @@ export default function ProfileScreen({ navigation }: any) {
         <View style={styles.profileHeaderSection}>
           {/* Avatar with Edit Badge */}
           <View style={styles.avatarWrap}>
-            <Image
-              source={profile.avatarUri ? { uri: profile.avatarUri } : dummyProfileExtra}
+            <Avatar
+              uri={profile.avatarUri}
+              name={profile.name}
               style={[styles.avatarImage, { borderColor: colors.avatarBorder }]}
             />
             <TouchableOpacity

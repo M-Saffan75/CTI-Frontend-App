@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import {
-  Image,
   Platform,
   Pressable,
   ScrollView,
@@ -13,21 +12,18 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
+import Avatar from '@/components/Avatar';
 import ConfirmModal from '@/components/ConfirmModal';
 import Squeeze from '@/components/Squeeze';
 import ThemePicker from '@/components/ThemePicker';
-import { useLanguage } from '@/i18n/LanguageContext';
+import { LANGUAGES, useLanguage } from '@/i18n/LanguageContext';
 import { lower } from '@/i18n/locale';
 import { FadeUp } from '@/animations';
 import {
   arrowLeftBold,
-  chartPieBold,
   commentDotsBold,
   creditCardBold,
-  dummyProfileExtra,
   fileBold,
-  globeBold,
-  folderBold,
   homeBold,
   inboxBold,
   lockBold,
@@ -54,14 +50,12 @@ const MENU: MenuItem[] = [
   { label: 'settings.menu.myOrders', icon: packageBold, tab: 'OrderManagement' },
   { label: 'settings.menu.wallet', icon: creditCardBold, tab: 'Wallet' },
   { label: 'settings.menu.myAds', icon: volumeUpBold, tab: 'Ads' },
-  { label: 'settings.menu.reports', icon: chartPieBold, tab: 'Reported' },
-  { label: 'settings.menu.invoices', icon: folderBold, tab: 'Invoices' },
   { label: 'settings.menu.enquiries', icon: inboxBold, tab: 'Enquiries' },
   { label: 'settings.menu.reviews', icon: starBold, tab: 'Reviews' },
   { label: 'settings.menu.myMessages', icon: commentDotsBold, screen: 'ChatList' },
   { label: 'settings.menu.changePassword', icon: lockBold, screen: 'ChangePassword' },
   { label: 'settings.menu.privacyPolicy', icon: shieldBold, screen: 'PrivacyPolicy' },
-  { label: 'settings.menu.language', icon: globeBold, action: 'language' },
+  { label: 'settings.menu.language', icon: 0, action: 'language' },
   { label: 'settings.menu.terms', icon: fileBold, screen: 'Terms' },
 ];
 
@@ -76,7 +70,8 @@ interface MenuItem {
 function MenuRow({ item, navigation, badge }: { item: MenuItem; navigation: any; badge?: number }) {
   const { colors } = useTheme();
   const { t } = useTranslation();
-  const { openLanguageModal } = useLanguage();
+  const { openLanguageModal, language } = useLanguage();
+  const flag = (LANGUAGES.find(l => l.code === language) || LANGUAGES[0]).flag;
 
   const onPress = () => {
     if (item.action === 'language') {
@@ -96,7 +91,11 @@ function MenuRow({ item, navigation, badge }: { item: MenuItem; navigation: any;
         styles.row,
         pressed && Platform.OS === 'ios' && { backgroundColor: colors.primary + '12' },
       ]}>
-      <Icon source={item.icon} size={21} color={colors.text} />
+      {item.action === 'language' ? (
+          <Text style={{ fontSize: 21 }}>{flag}</Text>
+        ) : (
+          <Icon source={item.icon} size={21} color={colors.text} />
+        )}
       <Text style={[styles.label, { color: colors.text }]}>{t(item.label)}</Text>
       {!!badge && badge > 0 && (
         <View style={[styles.badge, { backgroundColor: colors.primary }]}>
@@ -142,7 +141,6 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
   const menu = query ? MENU.filter(item => lower(t(item.label)).includes(query)) : MENU;
 
   const photo = currentUser?.avatar || currentUser?.profileImage;
-  const avatarSource = photo ? { uri: photo } : dummyProfileExtra;
 
   return (
     <View
@@ -190,8 +188,9 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
           activeOpacity={0.7}
           onPress={() => navigation?.navigate('Profile')}
           style={styles.profileBtn}>
-          <Image
-            source={avatarSource}
+          <Avatar
+            uri={photo}
+            name={currentUser?.name}
             style={[styles.avatar, { borderColor: colors.avatarBorder }]}
           />
 

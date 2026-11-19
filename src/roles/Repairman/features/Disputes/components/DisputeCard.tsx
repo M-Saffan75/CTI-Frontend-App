@@ -1,10 +1,10 @@
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import Button from '@/components/Button';
-import { dummyProfileExtra } from '@/assets/icons';
 import { RepairmanDispute } from '@/roles/Repairman/api/repairmanApi';
 import { formatDate } from '@/utils/dateFormat';
 import { useTheme } from '@/theme/ThemeContext';
+import Avatar from '@/components/Avatar';
 import { fonts } from '@/theme/fonts';
 import {
   categoryLabel,
@@ -70,12 +70,9 @@ export default function DisputeCard({
       </Text>
 
       <View style={styles.person}>
-        <Image
-          source={
-            customer?.profilePicture
-              ? { uri: customer.profilePicture }
-              : dummyProfileExtra
-          }
+        <Avatar
+          uri={customer?.profilePicture}
+          name={customer?.name}
           style={[styles.avatar, { borderColor: colors.avatarBorder }]}
         />
         <View style={styles.flex}>

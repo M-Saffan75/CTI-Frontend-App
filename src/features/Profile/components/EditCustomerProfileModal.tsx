@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -14,13 +13,13 @@ import {
 import { launchImageLibrary } from 'react-native-image-picker';
 
 import Icon from '@/components/Icon';
+import Avatar from '@/components/Avatar';
 import Button from '@/components/Button';
 import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import {
   cameraBold,
   chevronDownBold,
   closeIcon,
-  dummyProfileExtra,
   envelopeBold,
   globeBold,
   phoneBold,
@@ -259,12 +258,9 @@ export default function EditCustomerProfileModal({
             {/* Avatar Picker */}
             <View style={styles.avatarRow}>
               <View style={styles.avatarWrap}>
-                <Image
-                  source={
-                    currentAvatarUri
-                      ? { uri: currentAvatarUri }
-                      : dummyProfileExtra
-                  }
+                <Avatar
+                  uri={currentAvatarUri}
+                  name={name}
                   style={[styles.avatarImg, { borderColor: colors.avatarBorder }]}
                 />
                 <TouchableOpacity

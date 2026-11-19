@@ -18,6 +18,10 @@ import Icon from '@/components/Icon';
 import NotificationBell from '@/components/NotificationBell';
 import Button from '@/components/Button';
 import Squeeze from '@/components/Squeeze';
+import LinearGradient from 'react-native-linear-gradient';
+import { upper } from '@/i18n/locale';
+import HeroBubbles from '../components/HeroBubbles';
+import { getColorHex } from '@/roles/Customer/features/Product/services/ecomApi';
 import KeyboardSafeView from '@/components/KeyboardSafeView';
 import CtiLoader from '@/components/CtiLoader';
 import AlertModal, { AlertModalType } from '@/components/AlertModal';
@@ -26,7 +30,6 @@ import {
   checkCircleBold,
   chevronDownBold,
   closeIcon,
-  colorPaletteIcon,
   commentDotsBold,
   desktopBold,
   facebookIcon,
@@ -52,7 +55,6 @@ import { mapBackendToBlog } from '@/services/blogApi';
 import homeApi, { HomeData } from '@/services/homeApi';
 import { fetchUnreadChatCount, startChat } from '@/services/chatApi';
 import socketService from '@/services/socketService';
-import PromoStrip from '../components/PromoStrip';
 import {
   DeviceBrand,
   DeviceModel,
@@ -196,6 +198,12 @@ function Header({ navigation }) {
   );
 }
 
+// A colour name from the backend ("Blue", "Space Gray") or a hex value, drawn as the small ball
+const swatchColor = (color: string) => (/^#[0-9a-f]{3,8}$/i.test(color) ? color : getColorHex(color));
+
+// The same orange gradient the website draws behind the hero picture
+const HERO_GRADIENT = ['rgba(247,151,87,0.92)', '#F64B00'];
+
 function Hero({ banners, navigation }: { banners?: any[]; navigation?: any }) {
   const { colors } = useTheme();
   const [width, setWidth] = useState(0);
@@ -221,7 +229,13 @@ function Hero({ banners, navigation }: { banners?: any[]; navigation?: any }) {
         {validBanners.map((banner, i) => (
           <View key={banner._id || banner.id || i} style={{ width }}>
             <View style={[styles.hero, { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.border }]}>
-              <Image source={{ uri: banner.image }} style={styles.heroImage} resizeMode="cover" />
+              <LinearGradient
+                colors={HERO_GRADIENT}
+                start={{ x: 0, y: 0.5 }}
+                end={{ x: 1, y: 0.5 }}
+                style={styles.heroImageBox}>
+                <HeroBubbles uri={banner.image} />
+              </LinearGradient>
               {!!banner.label && (
                 <View style={[styles.heroPill, { backgroundColor: colors.onPrimary }]}>
                   <View style={[styles.badgeDot, { backgroundColor: colors.primary }]} />
@@ -550,9 +564,13 @@ function ServiceFinder({ navigation }: { navigation?: any }) {
                           },
                         ]}>
                         <View style={styles.pickerItemLeft}>
-                          <View style={[styles.colorDotPreview, { backgroundColor: colors.primary }]}>
-                            <Icon source={colorPaletteIcon} size={14} color={colors.onPrimary} />
-                          </View>
+                          <Text style={[styles.colorNumber, { color: colors.textMuted }]}>{index + 1}</Text>
+                          <View
+                            style={[
+                              styles.colorDotPreview,
+                              { backgroundColor: swatchColor(color), borderColor: colors.border },
+                            ]}
+                          />
                           <Text style={[styles.pickerItemText, { color: colors.text, fontFamily: isSelected ? fonts.bold : fonts.medium }]}>
                             {color}
                           </Text>
@@ -757,8 +775,10 @@ function SpecialistCard({ repairman, navigation }: { repairman: any; navigation?
       {photo ? (
         <Image source={{ uri: photo }} style={styles.specialistImage} />
       ) : (
-        <View style={[styles.specialistImage, { backgroundColor: colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' }]}>
-          <Icon source={usersThreeBold} size={42} color={colors.textMuted} />
+        <View style={[styles.specialistImage, { backgroundColor: colors.primary + '20', alignItems: 'center', justifyContent: 'center' }]}>
+          <Text style={{ fontFamily: fonts.bold, fontSize: 56, color: colors.primary }}>
+            {upper((displayName || '').trim().charAt(0)) || '?'}
+          </Text>
         </View>
       )}
 
@@ -1157,7 +1177,6 @@ export default function HomeScreen({ navigation }: any) {
           contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 30 }]}
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />}>
-          <PromoStrip />
           {homeData.banners && homeData.banners.length > 0 && (
             <FadeUp duration={500}>
               <Hero banners={homeData.banners} navigation={navigation} />
@@ -1255,7 +1274,8 @@ const styles = StyleSheet.create({
   },
   heroDot: { width: 7, height: 7, borderRadius: 4 },
   hero: { borderRadius: 16, padding: 18, marginTop: 18 },
-  heroImage: { width: '100%', height: 170, borderRadius: 12 },
+  heroImageBox: { width: '100%', height: 260, borderRadius: 12, overflow: 'hidden', justifyContent: 'flex-end' },
+  heroImage: { width: '100%', height: '100%' },
   heroPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1474,10 +1494,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  colorNumber: { width: 22, fontFamily: fonts.medium, fontSize: 13, textAlign: 'center' },
   colorDotPreview: {
     width: 26,
     height: 26,
     borderRadius: 13,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },

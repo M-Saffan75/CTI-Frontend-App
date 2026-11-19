@@ -321,7 +321,7 @@ const sellerAuto: typeof enCustomerAuto = {
     productDeletedSuccessfully: 'Ürün başarıyla silindi',
     deleteFailed: 'Silme başarısız',
     unableToDeleteThisProduct: 'Bu ürün silinemedi.',
-    disabled: 'Devre dışı',
+    disabled: 'Pasif',
     variants: 'Seçenekler',
     products: 'Ürünler',
     manageYourStoreSInventory: 'Mağazanızın envanterini ve ilanlarını yönetin',

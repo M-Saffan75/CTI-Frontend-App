@@ -95,7 +95,7 @@ const sellerMsg = {
       onWebsite: 'This is available on the website:\n\n{{url}}',
       allStatus: 'All Status',
       active: 'Active',
-      disabled: 'Disabled',
+      disabled: 'Inactive',
       discounted: '{{price}} discounted',
       inStock: '{{count}} in stock',
       showing: 'Showing {{shown}} of {{total}} products',

@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 
 import Icon from '@/components/Icon';
+import Avatar from '@/components/Avatar';
 import Button from '@/components/Button';
 import Squeeze from '@/components/Squeeze';
 import CtiLoader from '@/components/CtiLoader';
@@ -30,7 +31,6 @@ import {
   starExtra,
   userBold,
   closeIcon,
-  dummyProfileExtra,
 } from '@/assets/icons';
 import { ctiLogo } from '@/assets/images';
 import { ErrorState } from '@/components/states';
@@ -76,10 +76,7 @@ function RepairmanCard({
 
   return (
     <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-      <Image
-        source={repairman.photo ? { uri: repairman.photo } : dummyProfileExtra}
-        style={styles.photo}
-      />
+      <Avatar uri={repairman.photo} name={repairman.name} style={styles.photo} />
 
       <View style={styles.cardBody}>
         <Text style={[styles.name, { color: colors.text }]} numberOfLines={1}>
@@ -674,10 +671,7 @@ export default function ExpertRepairmenScreen({ navigation, route }: any) {
 
               <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.modalBody}>
                 <View style={styles.modalProfileRow}>
-                  <Image
-                    source={selectedRepairman.photo ? { uri: selectedRepairman.photo } : dummyProfileExtra}
-                    style={styles.modalPhoto}
-                  />
+                  <Avatar uri={selectedRepairman.photo} name={selectedRepairman.name} style={styles.modalPhoto} />
                   <View style={{ flex: 1, gap: 4 }}>
                     <Text style={[styles.modalName, { color: colors.text }]}>
                       {selectedRepairman.name || t('glossary.repairman')}

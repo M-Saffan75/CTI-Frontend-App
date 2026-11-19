@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Image,
   Keyboard,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -18,8 +17,9 @@ import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import Button from '@/components/Button';
 import CtiLoader from '@/components/CtiLoader';
 import Icon from '@/components/Icon';
+import Avatar from '@/components/Avatar';
 import Squeeze from '@/components/Squeeze';
-import { arrowLeftBold, checkCircleBold, dummyProfileExtra, sendBold } from '@/assets/icons';
+import { arrowLeftBold, checkCircleBold, sendBold } from '@/assets/icons';
 import i18n from '@/i18n';
 import { upper } from '@/i18n/locale';
 import { useTheme } from '@/theme/ThemeContext';
@@ -234,13 +234,10 @@ function Bubble({
     </View>
   );
 
-  const avatarSource = participant?.avatar
-    ? { uri: participant.avatar }
-    : dummyProfileExtra;
-
   const avatar = (
-    <Image
-      source={avatarSource}
+    <Avatar
+      uri={participant?.avatar}
+      name={participant?.name}
       style={[styles.bubbleAvatar, { borderWidth: 1, borderColor: colors.avatarBorder }]}
     />
   );
@@ -830,8 +827,6 @@ export default function ChatDetailScreen({
     return msg.senderType === role;
   };
 
-  const avatarSource = participant.avatar ? { uri: participant.avatar } : dummyProfileExtra;
-
   return (
     <KeyboardSafeView
       style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -843,8 +838,9 @@ export default function ChatDetailScreen({
           </View>
         </Squeeze>
 
-        <Image
-          source={avatarSource}
+        <Avatar
+          uri={participant.avatar}
+          name={participant.name}
           style={[styles.headerAvatar, { borderWidth: 1, borderColor: colors.avatarBorder }]}
         />
 

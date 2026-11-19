@@ -71,6 +71,43 @@ const ItemSeparator = () => <View style={styles.separator} />;
 
 type LoadMode = 'initial' | 'refresh' | 'more' | 'silent';
 
+// Keeps its own value so the switch and label change the moment it is tapped, whatever the list is doing
+function StatusSwitch({ active, onToggle }: { active: boolean; onToggle: (next: boolean) => Promise<boolean> }) {
+  const { colors } = useTheme();
+  const [value, setValue] = useState(active);
+  const [pending, setPending] = useState(false);
+  const locked = useRef(false);
+
+  useEffect(() => setValue(active), [active]);
+
+  const change = async (next: boolean) => {
+    if (locked.current) return;
+    locked.current = true;
+    setPending(true);
+    setValue(next);
+    const ok = await onToggle(next);
+    if (!ok) setValue(!next);
+    locked.current = false;
+    setPending(false);
+  };
+
+  return (
+    <>
+      <Text style={[styles.statusLabel, { color: colors.textMuted }]}>
+        {value ? i18n.t('profile.status.active') : i18n.t('sellerAuto.disabled')}
+      </Text>
+      <View pointerEvents={pending ? 'none' : 'auto'}>
+        <Switch
+          value={value}
+          onValueChange={change}
+          trackColor={{ false: colors.border, true: colors.primary }}
+          thumbColor="#fff"
+        />
+      </View>
+    </>
+  );
+}
+
 export default function ProductListScreen({ navigation, isActive = true }: any) {
   const { t } = useTranslation();
   const { colors } = useTheme();
@@ -194,28 +231,17 @@ export default function ProductListScreen({ navigation, isActive = true }: any) 
   const setBusy = (id: string, busy: boolean) =>
     setBusyIds(prev => (busy ? [...prev, id] : prev.filter(x => x !== id)));
 
-  const handleToggle = async (product: SellerProductItem) => {
-    if (busyIds.includes(product.id)) return;
-    setBusy(product.id, true);
-    const nextActive = !product.isActive;
+  const handleToggle = async (product: SellerProductItem, nextActive: boolean) => {
     setProducts(prev => prev.map(p => (p.id === product.id ? { ...p, isActive: nextActive } : p)));
-
     try {
-      const res = await toggleProductStatusApi(product.id);
-      if (!mounted.current) return;
-      showAlert(
-        'success',
-        i18n.t('sellerAuto.statusUpdated'),
-        res?.message || (nextActive ? i18n.t('sellerAuto.productActivated') : i18n.t('sellerAuto.productDeactivated')),
-      );
+      await toggleProductStatusApi(product.id);
+      return true;
     } catch (err: any) {
-      if (!mounted.current) return;
-      setProducts(prev =>
-        prev.map(p => (p.id === product.id ? { ...p, isActive: product.isActive } : p)),
-      );
-      showAlert('error', i18n.t('sellerAuto.statusUpdateFailed'), err?.message || i18n.t('sellerAuto.unableToUpdateTheProduct'));
-    } finally {
-      if (mounted.current) setBusy(product.id, false);
+      if (mounted.current) {
+        setProducts(prev => prev.map(p => (p.id === product.id ? { ...p, isActive: !nextActive } : p)));
+        showAlert('error', i18n.t('sellerAuto.statusUpdateFailed'), err?.message || i18n.t('sellerAuto.unableToUpdateTheProduct'));
+      }
+      return false;
     }
   };
 
@@ -310,16 +336,7 @@ export default function ProductListScreen({ navigation, isActive = true }: any) 
             <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
             <View style={styles.statusRow}>
-              <Text style={[styles.statusLabel, { color: colors.textMuted }]}>
-                {item.isActive ? i18n.t('profile.status.active') : i18n.t('sellerAuto.disabled')}
-              </Text>
-              <Switch
-                value={item.isActive}
-                disabled={busy}
-                onValueChange={() => handleToggle(item)}
-                trackColor={{ false: colors.border, true: colors.primary }}
-                thumbColor="#fff"
-              />
+              <StatusSwitch active={item.isActive} onToggle={next => handleToggle(item, next)} />
             </View>
 
             <View style={styles.actionsRow}>

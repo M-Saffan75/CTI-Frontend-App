@@ -10,7 +10,7 @@ import Animated, {
 
 import Icon from '@/components/Icon';
 import { checkCircleBold, globeBold } from '@/assets/icons';
-import { LANGUAGES, useLanguage } from '@/i18n/LanguageContext';
+import { LANGUAGES, LanguageCode, useLanguage } from '@/i18n/LanguageContext';
 import { useTheme } from '@/theme/ThemeContext';
 import { fonts } from '@/theme/fonts';
 import { useTranslation } from 'react-i18next';
@@ -28,9 +28,12 @@ export default function LanguageModal({ visible, onClose }: { visible: boolean; 
   const mountedRef = useRef(false);
   mountedRef.current = mounted;
   const progress = useSharedValue(0);
+  // The tapped language shows as chosen at once; the app-wide switch runs after the popup has closed
+  const [picked, setPicked] = useState<LanguageCode | null>(null);
 
   useEffect(() => {
     if (visible) {
+      setPicked(null);
       setMounted(true);
       progress.value = withTiming(1, { duration: OPEN_MS, easing: EASING });
     } else if (mountedRef.current) {
@@ -60,20 +63,23 @@ export default function LanguageModal({ visible, onClose }: { visible: boolean; 
           </View>
 
           {LANGUAGES.map(item => {
-            const active = item.code === language;
+            const active = item.code === (picked ?? language);
             return (
               <Pressable
                 key={item.code}
                 onPress={() => {
-                  setLanguage(item.code);
+                  if (picked) return;
+                  setPicked(item.code);
                   onClose();
+                  if (item.code !== language) setTimeout(() => setLanguage(item.code), CLOSE_MS + 30);
                 }}
                 style={[
                   styles.row,
                   { borderColor: active ? colors.primary : colors.border },
                   active && { backgroundColor: colors.surfaceAlt },
                 ]}>
-                <Text style={[styles.label, { color: active ? colors.primary : colors.text }]}>
+                <Text style={styles.flag}>{item.flag}</Text>
+                <Text style={[styles.label, { flex: 1, color: active ? colors.primary : colors.text }]}>
                   {item.label}
                 </Text>
                 {active && <Icon source={checkCircleBold} size={20} color={colors.primary} />}
@@ -100,5 +106,6 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
     paddingHorizontal: 14,
   },
+  flag: { fontSize: 22, marginRight: 12 },
   label: { fontFamily: fonts.medium, fontSize: 15 },
 });

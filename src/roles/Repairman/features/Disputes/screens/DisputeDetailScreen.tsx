@@ -2,7 +2,6 @@ import { lower } from '@/i18n/locale';
 import { ReactNode, useEffect, useRef, useState } from 'react';
 import { useIsFocused } from '@react-navigation/native';
 import {
-  Image,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -16,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AlertModal, { AlertModalType } from '@/components/AlertModal';
 import Button from '@/components/Button';
 import Icon from '@/components/Icon';
+import Avatar from '@/components/Avatar';
 import KeyboardSafeView from '@/components/KeyboardSafeView';
 import useRefreshOnActive from '@/utils/useRefreshOnActive';
 import Squeeze from '@/components/Squeeze';
@@ -23,7 +23,6 @@ import { ErrorState, LoadingState } from '@/components/states';
 import {
   arrowLeftBold,
   commentDotsBold,
-  dummyProfileExtra,
   exclamationCircleBold,
   userBold,
 } from '@/assets/icons';
@@ -119,12 +118,9 @@ function Message({ response }: { response: DisputeResponse }) {
       ]}
     >
       <View style={styles.messageHead}>
-        <Image
-          source={
-            person?.profilePicture
-              ? { uri: person.profilePicture }
-              : dummyProfileExtra
-          }
+        <Avatar
+          uri={person?.profilePicture}
+          name={name}
           style={[styles.avatar, { borderColor: colors.avatarBorder }]}
         />
         <View style={styles.flex}>
@@ -324,12 +320,9 @@ export default function DisputeDetailScreen({ navigation, route }: any) {
 
             <Card icon={userBold} title={t('glossary.customer')}>
               <View style={styles.messageHead}>
-                <Image
-                  source={
-                    customer?.profilePicture
-                      ? { uri: customer.profilePicture }
-                      : dummyProfileExtra
-                  }
+                <Avatar
+                  uri={customer?.profilePicture}
+                  name={customer?.name}
                   style={[styles.avatar, { borderColor: colors.avatarBorder }]}
                 />
                 <View style={styles.flex}>

@@ -320,7 +320,7 @@ const sellerAuto = {
     productDeletedSuccessfully: 'Product deleted successfully',
     deleteFailed: 'Delete failed',
     unableToDeleteThisProduct: 'Unable to delete this product.',
-    disabled: 'Disabled',
+    disabled: 'Inactive',
     variants: 'Variants',
     products: 'Products',
     manageYourStoreSInventory: 'Manage your store\'s inventory and listings',
